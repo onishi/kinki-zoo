@@ -1,5 +1,6 @@
 import type { PrefectureCode, Zoo } from "./types";
 import { zoos } from "./data";
+import { scrapeAnimals } from "./scraper";
 
 const PREF_LABELS: Record<PrefectureCode, string> = {
   osaka: "大阪府",
@@ -124,6 +125,16 @@ export default {
       if (pref && !isPrefectureCode(pref)) {
         return notFound(`都道府県コード '${pref}' は無効です`);
       }
+      return jsonResponse(result);
+    }
+
+    // JSON API: /api/zoos/:id/animals
+    const zooAnimalsMatch = pathname.match(/^\/api\/zoos\/([^/]+)\/animals$/);
+    if (zooAnimalsMatch) {
+      const id = zooAnimalsMatch[1];
+      const zoo = zoos.find((z) => z.id === id);
+      if (!zoo) return notFound(`動物園 '${id}' が見つかりません`);
+      const result = await scrapeAnimals(id);
       return jsonResponse(result);
     }
 

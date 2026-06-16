@@ -75,7 +75,6 @@
 ## セットアップ
 
 ```bash
-cd kinki-zoo
 npm install
 ```
 

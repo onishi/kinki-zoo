@@ -75,14 +75,14 @@ const SCRAPER_CONFIGS: Record<string, ZooScraperConfig> = {
 
 class TextCollector {
   readonly texts: string[] = [];
-  private buf = "";
+  private chunks: string[] = [];
 
   text(chunk: Text): void {
-    this.buf += chunk.text;
+    this.chunks.push(chunk.text);
     if (chunk.lastInTextNode) {
-      const trimmed = this.buf.trim();
+      const trimmed = this.chunks.join("").trim();
       if (trimmed) this.texts.push(trimmed);
-      this.buf = "";
+      this.chunks = [];
     }
   }
 }
@@ -109,7 +109,8 @@ export async function scrapeAnimals(zooId: string): Promise<ScrapeResult> {
       },
     });
   } catch (err) {
-    return { zooId, animals: [], scrapedAt, error: `フェッチ失敗: ${err}` };
+    console.error(`[scraper] fetch failed for ${zooId}:`, err);
+    return { zooId, animals: [], scrapedAt, error: "ネットワークエラーが発生しました" };
   }
 
   if (!response.ok) {
@@ -126,6 +127,8 @@ export async function scrapeAnimals(zooId: string): Promise<ScrapeResult> {
   const transformed = rewriter.transform(response);
   await transformed.arrayBuffer();
 
+  // Filter by character length to remove navigation items, headings, etc.
+  // and retain typical Japanese animal name lengths (2–20 characters).
   const min = config.minLength ?? 2;
   const max = config.maxLength ?? 20;
   const animals = [

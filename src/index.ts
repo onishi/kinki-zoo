@@ -43,8 +43,10 @@ function notFound(message: string): Response {
 }
 
 function matchesAnimal(zoo: Zoo, animal: string): boolean {
-  const keyword = animal.toLocaleLowerCase("ja-JP");
-  return zoo.features.some((feature) => feature.toLocaleLowerCase("ja-JP").includes(keyword));
+  const searchKeyword = animal.toLocaleLowerCase("ja-JP");
+  return zoo.features.some((feature) =>
+    feature.toLocaleLowerCase("ja-JP").includes(searchKeyword)
+  );
 }
 
 function filterZoos(pref?: string | null, animal?: string | null): Zoo[] {

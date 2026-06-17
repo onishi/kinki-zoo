@@ -17,6 +17,20 @@ function isPrefectureCode(value: string): value is PrefectureCode {
   return PREF_CODES.includes(value as PrefectureCode);
 }
 
+function normalizeSearchTerm(value?: string | null): string | null {
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data, null, 2), {
     status,
@@ -28,10 +42,27 @@ function notFound(message: string): Response {
   return jsonResponse({ error: message }, 404);
 }
 
-function filterZoos(pref?: string | null): Zoo[] {
-  if (!pref) return zoos;
-  if (!isPrefectureCode(pref)) return [];
-  return zoos.filter((z) => z.prefecture === pref);
+function matchesAnimal(zoo: Zoo, animal: string): boolean {
+  const searchKeyword = animal.toLocaleLowerCase("ja-JP");
+  return zoo.features.some((feature) =>
+    feature.toLocaleLowerCase("ja-JP").includes(searchKeyword)
+  );
+}
+
+function filterZoos(pref?: string | null, animal?: string | null): Zoo[] {
+  const normalizedAnimal = normalizeSearchTerm(animal);
+
+  return zoos.filter((zoo) => {
+    if (pref && (!isPrefectureCode(pref) || zoo.prefecture !== pref)) {
+      return false;
+    }
+
+    if (normalizedAnimal && !matchesAnimal(zoo, normalizedAnimal)) {
+      return false;
+    }
+
+    return true;
+  });
 }
 
 function renderZooCard(zoo: Zoo): string {
@@ -52,20 +83,46 @@ function renderZooCard(zoo: Zoo): string {
     </article>`;
 }
 
-function renderPrefTab(code: PrefectureCode, label: string, active: boolean): string {
-  const cls = active ? 'class="tab active"' : 'class="tab"';
-  return `<a href="/?pref=${code}" ${cls}>${label}</a>`;
+function buildBrowseUrl(pref: PrefectureCode | null, animal: string | null): string {
+  const params = new URLSearchParams();
+  if (pref) params.set("pref", pref);
+  if (animal) params.set("animal", animal);
+  const query = params.toString();
+  return query ? `/?${query}` : "/";
 }
 
-function renderHtml(filteredZoos: Zoo[], activePref: string | null): string {
+function renderPrefTab(
+  code: PrefectureCode,
+  label: string,
+  active: boolean,
+  animal: string | null
+): string {
+  const cls = active ? 'class="tab active"' : 'class="tab"';
+  return `<a href="${buildBrowseUrl(code, animal)}" ${cls}>${label}</a>`;
+}
+
+function renderHtml(
+  filteredZoos: Zoo[],
+  activePref: PrefectureCode | null,
+  animal: string | null
+): string {
   const cards = filteredZoos.map(renderZooCard).join("\n");
-  const allTab = activePref ? '<a href="/" class="tab">すべて</a>' : '<a href="/" class="tab active">すべて</a>';
+  const escapedAnimal = animal ? escapeHtml(animal) : "";
+  const allTab = activePref
+    ? `<a href="${buildBrowseUrl(null, animal)}" class="tab">すべて</a>`
+    : `<a href="${buildBrowseUrl(null, animal)}" class="tab active">すべて</a>`;
   const prefTabs = PREF_CODES.map((code) =>
-    renderPrefTab(code, PREF_LABELS[code], code === activePref)
+    renderPrefTab(code, PREF_LABELS[code], code === activePref, animal)
   ).join("\n");
 
   const count = filteredZoos.length;
   const prefLabel = activePref && isPrefectureCode(activePref) ? PREF_LABELS[activePref] : "近畿一円";
+  const summary = animal
+    ? `${prefLabel} で「${escapedAnimal}」を探せる動物園・施設: ${count} 件`
+    : `${prefLabel} の動物園・施設: ${count} 件`;
+  const emptyMessage = animal
+    ? `「${escapedAnimal}」に該当する施設が見つかりませんでした。`
+    : "該当する施設が見つかりませんでした。";
 
   return `<!DOCTYPE html>
 <html lang="ja">
@@ -82,6 +139,11 @@ function renderHtml(filteredZoos: Zoo[], activePref: string | null): string {
     .tabs { display: flex; flex-wrap: wrap; gap: 0.5rem; padding: 1rem 1.5rem; background: #fff; border-bottom: 1px solid #ddd; }
     .tab { padding: 0.4rem 0.9rem; border-radius: 999px; border: 1px solid #2d6a4f; color: #2d6a4f; text-decoration: none; font-size: 0.875rem; }
     .tab.active, .tab:hover { background: #2d6a4f; color: #fff; }
+    .search-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; padding: 0 1.5rem 1rem; background: #fff; }
+    .search-form input { flex: 1 1 220px; max-width: 320px; padding: 0.55rem 0.75rem; border: 1px solid #c8d5cc; border-radius: 999px; font-size: 0.95rem; }
+    .search-form button, .search-form a { border-radius: 999px; font-size: 0.875rem; }
+    .search-form button { border: none; background: #2d6a4f; color: #fff; padding: 0.55rem 1rem; cursor: pointer; }
+    .search-form a { padding: 0.5rem 0.9rem; color: #2d6a4f; text-decoration: none; border: 1px solid #2d6a4f; }
     .summary { padding: 0.75rem 1.5rem; font-size: 0.9rem; color: #666; }
     .zoo-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1rem; padding: 1rem 1.5rem; }
     .zoo-card { background: #fff; border-radius: 8px; padding: 1rem; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
@@ -106,8 +168,14 @@ function renderHtml(filteredZoos: Zoo[], activePref: string | null): string {
     ${allTab}
     ${prefTabs}
   </nav>
-  <p class="summary">${prefLabel} の動物園・施設: ${count} 件</p>
-  ${count > 0 ? `<div class="zoo-list">${cards}</div>` : '<p class="empty">該当する施設が見つかりませんでした。</p>'}
+  <form class="search-form" action="/" method="get">
+    ${activePref ? `<input type="hidden" name="pref" value="${activePref}">` : ""}
+    <input type="search" name="animal" value="${escapedAnimal}" placeholder="動物名で検索（例: パンダ）" aria-label="動物名で検索">
+    <button type="submit">検索</button>
+    ${animal ? `<a href="${buildBrowseUrl(activePref, null)}">クリア</a>` : ""}
+  </form>
+  <p class="summary">${summary}</p>
+  ${count > 0 ? `<div class="zoo-list">${cards}</div>` : `<p class="empty">${emptyMessage}</p>`}
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
 </body>
 </html>`;
@@ -121,7 +189,8 @@ export default {
     // JSON API: /api/zoos
     if (pathname === "/api/zoos") {
       const pref = url.searchParams.get("pref");
-      const result = filterZoos(pref);
+      const animal = normalizeSearchTerm(url.searchParams.get("animal"));
+      const result = filterZoos(pref, animal);
       if (pref && !isPrefectureCode(pref)) {
         return notFound(`都道府県コード '${pref}' は無効です`);
       }
@@ -150,9 +219,10 @@ export default {
     // HTML: /
     if (pathname === "/") {
       const pref = url.searchParams.get("pref");
-      const activePref = pref && isPrefectureCode(pref) ? pref : null;
-      const filtered = filterZoos(activePref);
-      const html = renderHtml(filtered, activePref);
+      const animal = normalizeSearchTerm(url.searchParams.get("animal"));
+      const activePref: PrefectureCode | null = pref && isPrefectureCode(pref) ? pref : null;
+      const filtered = filterZoos(activePref, animal);
+      const html = renderHtml(filtered, activePref, animal);
       return new Response(html, {
         headers: { "Content-Type": "text/html; charset=utf-8" },
       });

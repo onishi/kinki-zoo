@@ -8,6 +8,7 @@
 
 - 近畿地方（大阪・京都・兵庫・奈良・滋賀・和歌山）の動物園・動物施設を一覧表示
 - 都道府県での絞り込みが可能
+- 登録済みの特徴タグをもとに、動物名での絞り込みが可能
 - ブラウザで見やすい HTML ページと、アプリ連携向けの JSON API を提供
 
 ### エンドポイント
@@ -17,7 +18,9 @@
 | `GET /` | 動物園一覧 HTML（都道府県タブで絞り込み可） |
 | `GET /api/zoos` | 全動物園を JSON で返す |
 | `GET /api/zoos?pref=osaka` | 都道府県コードで絞り込んだ動物園を返す |
+| `GET /api/zoos?animal=パンダ` | 特徴タグに一致する動物園を返す |
 | `GET /api/zoos/:id` | 特定の動物園の詳細を JSON で返す |
+| `GET /api/zoos/:id/animals` | 動物園の公式サイトをスクレイピングして動物リストを返す |
 
 ### 都道府県コード
 
@@ -50,9 +53,20 @@
 }
 ```
 
+### スクレイピング結果データ構造（`/api/zoos/:id/animals`）
+
+```json
+{
+  "zooId": "tennoji-zoo",
+  "animals": ["ライオン", "キリン", "ゾウ"],
+  "scrapedAt": "2024-01-01T00:00:00.000Z",
+  "error": "（エラー時のみ）"
+}
+```
+
 ## 開発計画
 
-### フェーズ 1（このPR）: ローカルで動く MVP
+### フェーズ 1（実装済み）: ローカルで動く MVP
 
 - [x] README.md（本ファイル）
 - [x] 動物園データ（`src/data.ts`）— 近畿の主要施設をハードコード
@@ -67,16 +81,16 @@
 
 各項目は以下のリンクから GitHub issue として起票できます。
 
-- [x] [動物園データの外部ソース連携（Wikipedia / 公式サイト）](https://github.com/onishi/ai-sandbox/issues/new?title=kinki-zoo%3A%20%E5%8B%95%E7%89%A9%E5%9C%92%E3%83%87%E3%83%BC%E3%82%BF%E3%81%AE%E5%A4%96%E9%83%A8%E3%82%BD%E3%83%BC%E3%82%B9%E3%82%92%E9%80%A3%E6%90%BA%E3%81%99%E3%82%8B)
-- [ ] [地図表示（Leaflet.js）](https://github.com/onishi/ai-sandbox/issues/new?title=kinki-zoo%3A%20%E5%9C%B0%E5%9B%B3%E8%A1%A8%E7%A4%BA%E3%82%92%E8%BF%BD%E5%8A%A0%E3%81%99%E3%82%8B)
-- [ ] [動物検索（「パンダがいる動物園」など）](https://github.com/onishi/ai-sandbox/issues/new?title=kinki-zoo%3A%20%E5%8B%95%E7%89%A9%E6%A4%9C%E7%B4%A2%E3%82%92%E8%BF%BD%E5%8A%A0%E3%81%99%E3%82%8B)
-- [ ] [Cloudflare KV にデータをキャッシュ](https://github.com/onishi/ai-sandbox/issues/new?title=kinki-zoo%3A%20Cloudflare%20KV%20%E3%81%AB%E3%83%87%E3%83%BC%E3%82%BF%E3%82%92%E3%82%AD%E3%83%A3%E3%83%83%E3%82%B7%E3%83%A5%E3%81%99%E3%82%8B)
-- [ ] [Cloudflare Pages フロントエンド分離](https://github.com/onishi/ai-sandbox/issues/new?title=kinki-zoo%3A%20Cloudflare%20Pages%20%E3%83%95%E3%83%AD%E3%83%B3%E3%83%88%E3%82%A8%E3%83%B3%E3%83%89%E3%82%92%E5%88%86%E9%9B%A2%E3%81%99%E3%82%8B)
+- [x] [動物園データの外部ソース連携（Wikipedia / 公式サイト）](https://github.com/onishi/kinki-zoo/issues/new?title=%E5%8B%95%E7%89%A9%E5%9C%92%E3%83%87%E3%83%BC%E3%82%BF%E3%81%AE%E5%A4%96%E9%83%A8%E3%82%BD%E3%83%BC%E3%82%B9%E3%82%92%E9%80%A3%E6%90%BA%E3%81%99%E3%82%8B)
+- [x] [各動物園スクレイピング](https://github.com/onishi/kinki-zoo/issues/10) — `GET /api/zoos/:id/animals` で公式サイトから動物リストを取得
+- [ ] [地図表示（Leaflet.js）](https://github.com/onishi/kinki-zoo/issues/new?title=%E5%9C%B0%E5%9B%B3%E8%A1%A8%E7%A4%BA%E3%82%92%E8%BF%BD%E5%8A%A0%E3%81%99%E3%82%8B)
+- [x] [動物検索（「パンダがいる動物園」など）](https://github.com/onishi/kinki-zoo/issues/2) — 一覧画面と `GET /api/zoos?animal=...` で特徴タグから絞り込み
+- [ ] [Cloudflare KV にデータをキャッシュ](https://github.com/onishi/kinki-zoo/issues/new?title=Cloudflare%20KV%20%E3%81%AB%E3%83%87%E3%83%BC%E3%82%BF%E3%82%92%E3%82%AD%E3%83%A3%E3%83%83%E3%82%B7%E3%83%A5%E3%81%99%E3%82%8B)
+- [ ] [Cloudflare Pages フロントエンド分離](https://github.com/onishi/kinki-zoo/issues/new?title=Cloudflare%20Pages%20%E3%83%95%E3%83%AD%E3%83%B3%E3%83%88%E3%82%A8%E3%83%B3%E3%83%89%E3%82%92%E5%88%86%E9%9B%A2%E3%81%99%E3%82%8B)
 
 ## セットアップ
 
 ```bash
-cd kinki-zoo
 npm install
 ```
 

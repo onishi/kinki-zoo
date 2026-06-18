@@ -73,7 +73,8 @@ function renderZooCard(zoo: Zoo): string {
     : "";
   return `
     <article class="zoo-card" id="${zoo.id}">
-      <h2><a href="${zoo.website}" target="_blank" rel="noopener noreferrer">${zoo.name}</a>${wikiLink}</h2>
+      <h2><a href="/zoos/${zoo.id}">${zoo.name}</a></h2>
+      ${wikiLink}
       <p class="kana">${zoo.nameKana}</p>
       <dl>
         <dt>都道府県</dt><dd>${prefLabel}</dd>
@@ -82,6 +83,10 @@ function renderZooCard(zoo: Zoo): string {
         <dt>休園日</dt><dd>${zoo.closedDays}</dd>
         <dt>入園料</dt><dd>${zoo.admission}</dd>
       </dl>
+      <p class="links">
+        <a href="/zoos/${zoo.id}/animals">動物一覧</a>
+        <a href="${zoo.website}" target="_blank" rel="noopener noreferrer">公式サイト</a>
+      </p>
       <div class="features">${features}</div>
     </article>`;
 }
@@ -158,6 +163,9 @@ function renderHtml(
     .kana { font-size: 0.8rem; color: #888; margin-bottom: 0.75rem; }
     dl { display: grid; grid-template-columns: 5.5em 1fr; gap: 0.2rem 0.5rem; font-size: 0.85rem; }
     dt { color: #666; font-weight: bold; }
+    .links { margin-top: 0.75rem; display: flex; gap: 0.75rem; font-size: 0.85rem; }
+    .links a { color: #2d6a4f; text-decoration: none; }
+    .links a:hover { text-decoration: underline; }
     .features { margin-top: 0.75rem; display: flex; flex-wrap: wrap; gap: 0.35rem; }
     .tag { background: #e8f5e9; color: #2d6a4f; border-radius: 999px; padding: 0.2rem 0.6rem; font-size: 0.75rem; }
     .empty { padding: 2rem 1.5rem; color: #888; }
@@ -182,6 +190,103 @@ function renderHtml(
   <p class="summary">${summary}</p>
   ${count > 0 ? `<div class="zoo-list">${cards}</div>` : `<p class="empty">${emptyMessage}</p>`}
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
+</body>
+</html>`;
+}
+
+function renderZooDetailHtml(zoo: Zoo): string {
+  const prefLabel = PREF_LABELS[zoo.prefecture];
+  const features = zoo.features
+    .map((feature) => `<li>${escapeHtml(feature)}</li>`)
+    .join("\n");
+
+  return `<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(zoo.name)} | 近畿動物園情報</title>
+  <style>
+    body { font-family: sans-serif; margin: 0; background: #f7f9fc; color: #333; }
+    main { max-width: 840px; margin: 0 auto; padding: 1.5rem; }
+    .nav { margin-bottom: 1rem; display: flex; gap: 1rem; flex-wrap: wrap; }
+    .nav a { color: #2d6a4f; text-decoration: none; }
+    .card { background: #fff; border-radius: 8px; padding: 1.25rem; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+    h1 { margin-bottom: 0.5rem; }
+    .kana { color: #777; margin-bottom: 1rem; }
+    dl { display: grid; grid-template-columns: 6em 1fr; gap: 0.25rem 0.5rem; margin-bottom: 1rem; }
+    dt { color: #666; font-weight: bold; }
+    ul { padding-left: 1.2rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <nav class="nav">
+      <a href="/">← 一覧へ戻る</a>
+      <a href="/zoos/${zoo.id}/animals">この動物園の動物一覧</a>
+      <a href="${escapeHtml(zoo.website)}" target="_blank" rel="noopener noreferrer">公式サイト</a>
+    </nav>
+    <section class="card">
+      <h1>${escapeHtml(zoo.name)}</h1>
+      <p class="kana">${escapeHtml(zoo.nameKana)}</p>
+      <dl>
+        <dt>都道府県</dt><dd>${prefLabel}</dd>
+        <dt>住所</dt><dd>${escapeHtml(zoo.address)}</dd>
+        <dt>開園時間</dt><dd>${escapeHtml(zoo.openingHours)}</dd>
+        <dt>休園日</dt><dd>${escapeHtml(zoo.closedDays)}</dd>
+        <dt>入園料</dt><dd>${escapeHtml(zoo.admission)}</dd>
+      </dl>
+      <h2>特徴</h2>
+      <ul>${features}</ul>
+    </section>
+  </main>
+</body>
+</html>`;
+}
+
+function renderZooAnimalsHtml(zoo: Zoo, scraped: Awaited<ReturnType<typeof scrapeAnimals>>): string {
+  const items = scraped.animals
+    .map((animal) => `<li>${escapeHtml(animal)}</li>`)
+    .join("\n");
+  const updatedAt = new Date(scraped.scrapedAt).toLocaleString("ja-JP");
+
+  return `<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(zoo.name)}の動物一覧 | 近畿動物園情報</title>
+  <style>
+    body { font-family: sans-serif; margin: 0; background: #f7f9fc; color: #333; }
+    main { max-width: 840px; margin: 0 auto; padding: 1.5rem; }
+    .nav { margin-bottom: 1rem; display: flex; gap: 1rem; flex-wrap: wrap; }
+    .nav a { color: #2d6a4f; text-decoration: none; }
+    .card { background: #fff; border-radius: 8px; padding: 1.25rem; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+    ul { columns: 2; padding-left: 1.2rem; }
+    li { break-inside: avoid; margin-bottom: 0.35rem; }
+    .meta { margin-top: 1rem; color: #666; font-size: 0.85rem; }
+    .error { color: #b00020; margin-bottom: 0.75rem; }
+    @media (max-width: 640px) { ul { columns: 1; } }
+  </style>
+</head>
+<body>
+  <main>
+    <nav class="nav">
+      <a href="/">← 一覧へ戻る</a>
+      <a href="/zoos/${zoo.id}">${escapeHtml(zoo.name)}の詳細</a>
+      <a href="${escapeHtml(zoo.website)}" target="_blank" rel="noopener noreferrer">公式サイト</a>
+    </nav>
+    <section class="card">
+      <h1>${escapeHtml(zoo.name)}の動物一覧</h1>
+      ${scraped.error ? `<p class="error">取得に失敗しました: ${escapeHtml(scraped.error)}</p>` : ""}
+      ${
+        scraped.animals.length > 0
+          ? `<ul>${items}</ul>`
+          : "<p>動物一覧を取得できませんでした。公式サイトもあわせてご確認ください。</p>"
+      }
+      <p class="meta">最終取得: ${escapeHtml(updatedAt)}</p>
+    </section>
+  </main>
 </body>
 </html>`;
 }
@@ -219,6 +324,27 @@ export default {
       const zoo = zoos.find((z) => z.id === id);
       if (!zoo) return notFound(`動物園 '${id}' が見つかりません`);
       return jsonResponse(zoo);
+    }
+
+    // HTML: /zoos/:id/animals
+    const zooAnimalsPageMatch = pathname.match(/^\/zoos\/([^/]+)\/animals$/);
+    if (zooAnimalsPageMatch) {
+      const id = zooAnimalsPageMatch[1];
+      const zoo = zoos.find((z) => z.id === id);
+      if (!zoo) return notFound(`動物園 '${id}' が見つかりません`);
+      const scraped = await scrapeAnimals(id);
+      const html = renderZooAnimalsHtml(zoo, scraped);
+      return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+    }
+
+    // HTML: /zoos/:id
+    const zooPageMatch = pathname.match(/^\/zoos\/([^/]+)$/);
+    if (zooPageMatch) {
+      const id = zooPageMatch[1];
+      const zoo = zoos.find((z) => z.id === id);
+      if (!zoo) return notFound(`動物園 '${id}' が見つかりません`);
+      const html = renderZooDetailHtml(zoo);
+      return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
     }
 
     // HTML: /

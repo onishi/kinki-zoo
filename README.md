@@ -50,6 +50,7 @@
   "closedDays": "毎週月曜日（祝日の場合は翌平日）、年末年始",
   "admission": "大人500円、中学生以下無料",
   "website": "https://www.tennojizoo.jp/",
+  "wikipediaUrl": "https://ja.wikipedia.org/wiki/%E5%A4%A9%E7%8E%8B%E5%AF%BA%E5%8B%95%E7%89%A9%E5%9C%92",
   "features": ["パンダ", "大型類人猿", "夜行性動物館"]
 }
 ```
@@ -82,7 +83,7 @@
 
 各項目は以下のリンクから GitHub issue として起票できます。
 
-- [ ] [動物園データの外部ソース連携（Wikipedia / 公式サイト）](https://github.com/onishi/kinki-zoo/issues/new?title=%E5%8B%95%E7%89%A9%E5%9C%92%E3%83%87%E3%83%BC%E3%82%BF%E3%81%AE%E5%A4%96%E9%83%A8%E3%82%BD%E3%83%BC%E3%82%B9%E3%82%92%E9%80%A3%E6%90%BA%E3%81%99%E3%82%8B)
+- [x] [動物園データの外部ソース連携（Wikipedia / 公式サイト）](https://github.com/onishi/kinki-zoo/issues/new?title=%E5%8B%95%E7%89%A9%E5%9C%92%E3%83%87%E3%83%BC%E3%82%BF%E3%81%AE%E5%A4%96%E9%83%A8%E3%82%BD%E3%83%BC%E3%82%B9%E3%82%92%E9%80%A3%E6%90%BA%E3%81%99%E3%82%8B)
 - [x] [各動物園スクレイピング](https://github.com/onishi/kinki-zoo/issues/10) — `GET /api/zoos/:id/animals` で公式サイトから動物リストを取得
 - [ ] [地図表示（Leaflet.js）](https://github.com/onishi/kinki-zoo/issues/new?title=%E5%9C%B0%E5%9B%B3%E8%A1%A8%E7%A4%BA%E3%82%92%E8%BF%BD%E5%8A%A0%E3%81%99%E3%82%8B)
 - [x] [動物検索（「パンダがいる動物園」など）](https://github.com/onishi/kinki-zoo/issues/2) — 一覧画面と `GET /api/zoos?animal=...` で特徴タグから絞り込み

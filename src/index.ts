@@ -42,26 +42,43 @@ function notFound(message: string): Response {
   return jsonResponse({ error: message }, 404);
 }
 
-function matchesAnimal(zoo: Zoo, animal: string): boolean {
-  const searchKeyword = animal.toLocaleLowerCase("ja-JP");
+function matchesAnimalFeatures(zoo: Zoo, searchKeyword: string): boolean {
   return zoo.features.some((feature) =>
     feature.toLocaleLowerCase("ja-JP").includes(searchKeyword)
   );
 }
 
-function filterZoos(pref?: string | null, animal?: string | null): Zoo[] {
+function matchesScrapedAnimals(animals: string[], searchKeyword: string): boolean {
+  return animals.some((animal) =>
+    animal.toLocaleLowerCase("ja-JP").includes(searchKeyword)
+  );
+}
+
+async function filterZoos(pref?: string | null, animal?: string | null): Promise<Zoo[]> {
   const normalizedAnimal = normalizeSearchTerm(animal);
 
-  return zoos.filter((zoo) => {
+  const prefFiltered = zoos.filter((zoo) => {
     if (pref && (!isPrefectureCode(pref) || zoo.prefecture !== pref)) {
       return false;
     }
-
-    if (normalizedAnimal && !matchesAnimal(zoo, normalizedAnimal)) {
-      return false;
-    }
-
     return true;
+  });
+
+  if (!normalizedAnimal) {
+    return prefFiltered;
+  }
+
+  const searchKeyword = normalizedAnimal.toLocaleLowerCase("ja-JP");
+  const scrapeResults = await Promise.allSettled(
+    prefFiltered.map((zoo) => scrapeAnimals(zoo.id))
+  );
+
+  return prefFiltered.filter((zoo, index) => {
+    const result = scrapeResults[index];
+    if (result.status === "fulfilled" && !result.value.error) {
+      return matchesScrapedAnimals(result.value.animals, searchKeyword);
+    }
+    return matchesAnimalFeatures(zoo, searchKeyword);
   });
 }
 
@@ -300,10 +317,10 @@ export default {
     if (pathname === "/api/zoos") {
       const pref = url.searchParams.get("pref");
       const animal = normalizeSearchTerm(url.searchParams.get("animal"));
-      const result = filterZoos(pref, animal);
       if (pref && !isPrefectureCode(pref)) {
         return notFound(`都道府県コード '${pref}' は無効です`);
       }
+      const result = await filterZoos(pref, animal);
       return jsonResponse(result);
     }
 
@@ -352,7 +369,7 @@ export default {
       const pref = url.searchParams.get("pref");
       const animal = normalizeSearchTerm(url.searchParams.get("animal"));
       const activePref: PrefectureCode | null = pref && isPrefectureCode(pref) ? pref : null;
-      const filtered = filterZoos(activePref, animal);
+      const filtered = await filterZoos(activePref, animal);
       const html = renderHtml(filtered, activePref, animal);
       return new Response(html, {
         headers: { "Content-Type": "text/html; charset=utf-8" },

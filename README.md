@@ -66,29 +66,25 @@
 }
 ```
 
-## 開発計画
+## 開発状況と今後の計画
 
-### フェーズ 1（実装済み）: ローカルで動く MVP
+### 現在の実装状況（2026-06 時点）
 
-- [x] README.md（本ファイル）
-- [x] 動物園データ（`src/data.ts`）— 近畿の主要施設をハードコード
-- [x] TypeScript 型定義（`src/types.ts`）
-- [x] Cloudflare Worker エントリポイント（`src/index.ts`）
-  - HTML 一覧ページ（都道府県タブ付き）
-  - JSON API `/api/zoos`
-  - JSON API `/api/zoos/:id`
-- [x] `wrangler.toml`、`package.json`、`tsconfig.json`
+- [x] 動物園一覧ページ（都道府県タブ・動物検索）
+- [x] 動物園詳細ページ（`/zoos/:id`）
+- [x] 動物園ごとの動物一覧ページ（`/zoos/:id/animals`）
+- [x] JSON API（`/api/zoos`, `/api/zoos/:id`, `/api/zoos/:id/animals`）
+- [x] [各動物園スクレイピング](https://github.com/onishi/kinki-zoo/issues/10)
+- [x] [動物園ごとのページ / 動物一覧ページ作成](https://github.com/onishi/kinki-zoo/issues/15)
+- [x] [動物検索の改善（スクレイピング結果を活用）](https://github.com/onishi/kinki-zoo/issues/19)
 
-### フェーズ 2（将来）: データ拡充・機能追加
+### 今後の開発計画（優先候補）
 
-各項目は以下のリンクから GitHub issue として起票できます。
-
-- [x] [動物園データの外部ソース連携（Wikipedia / 公式サイト）](https://github.com/onishi/kinki-zoo/issues/new?title=%E5%8B%95%E7%89%A9%E5%9C%92%E3%83%87%E3%83%BC%E3%82%BF%E3%81%AE%E5%A4%96%E9%83%A8%E3%82%BD%E3%83%BC%E3%82%B9%E3%82%92%E9%80%A3%E6%90%BA%E3%81%99%E3%82%8B)
-- [x] [各動物園スクレイピング](https://github.com/onishi/kinki-zoo/issues/10) — `GET /api/zoos/:id/animals` で公式サイトから動物リストを取得
-- [ ] [地図表示（Leaflet.js）](https://github.com/onishi/kinki-zoo/issues/new?title=%E5%9C%B0%E5%9B%B3%E8%A1%A8%E7%A4%BA%E3%82%92%E8%BF%BD%E5%8A%A0%E3%81%99%E3%82%8B)
-- [x] [動物検索（「パンダがいる動物園」など）](https://github.com/onishi/kinki-zoo/issues/2) — 一覧画面と `GET /api/zoos?animal=...` で特徴タグから絞り込み
-- [ ] [Cloudflare KV にデータをキャッシュ](https://github.com/onishi/kinki-zoo/issues/new?title=Cloudflare%20KV%20%E3%81%AB%E3%83%87%E3%83%BC%E3%82%BF%E3%82%92%E3%82%AD%E3%83%A3%E3%83%83%E3%82%B7%E3%83%A5%E3%81%99%E3%82%8B)
-- [ ] [Cloudflare Pages フロントエンド分離](https://github.com/onishi/kinki-zoo/issues/new?title=Cloudflare%20Pages%20%E3%83%95%E3%83%AD%E3%83%B3%E3%83%88%E3%82%A8%E3%83%B3%E3%83%89%E3%82%92%E5%88%86%E9%9B%A2%E3%81%99%E3%82%8B)
+- [ ] [神戸どうぶつ王国追加](https://github.com/onishi/kinki-zoo/issues/12)
+- [ ] [デザイン変更](https://github.com/onishi/kinki-zoo/issues/13)
+- [ ] [地図表示を追加する](https://github.com/onishi/kinki-zoo/issues/1)
+- [ ] [Cloudflare KV にデータをキャッシュする](https://github.com/onishi/kinki-zoo/issues/3)
+- [ ] [Cloudflare Pages フロントエンドを分離する](https://github.com/onishi/kinki-zoo/issues/4)
 
 ## セットアップ
 

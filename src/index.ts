@@ -157,26 +157,27 @@ function renderHtml(
   <title>近畿動物園情報</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: sans-serif; background: #f7f9fc; color: #333; }
-    header { background: #2d6a4f; color: #fff; padding: 1rem 1.5rem; }
+    body { font-family: sans-serif; background: #fff; color: #222; }
+    header { padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; }
     header h1 { font-size: 1.5rem; }
-    header p { font-size: 0.9rem; opacity: 0.85; margin-top: 0.25rem; }
-    .tabs { display: flex; flex-wrap: wrap; gap: 0.5rem; padding: 1rem 1.5rem; background: #fff; border-bottom: 1px solid #ddd; }
-    .tab { padding: 0.4rem 0.9rem; border-radius: 999px; border: 1px solid #2d6a4f; color: #2d6a4f; text-decoration: none; font-size: 0.875rem; }
-    .tab.active, .tab:hover { background: #2d6a4f; color: #fff; }
-    .search-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; padding: 0 1.5rem 1rem; background: #fff; }
-    .search-form input { flex: 1 1 220px; max-width: 320px; padding: 0.55rem 0.75rem; border: 1px solid #c8d5cc; border-radius: 999px; font-size: 0.95rem; }
-    .search-form button, .search-form a { border-radius: 999px; font-size: 0.875rem; }
-    .search-form button { border: none; background: #2d6a4f; color: #fff; padding: 0.55rem 1rem; cursor: pointer; }
-    .search-form a { padding: 0.5rem 0.9rem; color: #2d6a4f; text-decoration: none; border: 1px solid #2d6a4f; }
+    header p { font-size: 0.9rem; color: #555; margin-top: 0.25rem; }
+    .tabs { display: flex; flex-wrap: wrap; gap: 0.75rem; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; }
+    .tab { color: #1f5b45; text-decoration: none; font-size: 0.9rem; }
+    .tab.active { font-weight: bold; text-decoration: underline; text-underline-offset: 0.2em; }
+    .tab:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .search-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; }
+    .search-form input { flex: 1 1 220px; max-width: 320px; padding: 0.55rem 0.75rem; border: 1px solid #bbb; font-size: 0.95rem; }
+    .search-form button, .search-form a { font-size: 0.875rem; }
+    .search-form button { border: 1px solid #1f5b45; background: #1f5b45; color: #fff; padding: 0.5rem 0.9rem; cursor: pointer; }
+    .search-form a { padding: 0.5rem 0.7rem; color: #1f5b45; text-decoration: none; border: 1px solid #1f5b45; }
     .summary { padding: 0.75rem 1.5rem; font-size: 0.9rem; color: #666; }
     .zoo-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1rem; padding: 1rem 1.5rem; }
-    .zoo-card { background: #fff; border-radius: 8px; padding: 1rem; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+    .zoo-card { background: #fff; border: 1px solid #ddd; padding: 1rem; }
     .zoo-card h2 { font-size: 1.1rem; margin-bottom: 0.25rem; }
     .zoo-card h2 a { color: #2d6a4f; text-decoration: none; }
     .zoo-card h2 a:hover { text-decoration: underline; }
-    .wiki-link { font-size: 0.7rem; font-weight: normal; margin-left: 0.5rem; color: #888; border: 1px solid #ccc; border-radius: 3px; padding: 0.1rem 0.4rem; vertical-align: middle; text-decoration: none; }
-    .wiki-link:hover { background: #f0f0f0; }
+    .wiki-link { font-size: 0.8rem; font-weight: normal; margin-left: 0.5rem; color: #666; text-decoration: none; }
+    .wiki-link:hover { text-decoration: underline; }
     .kana { font-size: 0.8rem; color: #888; margin-bottom: 0.75rem; }
     dl { display: grid; grid-template-columns: 5.5em 1fr; gap: 0.2rem 0.5rem; font-size: 0.85rem; }
     dt { color: #666; font-weight: bold; }
@@ -184,14 +185,15 @@ function renderHtml(
     .links a { color: #2d6a4f; text-decoration: none; }
     .links a:hover { text-decoration: underline; }
     .features { margin-top: 0.75rem; display: flex; flex-wrap: wrap; gap: 0.35rem; }
-    .tag { background: #e8f5e9; color: #2d6a4f; border-radius: 999px; padding: 0.2rem 0.6rem; font-size: 0.75rem; }
+    .tag { color: #555; font-size: 0.8rem; }
+    .tag::before { content: "・"; }
     .empty { padding: 2rem 1.5rem; color: #888; }
     footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; }
   </style>
 </head>
 <body>
   <header>
-    <h1>🦁 近畿動物園情報</h1>
+    <h1>近畿動物園情報</h1>
     <p>近畿一円の動物園・動物施設をまとめて調べられます</p>
   </header>
   <nav class="tabs">
@@ -224,11 +226,11 @@ function renderZooDetailHtml(zoo: Zoo): string {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapeHtml(zoo.name)} | 近畿動物園情報</title>
   <style>
-    body { font-family: sans-serif; margin: 0; background: #f7f9fc; color: #333; }
+    body { font-family: sans-serif; margin: 0; background: #fff; color: #222; }
     main { max-width: 840px; margin: 0 auto; padding: 1.5rem; }
     .nav { margin-bottom: 1rem; display: flex; gap: 1rem; flex-wrap: wrap; }
     .nav a { color: #2d6a4f; text-decoration: none; }
-    .card { background: #fff; border-radius: 8px; padding: 1.25rem; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+    .card { background: #fff; border: 1px solid #ddd; padding: 1.25rem; }
     h1 { margin-bottom: 0.5rem; }
     .kana { color: #777; margin-bottom: 1rem; }
     dl { display: grid; grid-template-columns: 6em 1fr; gap: 0.25rem 0.5rem; margin-bottom: 1rem; }
@@ -274,16 +276,15 @@ function renderZooAnimalsHtml(zoo: Zoo, scraped: Awaited<ReturnType<typeof scrap
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapeHtml(zoo.name)}の動物一覧 | 近畿動物園情報</title>
   <style>
-    body { font-family: sans-serif; margin: 0; background: #f7f9fc; color: #333; }
+    body { font-family: sans-serif; margin: 0; background: #fff; color: #222; }
     main { max-width: 840px; margin: 0 auto; padding: 1.5rem; }
     .nav { margin-bottom: 1rem; display: flex; gap: 1rem; flex-wrap: wrap; }
     .nav a { color: #2d6a4f; text-decoration: none; }
-    .card { background: #fff; border-radius: 8px; padding: 1.25rem; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
-    ul { columns: 2; padding-left: 1.2rem; }
-    li { break-inside: avoid; margin-bottom: 0.35rem; }
+    .card { background: #fff; border: 1px solid #ddd; padding: 1.25rem; }
+    ul { padding-left: 1.2rem; }
+    li { margin-bottom: 0.35rem; }
     .meta { margin-top: 1rem; color: #666; font-size: 0.85rem; }
     .error { color: #b00020; margin-bottom: 0.75rem; }
-    @media (max-width: 640px) { ul { columns: 1; } }
   </style>
 </head>
 <body>

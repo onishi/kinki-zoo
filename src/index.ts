@@ -13,6 +13,14 @@ const PREF_LABELS: Record<PrefectureCode, string> = {
 
 const PREF_CODES = Object.keys(PREF_LABELS) as PrefectureCode[];
 
+interface ZooSearchResult {
+  zoo: Zoo;
+  matchedAnimals: string[];
+  matchedFeatures: string[];
+  animalSearchAvailable: boolean;
+  animalSearchError?: string;
+}
+
 function isPrefectureCode(value: string): value is PrefectureCode {
   return PREF_CODES.includes(value as PrefectureCode);
 }
@@ -42,19 +50,22 @@ function notFound(message: string): Response {
   return jsonResponse({ error: message }, 404);
 }
 
-function matchesAnimalFeatures(zoo: Zoo, searchKeyword: string): boolean {
-  return zoo.features.some((feature) =>
-    feature.toLocaleLowerCase("ja-JP").includes(searchKeyword)
+function findMatches(values: string[], searchKeyword: string): string[] {
+  return values.filter((value) =>
+    value.toLocaleLowerCase("ja-JP").includes(searchKeyword)
   );
 }
 
-function matchesScrapedAnimals(animals: string[], searchKeyword: string): boolean {
-  return animals.some((animal) =>
-    animal.toLocaleLowerCase("ja-JP").includes(searchKeyword)
-  );
+function buildSearchResult(zoo: Zoo): ZooSearchResult {
+  return {
+    zoo,
+    matchedAnimals: [],
+    matchedFeatures: [],
+    animalSearchAvailable: false,
+  };
 }
 
-async function filterZoos(pref?: string | null, animal?: string | null): Promise<Zoo[]> {
+async function searchZoos(pref?: string | null, animal?: string | null): Promise<ZooSearchResult[]> {
   const normalizedAnimal = normalizeSearchTerm(animal);
 
   const prefFiltered = zoos.filter((zoo) => {
@@ -65,7 +76,7 @@ async function filterZoos(pref?: string | null, animal?: string | null): Promise
   });
 
   if (!normalizedAnimal) {
-    return prefFiltered;
+    return prefFiltered.map(buildSearchResult);
   }
 
   const searchKeyword = normalizedAnimal.toLocaleLowerCase("ja-JP");
@@ -73,16 +84,77 @@ async function filterZoos(pref?: string | null, animal?: string | null): Promise
     prefFiltered.map((zoo) => scrapeAnimals(zoo.id))
   );
 
-  return prefFiltered.filter((zoo, index) => {
+  return prefFiltered.flatMap((zoo, index) => {
     const result = scrapeResults[index];
-    if (result.status === "fulfilled" && !result.value.error) {
-      return matchesScrapedAnimals(result.value.animals, searchKeyword);
+    const matchedFeatures = findMatches(zoo.features, searchKeyword);
+    const searchResult: ZooSearchResult = {
+      zoo,
+      matchedAnimals: [],
+      matchedFeatures,
+      animalSearchAvailable: false,
+    };
+
+    if (result.status === "fulfilled") {
+      searchResult.animalSearchAvailable = !result.value.error;
+      searchResult.animalSearchError = result.value.error;
+      searchResult.matchedAnimals = result.value.error
+        ? []
+        : findMatches(result.value.animals, searchKeyword);
+    } else {
+      searchResult.animalSearchError = String(result.reason);
     }
-    return matchesAnimalFeatures(zoo, searchKeyword);
+
+    if (searchResult.matchedAnimals.length > 0 || matchedFeatures.length > 0) {
+      return [searchResult];
+    }
+
+    return [];
   });
 }
 
-function renderZooCard(zoo: Zoo): string {
+function toApiZoo(result: ZooSearchResult, includeMatches: boolean): Zoo & {
+  matchedAnimals?: string[];
+  matchedFeatures?: string[];
+} {
+  if (!includeMatches) return result.zoo;
+  return {
+    ...result.zoo,
+    matchedAnimals: result.matchedAnimals,
+    matchedFeatures: result.matchedFeatures,
+  };
+}
+
+function renderMatchedValues(label: string, values: string[]): string {
+  if (values.length === 0) return "";
+  const visibleValues = values.slice(0, 8);
+  const hiddenCount = values.length - visibleValues.length;
+  const chips = visibleValues
+    .map((value) => `<span class="match-chip">${escapeHtml(value)}</span>`)
+    .join("");
+  const more = hiddenCount > 0 ? `<span class="match-more">ほか ${hiddenCount} 件</span>` : "";
+
+  return `
+    <div class="match-row">
+      <span class="match-label">${label}</span>
+      <span class="match-values">${chips}${more}</span>
+    </div>`;
+}
+
+function renderMatchSummary(result: ZooSearchResult): string {
+  const animalMatches = renderMatchedValues("ヒットした動物", result.matchedAnimals);
+  const featureMatches = renderMatchedValues("関連する特徴", result.matchedFeatures);
+  const notice =
+    result.animalSearchError && result.matchedAnimals.length === 0
+      ? `<p class="match-note">動物一覧を取得できなかったため、登録済みの特徴タグで判定しました。</p>`
+      : "";
+
+  if (!animalMatches && !featureMatches && !notice) return "";
+
+  return `<div class="match-box">${animalMatches}${featureMatches}${notice}</div>`;
+}
+
+function renderZooCard(result: ZooSearchResult): string {
+  const zoo = result.zoo;
   const prefLabel = PREF_LABELS[zoo.prefecture];
   const features = zoo.features.map((f) => `<span class="tag">${f}</span>`).join("");
   const wikiLink = zoo.wikipediaUrl
@@ -104,6 +176,7 @@ function renderZooCard(zoo: Zoo): string {
         <a href="/zoos/${zoo.id}/animals">動物一覧</a>
         <a href="${zoo.website}" target="_blank" rel="noopener noreferrer">公式サイト</a>
       </p>
+      ${renderMatchSummary(result)}
       <div class="features">${features}</div>
     </article>`;
 }
@@ -127,11 +200,11 @@ function renderPrefTab(
 }
 
 function renderHtml(
-  filteredZoos: Zoo[],
+  results: ZooSearchResult[],
   activePref: PrefectureCode | null,
   animal: string | null
 ): string {
-  const cards = filteredZoos.map(renderZooCard).join("\n");
+  const cards = results.map(renderZooCard).join("\n");
   const escapedAnimal = animal ? escapeHtml(animal) : "";
   const allTab = activePref
     ? `<a href="${buildBrowseUrl(null, animal)}" class="tab">すべて</a>`
@@ -140,7 +213,7 @@ function renderHtml(
     renderPrefTab(code, PREF_LABELS[code], code === activePref, animal)
   ).join("\n");
 
-  const count = filteredZoos.length;
+  const count = results.length;
   const prefLabel = activePref && isPrefectureCode(activePref) ? PREF_LABELS[activePref] : "近畿一円";
   const summary = animal
     ? `${prefLabel} で「${escapedAnimal}」を探せる動物園・施設: ${count} 件`
@@ -183,6 +256,13 @@ function renderHtml(
     .links { margin-top: 0.75rem; display: flex; gap: 0.75rem; font-size: 0.85rem; }
     .links a { color: #2d6a4f; text-decoration: none; }
     .links a:hover { text-decoration: underline; }
+    .match-box { margin-top: 0.85rem; padding: 0.75rem; border: 1px solid #d7eadc; border-radius: 8px; background: #f3fbf5; display: grid; gap: 0.55rem; }
+    .match-row { display: grid; gap: 0.35rem; }
+    .match-label { color: #456052; font-size: 0.75rem; font-weight: bold; }
+    .match-values { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+    .match-chip { background: #fff; color: #1b5e3b; border: 1px solid #b7dcc3; border-radius: 999px; padding: 0.18rem 0.55rem; font-size: 0.75rem; font-weight: bold; }
+    .match-more { color: #5d7166; font-size: 0.75rem; align-self: center; }
+    .match-note { color: #6d756f; font-size: 0.75rem; line-height: 1.5; }
     .features { margin-top: 0.75rem; display: flex; flex-wrap: wrap; gap: 0.35rem; }
     .tag { background: #e8f5e9; color: #2d6a4f; border-radius: 999px; padding: 0.2rem 0.6rem; font-size: 0.75rem; }
     .empty { padding: 2rem 1.5rem; color: #888; }
@@ -320,8 +400,8 @@ export default {
       if (pref && !isPrefectureCode(pref)) {
         return notFound(`都道府県コード '${pref}' は無効です`);
       }
-      const result = await filterZoos(pref, animal);
-      return jsonResponse(result);
+      const results = await searchZoos(pref, animal);
+      return jsonResponse(results.map((result) => toApiZoo(result, Boolean(animal))));
     }
 
     // JSON API: /api/zoos/:id/animals
@@ -369,8 +449,8 @@ export default {
       const pref = url.searchParams.get("pref");
       const animal = normalizeSearchTerm(url.searchParams.get("animal"));
       const activePref: PrefectureCode | null = pref && isPrefectureCode(pref) ? pref : null;
-      const filtered = await filterZoos(activePref, animal);
-      const html = renderHtml(filtered, activePref, animal);
+      const results = await searchZoos(activePref, animal);
+      const html = renderHtml(results, activePref, animal);
       return new Response(html, {
         headers: { "Content-Type": "text/html; charset=utf-8" },
       });

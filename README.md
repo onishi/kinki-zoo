@@ -8,7 +8,7 @@
 
 - 近畿地方（大阪・京都・兵庫・奈良・滋賀・和歌山）の動物園・動物施設を一覧表示
 - 都道府県での絞り込みが可能
-- 登録済みの特徴タグをもとに、動物名での絞り込みが可能
+- D1 に保存したスクレイピング結果と登録済みの特徴タグをもとに、動物名での絞り込みが可能
 - ブラウザで見やすい HTML ページと、アプリ連携向けの JSON API を提供
 
 ### エンドポイント
@@ -16,14 +16,20 @@
 | パス | 説明 |
 |------|------|
 | `GET /` | 動物園一覧 HTML（都道府県タブで絞り込み可） |
+| `GET /animals` | D1 に保存済みの動物一覧 HTML（動物ごとに見られる施設を表示） |
+| `GET /taxonomy` | 類・目・科・属・種から動物を探せる分類一覧 HTML |
+| `GET /taxonomy/:rank/:value` | 指定した分類値に属する動物一覧 HTML |
+| `GET /taxonomy/:class/:order/:family/:genus/:species` | 分類階層を URL にした動物一覧 HTML（途中階層まででも可） |
 | `GET /map` | 動物園位置を地図で表示 HTML（都道府県・動物名での絞り込み可） |
 | `GET /zoos/:id` | 動物園ごとの詳細 HTML ページ（地図付き） |
-| `GET /zoos/:id/animals` | 動物園ごとの動物一覧 HTML ページ（公式サイトをスクレイピング） |
+| `GET /zoos/:id/animals` | 動物園ごとの動物一覧 HTML ページ（D1 キャッシュ優先、未保存時は公式サイトをスクレイピング） |
 | `GET /api/zoos` | 全動物園を JSON で返す |
 | `GET /api/zoos?pref=osaka` | 都道府県コードで絞り込んだ動物園を返す |
-| `GET /api/zoos?animal=パンダ` | 特徴タグに一致する動物園を返す |
+| `GET /api/zoos?animal=パンダ` | D1 に保存済みの動物名と特徴タグに一致する動物園を返す |
 | `GET /api/zoos/:id` | 特定の動物園の詳細を JSON で返す |
-| `GET /api/zoos/:id/animals` | 動物園の公式サイトをスクレイピングして動物リストを返す |
+| `GET /api/zoos/:id/animals` | D1 キャッシュ優先で動物リストを返す（`?refresh=1` で再取得・保存） |
+| `POST /api/animals/refresh` | 全動物園の動物リストを再スクレイピングして D1 に保存する |
+| `POST /api/animals/classify` | 保存済みの公式表示名を分類マスタに投入し、`zoo_animals.animal_id` を紐づける |
 
 ### 都道府県コード
 
@@ -78,6 +84,7 @@
 - [x] [各動物園スクレイピング](https://github.com/onishi/kinki-zoo/issues/10)
 - [x] [動物園ごとのページ / 動物一覧ページ作成](https://github.com/onishi/kinki-zoo/issues/15)
 - [x] [動物検索の改善（スクレイピング結果を活用）](https://github.com/onishi/kinki-zoo/issues/19)
+- [x] スクレイピング結果の D1 保存と検索高速化
 
 ### 今後の開発計画（優先候補）
 
@@ -99,13 +106,41 @@ npm install
 npm run dev
 ```
 
-ブラウザで `http://localhost:8787` を開くと動物園一覧が表示されます。
+ブラウザで `http://localhost:8001` を開くと動物園一覧が表示されます。
 
 ## 型チェック
 
 ```bash
 npm run typecheck
 ```
+
+## D1
+
+スクレイピング結果は Cloudflare D1 の `kinki-zoo-animals` に保存します。
+
+動物園の公式表示を尊重するため、施設ごとの動物一覧と分類用の動物マスタは分けています。
+
+| テーブル | 役割 |
+|----------|------|
+| `zoo_animals` | 施設公式の表示名を `display_name` として保存。`animal_id` は分類マスタへの任意リンク |
+| `animals` | 種マスタ。代表名、類・目・科・属・種を保持し、属・種の組み合わせをユニークにする |
+| `animal_scrape_results` | 施設ごとのスクレイピング日時とエラー情報 |
+
+分類マスタは `src/animal-taxonomy.ts` のゆるい分類ルールから投入します。`animals` は種まで特定できるものだけを保持し、属・種まで判断できない公式表示名は `zoo_animals.animal_id` を `NULL` のまま保持します。例えば `ユキヒョウ` は `ヒョウ属 + ユキヒョウ`、`アムールヒョウ` は `ヒョウ属 + ヒョウ` として別の種に紐づけます。
+
+```bash
+npm run d1:migrate          # ローカル D1 にマイグレーション適用
+npm run d1:migrate:remote   # リモート D1 にマイグレーション適用
+```
+
+動物データは、各動物園の動物一覧 API に初回アクセスした時、または `?refresh=1` を付けた時に保存されます。全件更新は次の API で実行できます。
+
+```bash
+curl -X POST http://localhost:8001/api/animals/refresh
+curl -X POST http://localhost:8001/api/animals/classify
+```
+
+本番では `wrangler.toml` の cron により毎日自動更新します。
 
 ## Cloudflare へのデプロイ
 

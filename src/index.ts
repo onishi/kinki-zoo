@@ -116,6 +116,14 @@ function buildBrowseUrl(pref: PrefectureCode | null, animal: string | null): str
   return query ? `/?${query}` : "/";
 }
 
+function buildMapUrl(pref: PrefectureCode | null, animal: string | null): string {
+  const params = new URLSearchParams();
+  if (pref) params.set("pref", pref);
+  if (animal) params.set("animal", animal);
+  const query = params.toString();
+  return query ? `/map?${query}` : "/map";
+}
+
 function renderPrefTab(
   code: PrefectureCode,
   label: string,
@@ -161,10 +169,11 @@ function renderHtml(
     header { padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; }
     header h1 { font-size: 1.5rem; }
     header p { font-size: 0.9rem; color: #555; margin-top: 0.25rem; }
-    .tabs { display: flex; flex-wrap: wrap; gap: 0.75rem; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; }
+    .tabs { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; }
     .tab { color: #1f5b45; text-decoration: none; font-size: 0.9rem; }
     .tab.active { font-weight: bold; text-decoration: underline; text-underline-offset: 0.2em; }
     .tab:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .map-link { margin-left: auto; }
     .search-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; }
     .search-form input { flex: 1 1 220px; max-width: 320px; padding: 0.55rem 0.75rem; border: 1px solid #bbb; font-size: 0.95rem; }
     .search-form button, .search-form a { font-size: 0.875rem; }
@@ -199,6 +208,7 @@ function renderHtml(
   <nav class="tabs">
     ${allTab}
     ${prefTabs}
+    <a href="${buildMapUrl(activePref, animal)}" class="tab map-link">🗺 地図で見る</a>
   </nav>
   <form class="search-form" action="/" method="get">
     ${activePref ? `<input type="hidden" name="pref" value="${activePref}">` : ""}
@@ -225,17 +235,19 @@ function renderZooDetailHtml(zoo: Zoo): string {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapeHtml(zoo.name)} | 近畿動物園情報</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
   <style>
     body { font-family: sans-serif; margin: 0; background: #fff; color: #222; }
     main { max-width: 840px; margin: 0 auto; padding: 1.5rem; }
     .nav { margin-bottom: 1rem; display: flex; gap: 1rem; flex-wrap: wrap; }
     .nav a { color: #2d6a4f; text-decoration: none; }
-    .card { background: #fff; border: 1px solid #ddd; padding: 1.25rem; }
+    .card { background: #fff; border: 1px solid #ddd; padding: 1.25rem; margin-bottom: 1rem; }
     h1 { margin-bottom: 0.5rem; }
     .kana { color: #777; margin-bottom: 1rem; }
     dl { display: grid; grid-template-columns: 6em 1fr; gap: 0.25rem 0.5rem; margin-bottom: 1rem; }
     dt { color: #666; font-weight: bold; }
     ul { padding-left: 1.2rem; }
+    #map { height: 320px; border: 1px solid #ddd; }
   </style>
 </head>
 <body>
@@ -258,7 +270,111 @@ function renderZooDetailHtml(zoo: Zoo): string {
       <h2>特徴</h2>
       <ul>${features}</ul>
     </section>
+    <div id="map"></div>
   </main>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script>
+    var map = L.map('map').setView([${zoo.lat}, ${zoo.lon}], 15);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
+    L.marker([${zoo.lat}, ${zoo.lon}])
+      .bindPopup(${JSON.stringify(escapeHtml(zoo.name))})
+      .addTo(map)
+      .openPopup();
+  </script>
+</body>
+</html>`;
+}
+
+function renderMapHtml(filteredZoos: Zoo[], activePref: PrefectureCode | null, animal: string | null): string {
+  const escapedAnimal = animal ? escapeHtml(animal) : "";
+  const allTab = activePref
+    ? `<a href="${buildMapUrl(null, animal)}" class="tab">すべて</a>`
+    : `<a href="${buildMapUrl(null, animal)}" class="tab active">すべて</a>`;
+  const prefTabs = PREF_CODES.map((code) =>
+    `<a href="${buildMapUrl(code, animal)}" class="${code === activePref ? "tab active" : "tab"}">${PREF_LABELS[code]}</a>`
+  ).join("\n");
+
+  // Embed only the data needed for map markers; safe to embed as JSON in <script>
+  const mapData = JSON.stringify(
+    filteredZoos.map((z) => ({ id: z.id, name: z.name, lat: z.lat, lon: z.lon }))
+  ).replace(/<\//g, "<\\/");
+
+  const count = filteredZoos.length;
+  const prefLabel = activePref && isPrefectureCode(activePref) ? PREF_LABELS[activePref] : "近畿一円";
+  const summary = animal
+    ? `${prefLabel} で「${escapedAnimal}」を探せる動物園・施設: ${count} 件`
+    : `${prefLabel} の動物園・施設: ${count} 件`;
+
+  return `<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>地図 | 近畿動物園情報</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #fff; color: #222; display: flex; flex-direction: column; height: 100vh; }
+    header { padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; flex-shrink: 0; }
+    header h1 { font-size: 1.5rem; }
+    header p { font-size: 0.9rem; color: #555; margin-top: 0.25rem; }
+    .tabs { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; flex-shrink: 0; }
+    .tab { color: #1f5b45; text-decoration: none; font-size: 0.9rem; }
+    .tab.active { font-weight: bold; text-decoration: underline; text-underline-offset: 0.2em; }
+    .tab:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .search-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; flex-shrink: 0; }
+    .search-form input { flex: 1 1 220px; max-width: 320px; padding: 0.55rem 0.75rem; border: 1px solid #bbb; font-size: 0.95rem; }
+    .search-form button, .search-form a { font-size: 0.875rem; }
+    .search-form button { border: 1px solid #1f5b45; background: #1f5b45; color: #fff; padding: 0.5rem 0.9rem; cursor: pointer; }
+    .search-form a { padding: 0.5rem 0.7rem; color: #1f5b45; text-decoration: none; border: 1px solid #1f5b45; }
+    .list-link { margin-left: auto; font-size: 0.85rem; color: #1f5b45; text-decoration: none; }
+    .list-link:hover { text-decoration: underline; }
+    .summary { padding: 0.4rem 1.5rem; font-size: 0.9rem; color: #666; flex-shrink: 0; }
+    #map { flex: 1; min-height: 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>近畿動物園情報</h1>
+    <p>近畿一円の動物園・動物施設をまとめて調べられます</p>
+  </header>
+  <nav class="tabs">
+    ${allTab}
+    ${prefTabs}
+    <a href="${buildBrowseUrl(activePref, animal)}" class="list-link">一覧で見る →</a>
+  </nav>
+  <form class="search-form" action="/map" method="get">
+    ${activePref ? `<input type="hidden" name="pref" value="${activePref}">` : ""}
+    <input type="search" name="animal" value="${escapedAnimal}" placeholder="動物名で検索（例: パンダ）" aria-label="動物名で検索">
+    <button type="submit">検索</button>
+    ${animal ? `<a href="${buildMapUrl(activePref, null)}">クリア</a>` : ""}
+  </form>
+  <p class="summary">${summary}</p>
+  <div id="map"></div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script>
+    var zoos = ${mapData};
+    var map = L.map('map').setView([34.7, 135.5], 8);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
+    function esc(s) {
+      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+    zoos.forEach(function(zoo) {
+      L.marker([zoo.lat, zoo.lon])
+        .bindPopup('<b><a href="/zoos/' + esc(zoo.id) + '">' + esc(zoo.name) + '</a></b>')
+        .addTo(map);
+    });
+    if (zoos.length > 0) {
+      var bounds = L.latLngBounds(zoos.map(function(z) { return [z.lat, z.lon]; }));
+      map.fitBounds(bounds, { padding: [40, 40] });
+    }
+  </script>
 </body>
 </html>`;
 }
@@ -362,6 +478,16 @@ export default {
       const zoo = zoos.find((z) => z.id === id);
       if (!zoo) return notFound(`動物園 '${id}' が見つかりません`);
       const html = renderZooDetailHtml(zoo);
+      return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+    }
+
+    // HTML: /map
+    if (pathname === "/map") {
+      const pref = url.searchParams.get("pref");
+      const animal = normalizeSearchTerm(url.searchParams.get("animal"));
+      const activePref: PrefectureCode | null = pref && isPrefectureCode(pref) ? pref : null;
+      const filtered = await filterZoos(activePref, animal);
+      const html = renderMapHtml(filtered, activePref, animal);
       return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
     }
 

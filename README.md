@@ -16,7 +16,8 @@
 | パス | 説明 |
 |------|------|
 | `GET /` | 動物園一覧 HTML（都道府県タブで絞り込み可） |
-| `GET /zoos/:id` | 動物園ごとの詳細 HTML ページ |
+| `GET /map` | 動物園位置を地図で表示 HTML（都道府県・動物名での絞り込み可） |
+| `GET /zoos/:id` | 動物園ごとの詳細 HTML ページ（地図付き） |
 | `GET /zoos/:id/animals` | 動物園ごとの動物一覧 HTML ページ（公式サイトをスクレイピング） |
 | `GET /api/zoos` | 全動物園を JSON で返す |
 | `GET /api/zoos?pref=osaka` | 都道府県コードで絞り込んだ動物園を返す |

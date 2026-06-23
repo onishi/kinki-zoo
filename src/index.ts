@@ -97,6 +97,7 @@ interface TaxonomyCandidateApplyResult {
 }
 
 type TaxonomyRank = "class" | "order" | "family" | "genus" | "species";
+type AnimalListFilter = "all" | "unclassified";
 
 interface TaxonomyRankConfig {
   key: TaxonomyRank;
@@ -454,7 +455,17 @@ function buildAnimalListItems(rows: AnimalListRow[]): AnimalListItem[] {
   return [...animals.values()];
 }
 
-async function loadAnimalList(db: D1Database): Promise<AnimalListItem[]> {
+async function loadAnimalList(db: D1Database, filter: AnimalListFilter = "all"): Promise<AnimalListItem[]> {
+  const where =
+    filter === "unclassified"
+      ? `WHERE a.id IS NULL
+           AND NULLIF(c.canonical_name, 'null') IS NULL
+           AND NULLIF(c.class_name, 'null') IS NULL
+           AND NULLIF(c.order_name, 'null') IS NULL
+           AND NULLIF(c.family_name, 'null') IS NULL
+           AND NULLIF(c.genus_name, 'null') IS NULL
+           AND NULLIF(c.species_name, 'null') IS NULL`
+      : "";
   const result = await db
     .prepare(
       `SELECT
@@ -474,6 +485,7 @@ async function loadAnimalList(db: D1Database): Promise<AnimalListItem[]> {
         AND za.animal_id IS NULL
         AND c.status IN ('partial', 'pending')
         AND c.confidence >= 0.8
+       ${where}
        ORDER BY COALESCE(a.normalized_name, za.normalized_display_name), za.display_name, za.zoo_id`
     )
     .all<AnimalListRow>();
@@ -1389,12 +1401,25 @@ function renderHtml(
 </html>`;
 }
 
-function renderAnimalsHtml(animals: AnimalListItem[]): string {
+function buildAnimalsUrl(filter: AnimalListFilter): string {
+  return filter === "unclassified" ? "/animals?filter=unclassified" : "/animals";
+}
+
+function renderAnimalsHtml(animals: AnimalListItem[], filter: AnimalListFilter): string {
   const items = renderAnimalCards(animals);
+  const allTabClass = filter === "all" ? "active" : "";
+  const unclassifiedTabClass = filter === "unclassified" ? "active" : "";
+  const heading = filter === "unclassified" ? "分類未設定の動物一覧" : "動物一覧";
+  const summary =
+    filter === "unclassified"
+      ? `分類未設定: ${animals.length} 件`
+      : `登録動物: ${animals.length} 件`;
 
   const emptyMessage =
     animals.length === 0
-      ? `<p class="empty">動物データがまだありません。各動物園の動物一覧を取得するか、全件更新を実行してください。</p>`
+      ? filter === "unclassified"
+        ? `<p class="empty">分類未設定の動物はありません。</p>`
+        : `<p class="empty">動物データがまだありません。各動物園の動物一覧を取得するか、全件更新を実行してください。</p>`
       : "";
 
   return `<!DOCTYPE html>
@@ -1412,6 +1437,7 @@ function renderAnimalsHtml(animals: AnimalListItem[]): string {
     .nav { display: flex; flex-wrap: wrap; gap: 1rem; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; }
     .nav a { color: #1f5b45; text-decoration: none; font-size: 0.9rem; }
     .nav a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .nav a.active { font-weight: bold; text-decoration: underline; text-underline-offset: 0.2em; }
     .summary { padding: 0.75rem 1.5rem; font-size: 0.9rem; color: #666; }
     .animal-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; padding: 1rem 1.5rem; }
     .animal-item { border: 1px solid #ddd; padding: 1rem; }
@@ -1444,15 +1470,17 @@ function renderAnimalsHtml(animals: AnimalListItem[]): string {
 </head>
 <body>
   <header>
-    <h1>動物一覧</h1>
+    <h1>${heading}</h1>
     <p>D1 に保存済みの動物と、見られる動物園・施設を一覧できます</p>
   </header>
   <nav class="nav">
     <a href="/">動物園一覧</a>
     <a href="/taxonomy">分類から探す</a>
     <a href="/map">地図で見る</a>
+    <a href="${buildAnimalsUrl("all")}" class="${allTabClass}">すべて</a>
+    <a href="${buildAnimalsUrl("unclassified")}" class="${unclassifiedTabClass}">分類未設定</a>
   </nav>
-  <p class="summary">登録動物: ${animals.length} 件</p>
+  <p class="summary">${summary}</p>
   ${animals.length > 0 ? `<div class="animal-list">${items}</div>` : emptyMessage}
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
 </body>
@@ -2110,8 +2138,10 @@ export default {
 
     // HTML: /animals
     if (pathname === "/animals") {
-      const animals = await loadAnimalList(env.DB);
-      const html = renderAnimalsHtml(animals);
+      const filter: AnimalListFilter =
+        url.searchParams.get("filter") === "unclassified" ? "unclassified" : "all";
+      const animals = await loadAnimalList(env.DB, filter);
+      const html = renderAnimalsHtml(animals, filter);
       return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
     }
 

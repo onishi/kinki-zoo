@@ -178,6 +178,13 @@ function clampConfidence(value: unknown): number {
   return Math.max(0, Math.min(1, value));
 }
 
+function normalizeOptionalText(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  if (!text || text.toLowerCase() === "null") return null;
+  return text;
+}
+
 function normalizeClassName(value: string | null): string | null {
   switch (value) {
     case "哺乳綱":
@@ -306,12 +313,12 @@ function parseGeminiSuggestionResponse(text: string): GeminiSuggestionResponse {
   return {
     candidates: parsed.candidates.map((candidate) => ({
       displayName: String(candidate.displayName ?? ""),
-      canonicalName: candidate.canonicalName ? String(candidate.canonicalName) : null,
-      className: candidate.className ? String(candidate.className) : null,
-      orderName: candidate.orderName ? String(candidate.orderName) : null,
-      familyName: candidate.familyName ? String(candidate.familyName) : null,
-      genusName: candidate.genusName ? String(candidate.genusName) : null,
-      speciesName: candidate.speciesName ? String(candidate.speciesName) : null,
+      canonicalName: normalizeOptionalText(candidate.canonicalName),
+      className: normalizeOptionalText(candidate.className),
+      orderName: normalizeOptionalText(candidate.orderName),
+      familyName: normalizeOptionalText(candidate.familyName),
+      genusName: normalizeOptionalText(candidate.genusName),
+      speciesName: normalizeOptionalText(candidate.speciesName),
       confidence: clampConfidence(candidate.confidence),
       reason: candidate.reason ? String(candidate.reason) : "",
       sources: Array.isArray(candidate.sources)
@@ -454,14 +461,19 @@ async function loadAnimalList(db: D1Database): Promise<AnimalListItem[]> {
          za.display_name,
          za.zoo_id,
          za.animal_id,
-         a.canonical_name,
-         a.class_name,
-         a.order_name,
-         a.family_name,
-         a.genus_name,
-         a.species_name
+         COALESCE(a.canonical_name, NULLIF(c.canonical_name, 'null')) AS canonical_name,
+         COALESCE(a.class_name, NULLIF(c.class_name, 'null')) AS class_name,
+         COALESCE(a.order_name, NULLIF(c.order_name, 'null')) AS order_name,
+         COALESCE(a.family_name, NULLIF(c.family_name, 'null')) AS family_name,
+         COALESCE(a.genus_name, NULLIF(c.genus_name, 'null')) AS genus_name,
+         COALESCE(a.species_name, NULLIF(c.species_name, 'null')) AS species_name
        FROM zoo_animals za
        LEFT JOIN animals a ON a.id = za.animal_id
+       LEFT JOIN animal_taxonomy_candidates c
+         ON c.display_name = za.display_name
+        AND za.animal_id IS NULL
+        AND c.status IN ('partial', 'pending')
+        AND c.confidence >= 0.8
        ORDER BY COALESCE(a.normalized_name, za.normalized_display_name), za.display_name, za.zoo_id`
     )
     .all<AnimalListRow>();
@@ -525,12 +537,12 @@ async function loadZooAnimalDetail(db: D1Database, displayName: string): Promise
           }>();
   return {
     displayName,
-    canonicalName: taxonomicRow.canonical_name ?? candidate?.canonical_name ?? undefined,
-    className: taxonomicRow.class_name ?? candidate?.class_name ?? undefined,
-    orderName: taxonomicRow.order_name ?? candidate?.order_name ?? undefined,
-    familyName: taxonomicRow.family_name ?? candidate?.family_name ?? undefined,
-    genusName: taxonomicRow.genus_name ?? candidate?.genus_name ?? undefined,
-    speciesName: taxonomicRow.species_name ?? candidate?.species_name ?? undefined,
+    canonicalName: taxonomicRow.canonical_name ?? normalizeOptionalText(candidate?.canonical_name) ?? undefined,
+    className: taxonomicRow.class_name ?? normalizeOptionalText(candidate?.class_name) ?? undefined,
+    orderName: taxonomicRow.order_name ?? normalizeOptionalText(candidate?.order_name) ?? undefined,
+    familyName: taxonomicRow.family_name ?? normalizeOptionalText(candidate?.family_name) ?? undefined,
+    genusName: taxonomicRow.genus_name ?? normalizeOptionalText(candidate?.genus_name) ?? undefined,
+    speciesName: taxonomicRow.species_name ?? normalizeOptionalText(candidate?.species_name) ?? undefined,
     zoos: rows.flatMap((row) => {
       const zoo = zooById.get(row.zoo_id);
       return zoo ? [zoo] : [];

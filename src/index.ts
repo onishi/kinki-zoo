@@ -1303,6 +1303,43 @@ function renderPrefTab(
   return `<a href="${buildBrowseUrl(code, animal)}" ${cls}>${label}</a>`;
 }
 
+const COMMON_STYLES = `
+    .site-header { padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; }
+    .site-header h1 { font-size: 1.5rem; }
+    .site-header h1 a { color: inherit; text-decoration: none; }
+    .site-header p { font-size: 0.9rem; color: #555; margin-top: 0.25rem; }
+    .global-nav { display: flex; flex-wrap: wrap; gap: 1rem; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; }
+    .global-nav a { color: #1f5b45; text-decoration: none; font-size: 0.9rem; }
+    .global-nav a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .global-nav a[aria-current="page"] { font-weight: bold; text-decoration: underline; text-underline-offset: 0.2em; }
+    .page-nav { margin-bottom: 1rem; display: flex; gap: 1rem; flex-wrap: wrap; }
+    .page-nav a { color: #2d6a4f; text-decoration: none; }`;
+
+function renderSiteHeader(): string {
+  return `  <header class="site-header">
+    <h1><a href="/">近畿動物園情報</a></h1>
+    <p>近畿一円の動物園・動物施設をまとめて調べられます</p>
+  </header>`;
+}
+
+function renderGlobalNav(activePath: string): string {
+  const navItems: [string, string][] = [
+    ["/", "動物園一覧"],
+    ["/animals", "動物一覧"],
+    ["/taxonomy", "分類から探す"],
+    ["/map", "地図で見る"],
+  ];
+  const links = navItems
+    .map(([href, label]) => {
+      const isActive = href === "/" ? activePath === "/" : activePath === href || activePath.startsWith(`${href}/`);
+      return `<a href="${href}"${isActive ? ' aria-current="page"' : ""}>${label}</a>`;
+    })
+    .join("\n    ");
+  return `  <nav class="global-nav" aria-label="サイトナビゲーション">
+    ${links}
+  </nav>`;
+}
+
 function renderHtml(
   results: ZooSearchResult[],
   activePref: PrefectureCode | null,
@@ -1334,15 +1371,11 @@ function renderHtml(
   <title>近畿動物園情報</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: sans-serif; background: #fff; color: #222; }
-    header { padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; }
-    header h1 { font-size: 1.5rem; }
-    header p { font-size: 0.9rem; color: #555; margin-top: 0.25rem; }
+    body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
     .tabs { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; }
     .tab { color: #1f5b45; text-decoration: none; font-size: 0.9rem; }
     .tab.active { font-weight: bold; text-decoration: underline; text-underline-offset: 0.2em; }
     .tab:hover { text-decoration: underline; text-underline-offset: 0.2em; }
-    .map-link { margin-left: auto; }
     .search-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; }
     .search-form input { flex: 1 1 220px; max-width: 320px; padding: 0.55rem 0.75rem; border: 1px solid #bbb; font-size: 0.95rem; }
     .search-form button, .search-form a { font-size: 0.875rem; }
@@ -1377,16 +1410,11 @@ function renderHtml(
   </style>
 </head>
 <body>
-  <header>
-    <h1>近畿動物園情報</h1>
-    <p>近畿一円の動物園・動物施設をまとめて調べられます</p>
-  </header>
+${renderSiteHeader()}
+${renderGlobalNav("/")}
   <nav class="tabs">
     ${allTab}
     ${prefTabs}
-    <a href="/animals" class="tab">動物一覧</a>
-    <a href="/taxonomy" class="tab">分類から探す</a>
-    <a href="${buildMapUrl(activePref, animal)}" class="tab map-link">🗺 地図で見る</a>
   </nav>
   <form class="search-form" action="/" method="get">
     ${activePref ? `<input type="hidden" name="pref" value="${activePref}">` : ""}
@@ -1407,9 +1435,6 @@ function buildAnimalsUrl(filter: AnimalListFilter): string {
 
 function renderAnimalsHtml(animals: AnimalListItem[], filter: AnimalListFilter): string {
   const items = renderAnimalCards(animals);
-  const allTabClass = filter === "all" ? "active" : "";
-  const unclassifiedTabClass = filter === "unclassified" ? "active" : "";
-  const heading = filter === "unclassified" ? "分類未設定の動物一覧" : "動物一覧";
   const summary =
     filter === "unclassified"
       ? `分類未設定: ${animals.length} 件`
@@ -1430,14 +1455,11 @@ function renderAnimalsHtml(animals: AnimalListItem[], filter: AnimalListFilter):
   <title>動物一覧 | 近畿動物園情報</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: sans-serif; background: #fff; color: #222; }
-    header { padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; }
-    header h1 { font-size: 1.5rem; }
-    header p { font-size: 0.9rem; color: #555; margin-top: 0.25rem; }
-    .nav { display: flex; flex-wrap: wrap; gap: 1rem; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; }
-    .nav a { color: #1f5b45; text-decoration: none; font-size: 0.9rem; }
-    .nav a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
-    .nav a.active { font-weight: bold; text-decoration: underline; text-underline-offset: 0.2em; }
+    body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
+    .tabs { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; }
+    .tab { color: #1f5b45; text-decoration: none; font-size: 0.9rem; }
+    .tab.active { font-weight: bold; text-decoration: underline; text-underline-offset: 0.2em; }
+    .tab:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .summary { padding: 0.75rem 1.5rem; font-size: 0.9rem; color: #666; }
     .animal-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; padding: 1rem 1.5rem; }
     .animal-item { border: 1px solid #ddd; padding: 1rem; }
@@ -1469,16 +1491,11 @@ function renderAnimalsHtml(animals: AnimalListItem[], filter: AnimalListFilter):
   </style>
 </head>
 <body>
-  <header>
-    <h1>${heading}</h1>
-    <p>D1 に保存済みの動物と、見られる動物園・施設を一覧できます</p>
-  </header>
-  <nav class="nav">
-    <a href="/">動物園一覧</a>
-    <a href="/taxonomy">分類から探す</a>
-    <a href="/map">地図で見る</a>
-    <a href="${buildAnimalsUrl("all")}" class="${allTabClass}">すべて</a>
-    <a href="${buildAnimalsUrl("unclassified")}" class="${unclassifiedTabClass}">分類未設定</a>
+${renderSiteHeader()}
+${renderGlobalNav("/animals")}
+  <nav class="tabs">
+    <a href="${buildAnimalsUrl("all")}" class="tab${filter === "all" ? " active" : ""}">すべて</a>
+    <a href="${buildAnimalsUrl("unclassified")}" class="tab${filter === "unclassified" ? " active" : ""}">分類未設定</a>
   </nav>
   <p class="summary">${summary}</p>
   ${animals.length > 0 ? `<div class="animal-list">${items}</div>` : emptyMessage}
@@ -1605,14 +1622,9 @@ function renderZooAnimalDetailHtml(detail: ZooAnimalDetail, notice?: string): st
   <title>${title} | 近畿動物園情報</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: sans-serif; background: #fff; color: #222; }
-    header { padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; }
-    header h1 { font-size: 1.5rem; overflow-wrap: anywhere; }
-    header p { font-size: 0.9rem; color: #555; margin-top: 0.25rem; }
-    .nav { display: flex; flex-wrap: wrap; gap: 1rem; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; }
-    .nav a { color: #1f5b45; text-decoration: none; font-size: 0.9rem; }
-    .nav a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
     main { display: grid; gap: 1rem; padding: 1rem 1.5rem 1.5rem; max-width: 880px; }
+    .page-title { font-size: 1.1rem; font-weight: bold; overflow-wrap: anywhere; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; color: #333; }
     section { border-top: 1px solid #ddd; padding-top: 1rem; }
     section:first-child { border-top: 0; padding-top: 0; }
     h2 { font-size: 1.05rem; margin-bottom: 0.75rem; }
@@ -1645,16 +1657,9 @@ function renderZooAnimalDetailHtml(detail: ZooAnimalDetail, notice?: string): st
   </style>
 </head>
 <body>
-  <header>
-    <h1>${escapedDisplayName}</h1>
-    <p>各施設が表示している動物名ごとのページです</p>
-  </header>
-  <nav class="nav">
-    <a href="/animals">動物一覧</a>
-    <a href="/">動物園一覧</a>
-    <a href="/taxonomy">分類から探す</a>
-    <a href="${buildAnimalSearchUrl(detail.displayName)}">この名前で検索</a>
-  </nav>
+${renderSiteHeader()}
+${renderGlobalNav("/animals")}
+  <p class="page-title">${escapedDisplayName}</p>
   <main>
     ${noticeHtml}
     <section>
@@ -1663,6 +1668,7 @@ function renderZooAnimalDetailHtml(detail: ZooAnimalDetail, notice?: string): st
       ${taxonomyHtml}
       ${taxonomyLink ? `<div class="actions">${taxonomyLink}</div>` : ""}
       ${classifyForm}
+      <div class="actions"><a href="${buildAnimalSearchUrl(detail.displayName)}">この名前で検索</a></div>
     </section>
     <section>
       <h2>見られる施設</h2>
@@ -1707,13 +1713,7 @@ function renderTaxonomyHtml(sections: TaxonomyOverviewSection[]): string {
   <title>分類から探す | 近畿動物園情報</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: sans-serif; background: #fff; color: #222; }
-    header { padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; }
-    header h1 { font-size: 1.5rem; }
-    header p { font-size: 0.9rem; color: #555; margin-top: 0.25rem; }
-    .nav { display: flex; flex-wrap: wrap; gap: 1rem; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; }
-    .nav a { color: #1f5b45; text-decoration: none; font-size: 0.9rem; }
-    .nav a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
     .taxonomy-page { display: grid; gap: 1.25rem; padding: 1rem 1.5rem 1.5rem; }
     .taxonomy-section { border-top: 1px solid #ddd; padding-top: 1rem; }
     .taxonomy-section:first-child { border-top: 0; padding-top: 0; }
@@ -1727,15 +1727,8 @@ function renderTaxonomyHtml(sections: TaxonomyOverviewSection[]): string {
   </style>
 </head>
 <body>
-  <header>
-    <h1>分類から探す</h1>
-    <p>類・目・科・属・種ごとに、保存済みの動物をたどれます</p>
-  </header>
-  <nav class="nav">
-    <a href="/">動物園一覧</a>
-    <a href="/animals">動物一覧</a>
-    <a href="/map">地図で見る</a>
-  </nav>
+${renderSiteHeader()}
+${renderGlobalNav("/taxonomy")}
   <main class="taxonomy-page">${sectionHtml}</main>
   <footer>分類は利用者が探しやすい粒度で整理しています。最新情報は各施設の公式サイトでご確認ください。</footer>
 </body>
@@ -1781,13 +1774,7 @@ function renderTaxonomyDetailHtml(
   <title>${escapedValue} | 分類から探す | 近畿動物園情報</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: sans-serif; background: #fff; color: #222; }
-    header { padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; }
-    header h1 { font-size: 1.5rem; }
-    header p { font-size: 0.9rem; color: #555; margin-top: 0.25rem; }
-    .nav { display: flex; flex-wrap: wrap; gap: 1rem; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; }
-    .nav a { color: #1f5b45; text-decoration: none; font-size: 0.9rem; }
-    .nav a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
     .breadcrumb { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; padding: 0.65rem 1.5rem; border-bottom: 1px solid #e5e5e5; color: #777; font-size: 0.78rem; }
     .breadcrumb a { color: #1f5b45; text-decoration: none; }
     .breadcrumb a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
@@ -1828,15 +1815,8 @@ function renderTaxonomyDetailHtml(
   </style>
 </head>
 <body>
-  <header>
-    <h1>${escapedValue}</h1>
-    <p>${escapeHtml(rank.label)}で絞り込んだ動物一覧</p>
-  </header>
-  <nav class="nav">
-    <a href="/taxonomy">分類一覧</a>
-    <a href="/animals">動物一覧</a>
-    <a href="/">動物園一覧</a>
-  </nav>
+${renderSiteHeader()}
+${renderGlobalNav("/taxonomy")}
   ${breadcrumb}
   <p class="summary">${escapeHtml(rank.label)}: ${escapedValue} / 動物: ${animals.length} 件</p>
   ${childSectionHtml}
@@ -1860,12 +1840,12 @@ function renderZooDetailHtml(zoo: Zoo): string {
   <title>${escapeHtml(zoo.name)} | 近畿動物園情報</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
   <style>
-    body { font-family: sans-serif; margin: 0; background: #fff; color: #222; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
     main { max-width: 840px; margin: 0 auto; padding: 1.5rem; }
-    .nav { margin-bottom: 1rem; display: flex; gap: 1rem; flex-wrap: wrap; }
-    .nav a { color: #2d6a4f; text-decoration: none; }
     .card { background: #fff; border: 1px solid #ddd; padding: 1.25rem; margin-bottom: 1rem; }
-    h1 { margin-bottom: 0.5rem; }
+    h2 { margin-bottom: 0.5rem; }
+    h3 { font-size: 1.05rem; margin-bottom: 0.75rem; }
     .kana { color: #777; margin-bottom: 1rem; }
     dl { display: grid; grid-template-columns: 6em 1fr; gap: 0.25rem 0.5rem; margin-bottom: 1rem; }
     dt { color: #666; font-weight: bold; }
@@ -1874,14 +1854,15 @@ function renderZooDetailHtml(zoo: Zoo): string {
   </style>
 </head>
 <body>
+${renderSiteHeader()}
+${renderGlobalNav("/")}
   <main>
-    <nav class="nav">
-      <a href="/">← 一覧へ戻る</a>
+    <nav class="page-nav">
       <a href="/zoos/${zoo.id}/animals">この動物園の動物一覧</a>
       <a href="${escapeHtml(zoo.website)}" target="_blank" rel="noopener noreferrer">公式サイト</a>
     </nav>
     <section class="card">
-      <h1>${escapeHtml(zoo.name)}</h1>
+      <h2>${escapeHtml(zoo.name)}</h2>
       <p class="kana">${escapeHtml(zoo.nameKana)}</p>
       <dl>
         <dt>都道府県</dt><dd>${prefLabel}</dd>
@@ -1890,7 +1871,7 @@ function renderZooDetailHtml(zoo: Zoo): string {
         <dt>休園日</dt><dd>${escapeHtml(zoo.closedDays)}</dd>
         <dt>入園料</dt><dd>${escapeHtml(zoo.admission)}</dd>
       </dl>
-      <h2>特徴</h2>
+      <h3>特徴</h3>
       <ul>${features}</ul>
     </section>
     <div id="map"></div>
@@ -1940,30 +1921,27 @@ function renderMapHtml(filteredZoos: Zoo[], activePref: PrefectureCode | null, a
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: sans-serif; background: #fff; color: #222; display: flex; flex-direction: column; height: 100vh; }
-    header { padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; flex-shrink: 0; }
-    header h1 { font-size: 1.5rem; }
-    header p { font-size: 0.9rem; color: #555; margin-top: 0.25rem; }
+    body { font-family: sans-serif; background: #fff; color: #222; display: flex; flex-direction: column; height: 100vh; }${COMMON_STYLES}
+    .site-header { flex-shrink: 0; }
+    .global-nav { flex-shrink: 0; }
     .tabs { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; flex-shrink: 0; }
     .tab { color: #1f5b45; text-decoration: none; font-size: 0.9rem; }
     .tab.active { font-weight: bold; text-decoration: underline; text-underline-offset: 0.2em; }
     .tab:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .list-link { margin-left: auto; font-size: 0.85rem; color: #1f5b45; text-decoration: none; }
+    .list-link:hover { text-decoration: underline; }
     .search-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; flex-shrink: 0; }
     .search-form input { flex: 1 1 220px; max-width: 320px; padding: 0.55rem 0.75rem; border: 1px solid #bbb; font-size: 0.95rem; }
     .search-form button, .search-form a { font-size: 0.875rem; }
     .search-form button { border: 1px solid #1f5b45; background: #1f5b45; color: #fff; padding: 0.5rem 0.9rem; cursor: pointer; }
     .search-form a { padding: 0.5rem 0.7rem; color: #1f5b45; text-decoration: none; border: 1px solid #1f5b45; }
-    .list-link { margin-left: auto; font-size: 0.85rem; color: #1f5b45; text-decoration: none; }
-    .list-link:hover { text-decoration: underline; }
     .summary { padding: 0.4rem 1.5rem; font-size: 0.9rem; color: #666; flex-shrink: 0; }
     #map { flex: 1; min-height: 0; }
   </style>
 </head>
 <body>
-  <header>
-    <h1>近畿動物園情報</h1>
-    <p>近畿一円の動物園・動物施設をまとめて調べられます</p>
-  </header>
+${renderSiteHeader()}
+${renderGlobalNav("/map")}
   <nav class="tabs">
     ${allTab}
     ${prefTabs}
@@ -2015,11 +1993,11 @@ function renderZooAnimalsHtml(zoo: Zoo, scraped: Awaited<ReturnType<typeof scrap
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapeHtml(zoo.name)}の動物一覧 | 近畿動物園情報</title>
   <style>
-    body { font-family: sans-serif; margin: 0; background: #fff; color: #222; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
     main { max-width: 840px; margin: 0 auto; padding: 1.5rem; }
-    .nav { margin-bottom: 1rem; display: flex; gap: 1rem; flex-wrap: wrap; }
-    .nav a { color: #2d6a4f; text-decoration: none; }
     .card { background: #fff; border: 1px solid #ddd; padding: 1.25rem; }
+    h2 { margin-bottom: 0.75rem; }
     ul { padding-left: 1.2rem; }
     li { margin-bottom: 0.35rem; }
     .meta { margin-top: 1rem; color: #666; font-size: 0.85rem; }
@@ -2027,14 +2005,15 @@ function renderZooAnimalsHtml(zoo: Zoo, scraped: Awaited<ReturnType<typeof scrap
   </style>
 </head>
 <body>
+${renderSiteHeader()}
+${renderGlobalNav("/")}
   <main>
-    <nav class="nav">
-      <a href="/">← 一覧へ戻る</a>
+    <nav class="page-nav">
       <a href="/zoos/${zoo.id}">${escapeHtml(zoo.name)}の詳細</a>
       <a href="${escapeHtml(zoo.website)}" target="_blank" rel="noopener noreferrer">公式サイト</a>
     </nav>
     <section class="card">
-      <h1>${escapeHtml(zoo.name)}の動物一覧</h1>
+      <h2>${escapeHtml(zoo.name)}の動物一覧</h2>
       ${scraped.error ? `<p class="error">取得に失敗しました: ${escapeHtml(scraped.error)}</p>` : ""}
       ${
         scraped.animals.length > 0

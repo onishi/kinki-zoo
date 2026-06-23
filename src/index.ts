@@ -51,6 +51,17 @@ interface AnimalListItem {
   zoos: Zoo[];
 }
 
+interface ZooAnimalDetail {
+  displayName: string;
+  canonicalName?: string;
+  className?: string;
+  orderName?: string;
+  familyName?: string;
+  genusName?: string;
+  speciesName?: string;
+  zoos: Zoo[];
+}
+
 interface ScrapeResultRow {
   zoo_id: string;
   scraped_at: string;
@@ -387,6 +398,47 @@ async function loadAnimalList(db: D1Database): Promise<AnimalListItem[]> {
     .all<AnimalListRow>();
 
   return buildAnimalListItems(result.results ?? []);
+}
+
+async function loadZooAnimalDetail(db: D1Database, displayName: string): Promise<ZooAnimalDetail | null> {
+  const result = await db
+    .prepare(
+      `SELECT
+         za.display_name,
+         za.zoo_id,
+         za.animal_id,
+         a.canonical_name,
+         a.class_name,
+         a.order_name,
+         a.family_name,
+         a.genus_name,
+         a.species_name
+       FROM zoo_animals za
+       LEFT JOIN animals a ON a.id = za.animal_id
+       WHERE za.display_name = ?
+       ORDER BY za.zoo_id`
+    )
+    .bind(displayName)
+    .all<AnimalListRow>();
+
+  const rows = result.results ?? [];
+  if (rows.length === 0) return null;
+
+  const zooById = new Map(zoos.map((zoo) => [zoo.id, zoo]));
+  const taxonomicRow = rows.find((row) => row.animal_id) ?? rows[0];
+  return {
+    displayName,
+    canonicalName: taxonomicRow.canonical_name ?? undefined,
+    className: taxonomicRow.class_name ?? undefined,
+    orderName: taxonomicRow.order_name ?? undefined,
+    familyName: taxonomicRow.family_name ?? undefined,
+    genusName: taxonomicRow.genus_name ?? undefined,
+    speciesName: taxonomicRow.species_name ?? undefined,
+    zoos: rows.flatMap((row) => {
+      const zoo = zooById.get(row.zoo_id);
+      return zoo ? [zoo] : [];
+    }),
+  };
 }
 
 async function loadTaxonomyOverview(db: D1Database): Promise<TaxonomyOverviewSection[]> {
@@ -1005,6 +1057,10 @@ function buildAnimalSearchUrl(animal: string): string {
   return `/?${params.toString()}`;
 }
 
+function buildZooAnimalUrl(displayName: string): string {
+  return `/animal/${encodeURIComponent(displayName)}`;
+}
+
 function buildTaxonomyPathUrl(values: string[]): string {
   return `/taxonomy/${values.map((value) => encodeURIComponent(value)).join("/")}`;
 }
@@ -1178,7 +1234,8 @@ function renderAnimalsHtml(animals: AnimalListItem[]): string {
     .unclassified { color: #777; background: #f7f7f7; border: 1px solid #e1e1e1; padding: 0.45rem 0.55rem; margin-bottom: 0.65rem; font-size: 0.8rem; }
     .display-names { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; margin-bottom: 0.55rem; color: #666; font-size: 0.75rem; }
     .display-names b { color: #555; margin-right: 0.1rem; }
-    .display-names span { background: #f7f7f7; border: 1px solid #e1e1e1; padding: 0.12rem 0.35rem; }
+    .display-names a { background: #f7f7f7; border: 1px solid #e1e1e1; color: #1f5b45; padding: 0.12rem 0.35rem; text-decoration: none; }
+    .display-names a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .animal-item p { color: #666; font-size: 0.85rem; margin-bottom: 0.65rem; }
     .zoo-links { display: flex; flex-wrap: wrap; gap: 0.4rem; }
     .zoo-links a { color: #2d6a4f; border: 1px solid #d3e4d8; background: #f7fbf8; padding: 0.2rem 0.45rem; font-size: 0.78rem; text-decoration: none; }
@@ -1221,6 +1278,7 @@ function renderAnimalCards(animals: AnimalListItem[]): string {
       const title = item.canonicalName
         ? escapeHtml(item.canonicalName)
         : escapeHtml(primaryDisplayName);
+      const titleHref = primaryDisplayName ? buildZooAnimalUrl(primaryDisplayName) : buildAnimalSearchUrl(searchName);
       const taxonomyDetails = [
         ["類", item.className],
         ["目", item.orderName],
@@ -1241,7 +1299,7 @@ function renderAnimalCards(animals: AnimalListItem[]): string {
         ? `<dl class="taxonomy-details">${taxonomyDetails}</dl>`
         : `<p class="unclassified">分類未設定</p>`;
       const displayNames = item.displayNames
-        .map((displayName) => `<span>${escapeHtml(displayName)}</span>`)
+        .map((displayName) => `<a href="${buildZooAnimalUrl(displayName)}">${escapeHtml(displayName)}</a>`)
         .join("");
       const displayNamesRow =
         item.canonicalName && displayNames
@@ -1250,7 +1308,7 @@ function renderAnimalCards(animals: AnimalListItem[]): string {
 
       return `
         <article class="animal-item">
-          <h2><a href="${buildAnimalSearchUrl(searchName)}">${title}</a></h2>
+          <h2><a href="${titleHref}">${title}</a></h2>
           ${taxonomyRow}
           ${displayNamesRow}
           <p>${item.zoos.length} 施設</p>
@@ -1258,6 +1316,128 @@ function renderAnimalCards(animals: AnimalListItem[]): string {
         </article>`;
     })
     .join("\n");
+}
+
+function renderZooAnimalDetailHtml(detail: ZooAnimalDetail): string {
+  const escapedDisplayName = escapeHtml(detail.displayName);
+  const title = detail.canonicalName && detail.canonicalName !== detail.displayName
+    ? `${escapeHtml(detail.canonicalName)} | ${escapedDisplayName}`
+    : escapedDisplayName;
+  const taxonomyDetails = [
+    ["類", detail.className],
+    ["目", detail.orderName],
+    ["科", detail.familyName],
+    ["属", detail.genusName],
+    ["種", detail.speciesName],
+  ]
+    .filter((item): item is [string, string] => Boolean(item[1]))
+    .map(
+      ([label, value]) => `
+        <div>
+          <dt>${escapeHtml(label)}</dt>
+          <dd>${escapeHtml(value)}</dd>
+        </div>`
+    )
+    .join("");
+  const taxonomyPath =
+    detail.className && detail.orderName && detail.familyName && detail.genusName && detail.speciesName
+      ? buildTaxonomyPathUrl([
+          detail.className,
+          detail.orderName,
+          detail.familyName,
+          detail.genusName,
+          detail.speciesName,
+        ])
+      : null;
+  const taxonomyHtml = taxonomyDetails
+    ? `<dl class="taxonomy-details">${taxonomyDetails}</dl>`
+    : `<p class="unclassified">分類未設定</p>`;
+  const canonicalHtml =
+    detail.canonicalName && detail.canonicalName !== detail.displayName
+      ? `<p class="canonical">分類マスタ: ${escapeHtml(detail.canonicalName)}</p>`
+      : "";
+  const taxonomyLink = taxonomyPath
+    ? `<a href="${taxonomyPath}">分類ページ</a>`
+    : "";
+  const zooLinks = detail.zoos
+    .map(
+      (zoo) => `
+        <li>
+          <a href="/zoos/${zoo.id}">${escapeHtml(zoo.name)}</a>
+          <span>${escapeHtml(PREF_LABELS[zoo.prefecture])}</span>
+        </li>`
+    )
+    .join("");
+
+  return `<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title} | 近畿動物園情報</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #fff; color: #222; }
+    header { padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; }
+    header h1 { font-size: 1.5rem; overflow-wrap: anywhere; }
+    header p { font-size: 0.9rem; color: #555; margin-top: 0.25rem; }
+    .nav { display: flex; flex-wrap: wrap; gap: 1rem; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; }
+    .nav a { color: #1f5b45; text-decoration: none; font-size: 0.9rem; }
+    .nav a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    main { display: grid; gap: 1rem; padding: 1rem 1.5rem 1.5rem; max-width: 880px; }
+    section { border-top: 1px solid #ddd; padding-top: 1rem; }
+    section:first-child { border-top: 0; padding-top: 0; }
+    h2 { font-size: 1.05rem; margin-bottom: 0.75rem; }
+    .canonical { color: #555; font-size: 0.9rem; margin-bottom: 0.75rem; }
+    .taxonomy-details { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border: 1px solid #e1e1e1; }
+    .taxonomy-details div { min-width: 0; border-right: 1px solid #e1e1e1; }
+    .taxonomy-details div:last-child { border-right: 0; }
+    .taxonomy-details dt { background: #f6f8f7; color: #666; font-size: 0.72rem; padding: 0.32rem 0.4rem; border-bottom: 1px solid #e1e1e1; }
+    .taxonomy-details dd { color: #222; font-size: 0.86rem; padding: 0.45rem 0.4rem; min-height: 2.35rem; overflow-wrap: anywhere; }
+    .unclassified { color: #777; background: #f7f7f7; border: 1px solid #e1e1e1; padding: 0.55rem 0.65rem; font-size: 0.85rem; }
+    .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
+    .actions a { color: #1f5b45; border: 1px solid #d3e4d8; background: #f7fbf8; padding: 0.35rem 0.6rem; font-size: 0.82rem; text-decoration: none; }
+    .actions a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .zoo-list { display: grid; gap: 0.45rem; list-style: none; }
+    .zoo-list li { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: baseline; border: 1px solid #e1e1e1; padding: 0.65rem 0.75rem; }
+    .zoo-list a { color: #1f5b45; font-weight: bold; text-decoration: none; }
+    .zoo-list a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .zoo-list span { color: #777; font-size: 0.8rem; }
+    footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; }
+    @media (max-width: 560px) {
+      .taxonomy-details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .taxonomy-details div { border-bottom: 1px solid #e1e1e1; }
+      .taxonomy-details div:nth-child(2n) { border-right: 0; }
+      .taxonomy-details div:last-child { border-bottom: 0; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>${escapedDisplayName}</h1>
+    <p>各施設が表示している動物名ごとのページです</p>
+  </header>
+  <nav class="nav">
+    <a href="/animals">動物一覧</a>
+    <a href="/">動物園一覧</a>
+    <a href="/taxonomy">分類から探す</a>
+    <a href="${buildAnimalSearchUrl(detail.displayName)}">この名前で検索</a>
+  </nav>
+  <main>
+    <section>
+      <h2>分類</h2>
+      ${canonicalHtml}
+      ${taxonomyHtml}
+      ${taxonomyLink ? `<div class="actions">${taxonomyLink}</div>` : ""}
+    </section>
+    <section>
+      <h2>見られる施設</h2>
+      <ul class="zoo-list">${zooLinks}</ul>
+    </section>
+  </main>
+  <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
+</body>
+</html>`;
 }
 
 function renderTaxonomyHtml(sections: TaxonomyOverviewSection[]): string {
@@ -1726,6 +1906,15 @@ export default {
     if (pathname === "/animals") {
       const animals = await loadAnimalList(env.DB);
       const html = renderAnimalsHtml(animals);
+      return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+    }
+
+    // HTML: /animal/:displayName
+    if (pathname.startsWith("/animal/")) {
+      const displayName = decodeURIComponent(pathname.slice("/animal/".length));
+      const detail = await loadZooAnimalDetail(env.DB, displayName);
+      if (!detail) return notFound(`動物 '${displayName}' が見つかりません`);
+      const html = renderZooAnimalDetailHtml(detail);
       return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
     }
 

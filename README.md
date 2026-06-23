@@ -143,7 +143,14 @@ curl -X POST http://localhost:8001/api/animals/classify
 curl -X POST http://localhost:8001/api/animals/suggest-taxonomy
 ```
 
-Gemini による分類候補生成には `GEMINI_API_KEY` が必要です。本番では secret として設定します。
+Gemini による分類候補生成には `GEMINI_API_KEY` が必要です。ローカルでは `.dev.vars` に設定します。
+
+```bash
+echo 'GEMINI_API_KEY=your_api_key' > .dev.vars
+npm run dev
+```
+
+本番では secret として設定します。
 
 ```bash
 npx wrangler secret put GEMINI_API_KEY

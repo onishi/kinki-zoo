@@ -30,6 +30,8 @@
 | `GET /api/zoos/:id/animals` | D1 キャッシュ優先で動物リストを返す（`?refresh=1` で再取得・保存） |
 | `POST /api/animals/refresh` | 全動物園の動物リストを再スクレイピングして D1 に保存する |
 | `POST /api/animals/classify` | 保存済みの公式表示名を分類マスタに投入し、`zoo_animals.animal_id` を紐づける |
+| `POST /api/animals/suggest-taxonomy` | 未分類の公式表示名を Gemini + Google Search grounding で分類候補化する |
+| `GET /api/animals/taxonomy-candidates` | Gemini が作成した分類候補を JSON で返す |
 
 ### 都道府県コード
 
@@ -138,7 +140,16 @@ npm run d1:migrate:remote   # リモート D1 にマイグレーション適用
 ```bash
 curl -X POST http://localhost:8001/api/animals/refresh
 curl -X POST http://localhost:8001/api/animals/classify
+curl -X POST http://localhost:8001/api/animals/suggest-taxonomy
 ```
+
+Gemini による分類候補生成には `GEMINI_API_KEY` が必要です。本番では secret として設定します。
+
+```bash
+npx wrangler secret put GEMINI_API_KEY
+```
+
+`/api/animals/suggest-taxonomy` は `animals` へ直接投入せず、`animal_taxonomy_candidates` に候補として保存します。種まで断定できない表示名は `NULL` 候補として残し、人間が確認してから採用する想定です。
 
 本番では `wrangler.toml` の cron により毎日自動更新します。
 

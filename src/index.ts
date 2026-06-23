@@ -63,6 +63,23 @@ interface ClassifyResult {
   masterRows: number;
 }
 
+interface TaxonomyCandidate {
+  displayName: string;
+  canonicalName: string | null;
+  className: string | null;
+  orderName: string | null;
+  familyName: string | null;
+  genusName: string | null;
+  speciesName: string | null;
+  confidence: number;
+  reason: string;
+  sources: Array<{ title?: string; url: string }>;
+}
+
+interface GeminiSuggestionResponse {
+  candidates: TaxonomyCandidate[];
+}
+
 type TaxonomyRank = "class" | "order" | "family" | "genus" | "species";
 
 interface TaxonomyRankConfig {
@@ -93,6 +110,8 @@ const TAXONOMY_RANKS: TaxonomyRankConfig[] = [
   { key: "genus", label: "属", column: "genus_name" },
   { key: "species", label: "種", column: "species_name" },
 ];
+
+const GEMINI_TAXONOMY_MODEL = "gemini-3.5-flash";
 
 function isPrefectureCode(value: string): value is PrefectureCode {
   return PREF_CODES.includes(value as PrefectureCode);
@@ -135,6 +154,114 @@ function normalizeAnimalNameForSearch(value: string): string {
 
 function uniqueTaxonomies(taxonomies: AnimalTaxonomy[]): AnimalTaxonomy[] {
   return [...new Map(taxonomies.map((taxonomy) => [taxonomy.id, taxonomy])).values()];
+}
+
+function clampConfidence(value: unknown): number {
+  if (typeof value !== "number" || Number.isNaN(value)) return 0;
+  return Math.max(0, Math.min(1, value));
+}
+
+function extractJsonObject(text: string): string {
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced) return fenced[1].trim();
+
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start >= 0 && end > start) return text.slice(start, end + 1);
+  return text;
+}
+
+function extractGeminiOutputText(response: unknown): string {
+  const data = response as {
+    output_text?: unknown;
+    outputText?: unknown;
+    steps?: Array<{
+      type?: string;
+      content?: Array<{ type?: string; text?: unknown }>;
+    }>;
+  };
+
+  if (typeof data.output_text === "string") return data.output_text;
+  if (typeof data.outputText === "string") return data.outputText;
+
+  const modelOutput = data.steps?.find((step) => step.type === "model_output");
+  const textBlock = modelOutput?.content?.find((block) => block.type === "text");
+  return typeof textBlock?.text === "string" ? textBlock.text : "";
+}
+
+function extractGeminiCitations(response: unknown): Array<{ title?: string; url: string }> {
+  const data = response as {
+    steps?: Array<{
+      type?: string;
+      content?: Array<{
+        type?: string;
+        annotations?: Array<{ type?: string; title?: unknown; url?: unknown }>;
+      }>;
+    }>;
+  };
+
+  const citations = new Map<string, { title?: string; url: string }>();
+  for (const step of data.steps ?? []) {
+    if (step.type !== "model_output") continue;
+    for (const block of step.content ?? []) {
+      if (block.type !== "text") continue;
+      for (const annotation of block.annotations ?? []) {
+        if (annotation.type !== "url_citation" || typeof annotation.url !== "string") continue;
+        citations.set(annotation.url, {
+          url: annotation.url,
+          title: typeof annotation.title === "string" ? annotation.title : undefined,
+        });
+      }
+    }
+  }
+  return [...citations.values()];
+}
+
+function parseGeminiSuggestionResponse(text: string): GeminiSuggestionResponse {
+  const parsed = JSON.parse(extractJsonObject(text)) as GeminiSuggestionResponse;
+  if (!Array.isArray(parsed.candidates)) {
+    throw new Error("Gemini response does not contain candidates");
+  }
+
+  return {
+    candidates: parsed.candidates.map((candidate) => ({
+      displayName: String(candidate.displayName ?? ""),
+      canonicalName: candidate.canonicalName ? String(candidate.canonicalName) : null,
+      className: candidate.className ? String(candidate.className) : null,
+      orderName: candidate.orderName ? String(candidate.orderName) : null,
+      familyName: candidate.familyName ? String(candidate.familyName) : null,
+      genusName: candidate.genusName ? String(candidate.genusName) : null,
+      speciesName: candidate.speciesName ? String(candidate.speciesName) : null,
+      confidence: clampConfidence(candidate.confidence),
+      reason: candidate.reason ? String(candidate.reason) : "",
+      sources: Array.isArray(candidate.sources)
+        ? candidate.sources
+            .filter((source) => source && typeof source.url === "string")
+            .map((source) => ({
+              url: source.url,
+              title: typeof source.title === "string" ? source.title : undefined,
+            }))
+        : [],
+    })),
+  };
+}
+
+function parseSourcesJson(value: string | null): Array<{ title?: string; url: string }> {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((source): source is { title?: string; url: string } => {
+        return typeof source === "object" && source !== null && typeof (source as { url?: unknown }).url === "string";
+      })
+      .map((source) => ({
+        url: source.url,
+        title: typeof source.title === "string" ? source.title : undefined,
+      }));
+  } catch {
+    return [];
+  }
 }
 
 function buildSearchResult(zoo: Zoo): ZooSearchResult {
@@ -373,6 +500,216 @@ async function loadTaxonomyAnimals(
     .all<AnimalListRow>();
 
   return buildAnimalListItems(result.results ?? []);
+}
+
+async function loadUnclassifiedDisplayNames(db: D1Database, limit: number): Promise<string[]> {
+  const result = await db
+    .prepare(
+      `SELECT DISTINCT za.display_name
+       FROM zoo_animals za
+       LEFT JOIN animal_taxonomy_candidates c ON c.display_name = za.display_name
+       WHERE za.animal_id IS NULL
+         AND c.display_name IS NULL
+       ORDER BY za.display_name
+       LIMIT ?`
+    )
+    .bind(limit)
+    .all<{ display_name: string }>();
+
+  return (result.results ?? []).map((row) => row.display_name);
+}
+
+async function saveTaxonomyCandidates(
+  db: D1Database,
+  candidates: TaxonomyCandidate[],
+  model: string,
+  fallbackSources: Array<{ title?: string; url: string }>
+): Promise<void> {
+  if (candidates.length === 0) return;
+
+  const now = new Date().toISOString();
+  await db.batch(
+    candidates.map((candidate) => {
+      const sources = candidate.sources.length > 0 ? candidate.sources : fallbackSources;
+      return db
+        .prepare(
+          `INSERT INTO animal_taxonomy_candidates (
+             display_name,
+             canonical_name,
+             class_name,
+             order_name,
+             family_name,
+             genus_name,
+             species_name,
+             confidence,
+             reason,
+             sources_json,
+             status,
+             model,
+             grounded_at,
+             created_at,
+             updated_at
+           )
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
+           ON CONFLICT(display_name) DO UPDATE SET
+             canonical_name = excluded.canonical_name,
+             class_name = excluded.class_name,
+             order_name = excluded.order_name,
+             family_name = excluded.family_name,
+             genus_name = excluded.genus_name,
+             species_name = excluded.species_name,
+             confidence = excluded.confidence,
+             reason = excluded.reason,
+             sources_json = excluded.sources_json,
+             status = 'pending',
+             model = excluded.model,
+             grounded_at = excluded.grounded_at,
+             updated_at = excluded.updated_at`
+        )
+        .bind(
+          candidate.displayName,
+          candidate.canonicalName,
+          candidate.className,
+          candidate.orderName,
+          candidate.familyName,
+          candidate.genusName,
+          candidate.speciesName,
+          candidate.confidence,
+          candidate.reason,
+          JSON.stringify(sources),
+          model,
+          now,
+          now,
+          now
+        );
+    })
+  );
+}
+
+async function loadTaxonomyCandidates(db: D1Database): Promise<unknown[]> {
+  const result = await db
+    .prepare(
+      `SELECT
+         display_name,
+         canonical_name,
+         class_name,
+         order_name,
+         family_name,
+         genus_name,
+         species_name,
+         confidence,
+         reason,
+         sources_json,
+         status,
+         model,
+         grounded_at,
+         updated_at
+       FROM animal_taxonomy_candidates
+       ORDER BY status, confidence DESC, display_name`
+    )
+    .all<{
+      display_name: string;
+      canonical_name: string | null;
+      class_name: string | null;
+      order_name: string | null;
+      family_name: string | null;
+      genus_name: string | null;
+      species_name: string | null;
+      confidence: number;
+      reason: string | null;
+      sources_json: string | null;
+      status: string;
+      model: string;
+      grounded_at: string;
+      updated_at: string;
+    }>();
+
+  return (result.results ?? []).map((row) => ({
+    displayName: row.display_name,
+    canonicalName: row.canonical_name,
+    className: row.class_name,
+    orderName: row.order_name,
+    familyName: row.family_name,
+    genusName: row.genus_name,
+    speciesName: row.species_name,
+    confidence: row.confidence,
+    reason: row.reason,
+    sources: parseSourcesJson(row.sources_json),
+    status: row.status,
+    model: row.model,
+    groundedAt: row.grounded_at,
+    updatedAt: row.updated_at,
+  }));
+}
+
+function buildTaxonomySuggestionPrompt(displayNames: string[]): string {
+  return `あなたは動物園の動物表示名を分類する補助システムです。
+Google Search で確認しながら、次の日本語の動物表示名を分類してください。
+
+重要なルール:
+- 種まで特定できる場合だけ genusName と speciesName を入れる。
+- 表示名が総称、品種、展示名、愛称、または種まで断定できない場合は canonicalName/className/orderName/familyName/genusName/speciesName をすべて null にする。
+- 無理に推測しない。曖昧なら null にする。
+- confidence は 0 から 1。種まで確認できた場合だけ 0.8 以上にする。
+- 出力は JSON のみ。Markdown や説明文を付けない。
+- sources には分類判断に使った URL を入れる。
+
+JSON schema:
+{
+  "candidates": [
+    {
+      "displayName": "入力表示名",
+      "canonicalName": "代表和名または null",
+      "className": "類または null",
+      "orderName": "目または null",
+      "familyName": "科または null",
+      "genusName": "属または null",
+      "speciesName": "種または null",
+      "confidence": 0.0,
+      "reason": "短い判断理由",
+      "sources": [{"title": "source title", "url": "https://..."}]
+    }
+  ]
+}
+
+対象:
+${displayNames.map((name) => `- ${name}`).join("\n")}`;
+}
+
+async function suggestTaxonomyWithGemini(
+  apiKey: string,
+  displayNames: string[]
+): Promise<{ candidates: TaxonomyCandidate[]; sources: Array<{ title?: string; url: string }>; rawText: string }> {
+  const response = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": apiKey,
+    },
+    body: JSON.stringify({
+      model: GEMINI_TAXONOMY_MODEL,
+      input: buildTaxonomySuggestionPrompt(displayNames),
+      tools: [{ type: "google_search" }],
+    }),
+  });
+
+  const responseText = await response.text();
+  if (!response.ok) {
+    throw new Error(`Gemini API error ${response.status}: ${responseText.slice(0, 500)}`);
+  }
+
+  const data = JSON.parse(responseText) as unknown;
+  const rawText = extractGeminiOutputText(data);
+  if (!rawText) {
+    throw new Error("Gemini response did not include output text");
+  }
+
+  const parsed = parseGeminiSuggestionResponse(rawText);
+  return {
+    candidates: parsed.candidates.filter((candidate) => displayNames.includes(candidate.displayName)),
+    sources: extractGeminiCitations(data),
+    rawText,
+  };
 }
 
 async function upsertAnimalMasters(db: D1Database, taxonomies: AnimalTaxonomy[]): Promise<void> {
@@ -680,6 +1017,22 @@ function buildTaxonomyUrl(levels: TaxonomyPathLevel[], value: string): string {
   return buildTaxonomyPathUrl([...levels.map((level) => level.value), value]);
 }
 
+function renderTaxonomyBreadcrumb(levels: TaxonomyPathLevel[]): string {
+  const crumbs = [
+    `<a href="/taxonomy">分類一覧</a>`,
+    ...levels.map((level, index) => {
+      const label = `${level.rank.label}: ${level.value}`;
+      if (index === levels.length - 1) {
+        return `<span aria-current="page">${escapeHtml(label)}</span>`;
+      }
+      const href = buildTaxonomyPathUrl(levels.slice(0, index + 1).map((item) => item.value));
+      return `<a href="${href}">${escapeHtml(label)}</a>`;
+    }),
+  ];
+
+  return `<nav class="breadcrumb" aria-label="パンくず">${crumbs.join("<span>/</span>")}</nav>`;
+}
+
 function renderPrefTab(
   code: PrefectureCode,
   label: string,
@@ -984,6 +1337,7 @@ function renderTaxonomyDetailHtml(
   const { rank, value } = current;
   const escapedValue = escapeHtml(value);
   const items = renderAnimalCards(animals);
+  const breadcrumb = renderTaxonomyBreadcrumb(levels);
   const childLinks =
     childSection && childSection.values.length > 0
       ? childSection.values
@@ -1020,6 +1374,10 @@ function renderTaxonomyDetailHtml(
     .nav { display: flex; flex-wrap: wrap; gap: 1rem; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; }
     .nav a { color: #1f5b45; text-decoration: none; font-size: 0.9rem; }
     .nav a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .breadcrumb { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; padding: 0.65rem 1.5rem; border-bottom: 1px solid #e5e5e5; color: #777; font-size: 0.78rem; }
+    .breadcrumb a { color: #1f5b45; text-decoration: none; }
+    .breadcrumb a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .breadcrumb span[aria-current="page"] { color: #333; font-weight: bold; overflow-wrap: anywhere; }
     .summary { padding: 0.75rem 1.5rem; font-size: 0.9rem; color: #666; }
     .child-taxonomy { padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; }
     .child-taxonomy h2 { font-size: 1.05rem; margin-bottom: 0.75rem; }
@@ -1065,6 +1423,7 @@ function renderTaxonomyDetailHtml(
     <a href="/animals">動物一覧</a>
     <a href="/">動物園一覧</a>
   </nav>
+  ${breadcrumb}
   <p class="summary">${escapeHtml(rank.label)}: ${escapedValue} / 動物: ${animals.length} 件</p>
   ${childSectionHtml}
   ${animals.length > 0 ? `<div class="animal-list">${items}</div>` : `<p class="empty">該当する動物がありません。</p>`}
@@ -1307,6 +1666,60 @@ export default {
       }
       const result = await classifyCachedZooAnimals(env.DB);
       return jsonResponse(result);
+    }
+
+    // JSON API: suggest taxonomy candidates with Gemini grounding
+    if (pathname === "/api/animals/suggest-taxonomy") {
+      if (request.method !== "POST") {
+        return jsonResponse({ error: "POST を使用してください" }, 405);
+      }
+      if (!env.GEMINI_API_KEY) {
+        return jsonResponse({ error: "GEMINI_API_KEY が設定されていません" }, 500);
+      }
+
+      const body = (await request.json().catch(() => ({}))) as {
+        displayNames?: unknown;
+        limit?: unknown;
+      };
+      const requestedNames = Array.isArray(body.displayNames)
+        ? body.displayNames.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+        : [];
+      const limit =
+        typeof body.limit === "number" && Number.isFinite(body.limit)
+          ? Math.max(1, Math.min(20, Math.floor(body.limit)))
+          : 10;
+      const displayNames =
+        requestedNames.length > 0
+          ? [...new Set(requestedNames.map((name) => name.trim()))].slice(0, 20)
+          : await loadUnclassifiedDisplayNames(env.DB, limit);
+
+      if (displayNames.length === 0) {
+        return jsonResponse({ suggested: 0, candidates: [] });
+      }
+
+      const suggestion = await suggestTaxonomyWithGemini(env.GEMINI_API_KEY, displayNames);
+      await saveTaxonomyCandidates(
+        env.DB,
+        suggestion.candidates,
+        GEMINI_TAXONOMY_MODEL,
+        suggestion.sources
+      );
+
+      return jsonResponse({
+        requested: displayNames.length,
+        suggested: suggestion.candidates.length,
+        candidates: suggestion.candidates,
+        groundingSources: suggestion.sources,
+      });
+    }
+
+    // JSON API: list taxonomy candidates
+    if (pathname === "/api/animals/taxonomy-candidates") {
+      if (request.method !== "GET") {
+        return jsonResponse({ error: "GET を使用してください" }, 405);
+      }
+      const candidates = await loadTaxonomyCandidates(env.DB);
+      return jsonResponse({ candidates });
     }
 
     // HTML: /animals

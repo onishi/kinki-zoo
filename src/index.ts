@@ -92,7 +92,7 @@ interface GeminiSuggestionResponse {
 }
 
 interface TaxonomyCandidateApplyResult {
-  status: "applied" | "rejected";
+  status: "applied" | "partial" | "rejected";
   candidate: TaxonomyCandidate;
 }
 
@@ -220,6 +220,24 @@ function isApplicableTaxonomyCandidate(candidate: TaxonomyCandidate): boolean {
       !containsLatinLetters(candidate.genusName) &&
       !containsLatinLetters(candidate.speciesName) &&
       APPLICABLE_CLASS_NAMES.has(candidate.className)
+  );
+}
+
+function hasUsablePartialTaxonomyCandidate(candidate: TaxonomyCandidate): boolean {
+  const values = [
+    candidate.canonicalName,
+    candidate.className,
+    candidate.orderName,
+    candidate.familyName,
+    candidate.genusName,
+    candidate.speciesName,
+  ];
+  return Boolean(
+    candidate.confidence >= 0.8 &&
+      candidate.className &&
+      APPLICABLE_CLASS_NAMES.has(candidate.className) &&
+      values.some(Boolean) &&
+      values.every((value) => !containsLatinLetters(value))
   );
 }
 
@@ -477,14 +495,42 @@ async function loadZooAnimalDetail(db: D1Database, displayName: string): Promise
 
   const zooById = new Map(zoos.map((zoo) => [zoo.id, zoo]));
   const taxonomicRow = rows.find((row) => row.animal_id) ?? rows[0];
+  const candidate =
+    taxonomicRow.animal_id
+      ? null
+      : await db
+          .prepare(
+            `SELECT
+               canonical_name,
+               class_name,
+               order_name,
+               family_name,
+               genus_name,
+               species_name
+             FROM animal_taxonomy_candidates
+             WHERE display_name = ?
+               AND status IN ('partial', 'pending')
+               AND confidence >= 0.8
+             ORDER BY updated_at DESC
+             LIMIT 1`
+          )
+          .bind(displayName)
+          .first<{
+            canonical_name: string | null;
+            class_name: string | null;
+            order_name: string | null;
+            family_name: string | null;
+            genus_name: string | null;
+            species_name: string | null;
+          }>();
   return {
     displayName,
-    canonicalName: taxonomicRow.canonical_name ?? undefined,
-    className: taxonomicRow.class_name ?? undefined,
-    orderName: taxonomicRow.order_name ?? undefined,
-    familyName: taxonomicRow.family_name ?? undefined,
-    genusName: taxonomicRow.genus_name ?? undefined,
-    speciesName: taxonomicRow.species_name ?? undefined,
+    canonicalName: taxonomicRow.canonical_name ?? candidate?.canonical_name ?? undefined,
+    className: taxonomicRow.class_name ?? candidate?.class_name ?? undefined,
+    orderName: taxonomicRow.order_name ?? candidate?.order_name ?? undefined,
+    familyName: taxonomicRow.family_name ?? candidate?.family_name ?? undefined,
+    genusName: taxonomicRow.genus_name ?? candidate?.genus_name ?? undefined,
+    speciesName: taxonomicRow.species_name ?? candidate?.species_name ?? undefined,
     zoos: rows.flatMap((row) => {
       const zoo = zooById.get(row.zoo_id);
       return zoo ? [zoo] : [];
@@ -832,15 +878,17 @@ async function applyTaxonomyCandidate(
   const now = new Date().toISOString();
 
   if (!isApplicableTaxonomyCandidate(normalized)) {
+    const status = hasUsablePartialTaxonomyCandidate(normalized) ? "partial" : "rejected";
     await db.batch([
       db
         .prepare(
           `UPDATE animal_taxonomy_candidates
-           SET status = 'rejected',
+           SET status = ?,
+               class_name = ?,
                updated_at = ?
            WHERE display_name = ?`
         )
-        .bind(now, normalized.displayName),
+        .bind(status, normalized.className, now, normalized.displayName),
       db
         .prepare(
           `UPDATE zoo_animals
@@ -849,7 +897,7 @@ async function applyTaxonomyCandidate(
         )
         .bind(normalized.displayName),
     ]);
-    return { status: "rejected", candidate: normalized };
+    return { status, candidate: normalized };
   }
 
   const canonicalName = normalized.canonicalName;
@@ -2093,8 +2141,10 @@ export default {
       const notice =
         llmStatus === "applied"
           ? "LLM分類を反映しました。"
+          : llmStatus === "partial"
+            ? "LLM分類を実行し、確認できた範囲の分類を反映しました。"
           : llmStatus === "rejected"
-            ? "LLM分類を実行しましたが、種まで確定できないため分類未設定にしました。"
+            ? "LLM分類を実行しましたが、分類を確定できませんでした。"
             : llmStatus === "missing-key"
               ? "GEMINI_API_KEY が設定されていないため、LLM分類を実行できません。"
               : llmStatus === "no-candidate"

@@ -200,6 +200,10 @@ function normalizeTaxonomyCandidate(candidate: TaxonomyCandidate): TaxonomyCandi
   };
 }
 
+function containsLatinLetters(value: string | null): boolean {
+  return typeof value === "string" && /[A-Za-z]/.test(value);
+}
+
 function isApplicableTaxonomyCandidate(candidate: TaxonomyCandidate): boolean {
   return Boolean(
     candidate.confidence >= 0.8 &&
@@ -209,6 +213,12 @@ function isApplicableTaxonomyCandidate(candidate: TaxonomyCandidate): boolean {
       candidate.familyName &&
       candidate.genusName &&
       candidate.speciesName &&
+      !containsLatinLetters(candidate.canonicalName) &&
+      !containsLatinLetters(candidate.className) &&
+      !containsLatinLetters(candidate.orderName) &&
+      !containsLatinLetters(candidate.familyName) &&
+      !containsLatinLetters(candidate.genusName) &&
+      !containsLatinLetters(candidate.speciesName) &&
       APPLICABLE_CLASS_NAMES.has(candidate.className)
   );
 }
@@ -742,6 +752,11 @@ Google Search で確認しながら、次の日本語の動物表示名を分類
 重要なルール:
 - 種まで特定できる場合だけ genusName と speciesName を入れる。
 - 表示名が総称、品種、展示名、愛称、または種まで断定できない場合は canonicalName/className/orderName/familyName/genusName/speciesName をすべて null にする。
+- canonicalName/className/orderName/familyName/genusName/speciesName は必ず日本語表記にする。
+- genusName は「ヒョウ属」「カモメ属」のような日本語の属名だけを入れる。Panthera、Larus、Centrochelys、sulcata などの学名・英字・ローマ字は絶対に入れない。
+- speciesName は「ユキヒョウ」「ウミネコ」のような日本語の種名だけを入れる。学名や種小名しか確認できない場合は null にする。
+- className は「哺乳類」「鳥類」「爬虫類」「両生類」「魚類」「昆虫類」など利用者向けの日本語分類名にする。「哺乳綱」「鳥綱」「爬虫綱」「両生綱」は使わない。
+- 日本語の属名または日本語の種名が確認できない場合は、該当項目だけでなく canonicalName/className/orderName/familyName/genusName/speciesName をすべて null にする。
 - 無理に推測しない。曖昧なら null にする。
 - confidence は 0 から 1。種まで確認できた場合だけ 0.8 以上にする。
 - 出力は JSON のみ。Markdown や説明文を付けない。

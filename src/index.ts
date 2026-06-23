@@ -127,7 +127,7 @@ const TAXONOMY_RANKS: TaxonomyRankConfig[] = [
   { key: "species", label: "種", column: "species_name" },
 ];
 
-const GEMINI_TAXONOMY_MODEL = "gemini-3.5-flash";
+const GEMINI_TAXONOMY_MODEL = "gemini-2.5-flash-lite";
 const APPLICABLE_CLASS_NAMES = new Set(["哺乳類", "鳥類", "爬虫類", "両生類", "魚類", "昆虫類", "節足動物", "軟体動物"]);
 
 function isPrefectureCode(value: string): value is PrefectureCode {

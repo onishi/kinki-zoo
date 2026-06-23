@@ -91,6 +91,11 @@ interface GeminiSuggestionResponse {
   candidates: TaxonomyCandidate[];
 }
 
+interface TaxonomyCandidateApplyResult {
+  status: "applied" | "rejected";
+  candidate: TaxonomyCandidate;
+}
+
 type TaxonomyRank = "class" | "order" | "family" | "genus" | "species";
 
 interface TaxonomyRankConfig {
@@ -123,6 +128,7 @@ const TAXONOMY_RANKS: TaxonomyRankConfig[] = [
 ];
 
 const GEMINI_TAXONOMY_MODEL = "gemini-3.5-flash";
+const APPLICABLE_CLASS_NAMES = new Set(["哺乳類", "鳥類", "爬虫類", "両生類", "魚類", "昆虫類", "節足動物", "軟体動物"]);
 
 function isPrefectureCode(value: string): value is PrefectureCode {
   return PREF_CODES.includes(value as PrefectureCode);
@@ -170,6 +176,41 @@ function uniqueTaxonomies(taxonomies: AnimalTaxonomy[]): AnimalTaxonomy[] {
 function clampConfidence(value: unknown): number {
   if (typeof value !== "number" || Number.isNaN(value)) return 0;
   return Math.max(0, Math.min(1, value));
+}
+
+function normalizeClassName(value: string | null): string | null {
+  switch (value) {
+    case "哺乳綱":
+      return "哺乳類";
+    case "鳥綱":
+      return "鳥類";
+    case "爬虫綱":
+      return "爬虫類";
+    case "両生綱":
+      return "両生類";
+    default:
+      return value;
+  }
+}
+
+function normalizeTaxonomyCandidate(candidate: TaxonomyCandidate): TaxonomyCandidate {
+  return {
+    ...candidate,
+    className: normalizeClassName(candidate.className),
+  };
+}
+
+function isApplicableTaxonomyCandidate(candidate: TaxonomyCandidate): boolean {
+  return Boolean(
+    candidate.confidence >= 0.8 &&
+      candidate.canonicalName &&
+      candidate.className &&
+      candidate.orderName &&
+      candidate.familyName &&
+      candidate.genusName &&
+      candidate.speciesName &&
+      APPLICABLE_CLASS_NAMES.has(candidate.className)
+  );
 }
 
 function extractJsonObject(text: string): string {
@@ -758,10 +799,84 @@ async function suggestTaxonomyWithGemini(
 
   const parsed = parseGeminiSuggestionResponse(rawText);
   return {
-    candidates: parsed.candidates.filter((candidate) => displayNames.includes(candidate.displayName)),
+    candidates: parsed.candidates
+      .filter((candidate) => displayNames.includes(candidate.displayName))
+      .map(normalizeTaxonomyCandidate),
     sources: extractGeminiCitations(data),
     rawText,
   };
+}
+
+async function applyTaxonomyCandidate(
+  db: D1Database,
+  candidate: TaxonomyCandidate
+): Promise<TaxonomyCandidateApplyResult> {
+  const normalized = normalizeTaxonomyCandidate(candidate);
+  const now = new Date().toISOString();
+
+  if (!isApplicableTaxonomyCandidate(normalized)) {
+    await db.batch([
+      db
+        .prepare(
+          `UPDATE animal_taxonomy_candidates
+           SET status = 'rejected',
+               updated_at = ?
+           WHERE display_name = ?`
+        )
+        .bind(now, normalized.displayName),
+      db
+        .prepare(
+          `UPDATE zoo_animals
+           SET animal_id = NULL
+           WHERE display_name = ?`
+        )
+        .bind(normalized.displayName),
+    ]);
+    return { status: "rejected", candidate: normalized };
+  }
+
+  const canonicalName = normalized.canonicalName;
+  const className = normalized.className;
+  const orderName = normalized.orderName;
+  const familyName = normalized.familyName;
+  const genusName = normalized.genusName;
+  const speciesName = normalized.speciesName;
+  if (!canonicalName || !className || !orderName || !familyName || !genusName || !speciesName) {
+    return { status: "rejected", candidate: normalized };
+  }
+
+  const taxonomy: AnimalTaxonomy = {
+    id: `gemini:${canonicalName}`,
+    canonicalName,
+    className,
+    orderName,
+    familyName,
+    genusName,
+    speciesName,
+    notes: "Gemini web grounding候補から投入",
+  };
+
+  await upsertAnimalMasters(db, [taxonomy]);
+  await db.batch([
+    db
+      .prepare(
+        `UPDATE zoo_animals
+         SET animal_id = ?
+         WHERE display_name = ?`
+      )
+      .bind(taxonomy.id, normalized.displayName),
+    db
+      .prepare(
+        `UPDATE animal_taxonomy_candidates
+         SET status = 'applied',
+             class_name = ?,
+             updated_at = ?
+         WHERE display_name = ?`
+      )
+      .bind(normalized.className, now, normalized.displayName),
+  ]);
+
+  return { status: "applied", candidate: normalized };
 }
 
 async function upsertAnimalMasters(db: D1Database, taxonomies: AnimalTaxonomy[]): Promise<void> {
@@ -1318,7 +1433,7 @@ function renderAnimalCards(animals: AnimalListItem[]): string {
     .join("\n");
 }
 
-function renderZooAnimalDetailHtml(detail: ZooAnimalDetail): string {
+function renderZooAnimalDetailHtml(detail: ZooAnimalDetail, notice?: string): string {
   const escapedDisplayName = escapeHtml(detail.displayName);
   const title = detail.canonicalName && detail.canonicalName !== detail.displayName
     ? `${escapeHtml(detail.canonicalName)} | ${escapedDisplayName}`
@@ -1359,6 +1474,14 @@ function renderZooAnimalDetailHtml(detail: ZooAnimalDetail): string {
   const taxonomyLink = taxonomyPath
     ? `<a href="${taxonomyPath}">分類ページ</a>`
     : "";
+  const noticeHtml = notice
+    ? `<p class="notice">${escapeHtml(notice)}</p>`
+    : "";
+  const classifyAction = `${buildZooAnimalUrl(detail.displayName)}/classify`;
+  const classifyForm = `
+    <form class="classify-form" action="${classifyAction}" method="post">
+      <button type="submit">LLMで分類しなおす</button>
+    </form>`;
   const zooLinks = detail.zoos
     .map(
       (zoo) => `
@@ -1395,9 +1518,13 @@ function renderZooAnimalDetailHtml(detail: ZooAnimalDetail): string {
     .taxonomy-details dt { background: #f6f8f7; color: #666; font-size: 0.72rem; padding: 0.32rem 0.4rem; border-bottom: 1px solid #e1e1e1; }
     .taxonomy-details dd { color: #222; font-size: 0.86rem; padding: 0.45rem 0.4rem; min-height: 2.35rem; overflow-wrap: anywhere; }
     .unclassified { color: #777; background: #f7f7f7; border: 1px solid #e1e1e1; padding: 0.55rem 0.65rem; font-size: 0.85rem; }
+    .notice { border: 1px solid #cfe5d8; background: #f5fbf7; color: #244d37; padding: 0.6rem 0.75rem; font-size: 0.86rem; }
     .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
     .actions a { color: #1f5b45; border: 1px solid #d3e4d8; background: #f7fbf8; padding: 0.35rem 0.6rem; font-size: 0.82rem; text-decoration: none; }
     .actions a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .classify-form { margin-top: 0.75rem; }
+    .classify-form button { border: 1px solid #1f5b45; background: #1f5b45; color: #fff; padding: 0.48rem 0.8rem; font-size: 0.86rem; cursor: pointer; }
+    .classify-form button:hover { background: #174533; }
     .zoo-list { display: grid; gap: 0.45rem; list-style: none; }
     .zoo-list li { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: baseline; border: 1px solid #e1e1e1; padding: 0.65rem 0.75rem; }
     .zoo-list a { color: #1f5b45; font-weight: bold; text-decoration: none; }
@@ -1424,11 +1551,13 @@ function renderZooAnimalDetailHtml(detail: ZooAnimalDetail): string {
     <a href="${buildAnimalSearchUrl(detail.displayName)}">この名前で検索</a>
   </nav>
   <main>
+    ${noticeHtml}
     <section>
       <h2>分類</h2>
       ${canonicalHtml}
       ${taxonomyHtml}
       ${taxonomyLink ? `<div class="actions">${taxonomyLink}</div>` : ""}
+      ${classifyForm}
     </section>
     <section>
       <h2>見られる施設</h2>
@@ -1910,11 +2039,53 @@ export default {
     }
 
     // HTML: /animal/:displayName
+    const animalClassifyMatch = pathname.match(/^\/animal\/(.+)\/classify$/);
+    if (animalClassifyMatch) {
+      if (request.method !== "POST") {
+        return jsonResponse({ error: "POST を使用してください" }, 405);
+      }
+      const displayName = decodeURIComponent(animalClassifyMatch[1]);
+      const detail = await loadZooAnimalDetail(env.DB, displayName);
+      if (!detail) return notFound(`動物 '${displayName}' が見つかりません`);
+      const redirectTo = (status: string) =>
+        Response.redirect(`${url.origin}${buildZooAnimalUrl(displayName)}?llm=${encodeURIComponent(status)}`, 303);
+
+      if (!env.GEMINI_API_KEY) {
+        return redirectTo("missing-key");
+      }
+
+      try {
+        const suggestion = await suggestTaxonomyWithGemini(env.GEMINI_API_KEY, [displayName]);
+        await saveTaxonomyCandidates(env.DB, suggestion.candidates, GEMINI_TAXONOMY_MODEL, suggestion.sources);
+        const candidate = suggestion.candidates.find((item) => item.displayName === displayName);
+        if (!candidate) return redirectTo("no-candidate");
+
+        const result = await applyTaxonomyCandidate(env.DB, candidate);
+        return redirectTo(result.status);
+      } catch (error) {
+        console.error(error);
+        return redirectTo("error");
+      }
+    }
+
     if (pathname.startsWith("/animal/")) {
       const displayName = decodeURIComponent(pathname.slice("/animal/".length));
       const detail = await loadZooAnimalDetail(env.DB, displayName);
       if (!detail) return notFound(`動物 '${displayName}' が見つかりません`);
-      const html = renderZooAnimalDetailHtml(detail);
+      const llmStatus = url.searchParams.get("llm");
+      const notice =
+        llmStatus === "applied"
+          ? "LLM分類を反映しました。"
+          : llmStatus === "rejected"
+            ? "LLM分類を実行しましたが、種まで確定できないため分類未設定にしました。"
+            : llmStatus === "missing-key"
+              ? "GEMINI_API_KEY が設定されていないため、LLM分類を実行できません。"
+              : llmStatus === "no-candidate"
+                ? "LLM分類結果にこの表示名の候補がありませんでした。"
+                : llmStatus === "error"
+                  ? "LLM分類でエラーが発生しました。"
+                  : undefined;
+      const html = renderZooAnimalDetailHtml(detail, notice);
       return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
     }
 

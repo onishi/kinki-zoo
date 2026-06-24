@@ -480,13 +480,7 @@ function buildAnimalListItems(rows: AnimalListRow[]): AnimalListItem[] {
 async function loadAnimalList(db: D1Database, filter: AnimalListFilter = "all"): Promise<AnimalListItem[]> {
   const where =
     filter === "unclassified"
-      ? `WHERE a.id IS NULL
-           AND NULLIF(c.canonical_name, 'null') IS NULL
-           AND NULLIF(c.class_name, 'null') IS NULL
-           AND NULLIF(c.order_name, 'null') IS NULL
-           AND NULLIF(c.family_name, 'null') IS NULL
-           AND NULLIF(c.genus_name, 'null') IS NULL
-           AND NULLIF(c.species_name, 'null') IS NULL`
+      ? "WHERE a.id IS NULL"
       : "";
   const result = await db
     .prepare(

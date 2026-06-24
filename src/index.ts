@@ -1704,7 +1704,7 @@ function renderAnimalCards(animals: AnimalListItem[]): string {
       const displayNamesRow =
         item.canonicalName && displayNames
           ? `<div class="display-names"><b>公式表示</b>${displayNames}</div>`
-          : `<span>-</span>`;
+          : "-";
 
       return `
         <tr>

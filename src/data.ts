@@ -19,8 +19,8 @@ const curatedZoos: Zoo[] = [
   },
   {
     id: "ikeda-zoo",
-    name: "池田市立こども動物園",
-    nameKana: "いけだしりつこどもどうぶつえん",
+    name: "五月山動物園",
+    nameKana: "さつきやまどうぶつえん",
     prefecture: "osaka",
     address: "大阪府池田市綾羽2-5-33",
     lat: 34.8168,

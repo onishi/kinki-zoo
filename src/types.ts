@@ -4,6 +4,7 @@ export type PrefectureCode =
   | "hyogo"
   | "nara"
   | "shiga"
+  | "mie"
   | "wakayama";
 
 export interface Zoo {

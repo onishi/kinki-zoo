@@ -58,11 +58,29 @@ const SCRAPER_CONFIGS: Record<string, ZooScraperConfig> = {
     minLength: 2,
     maxLength: 20,
   },
+  "kobe-animal-kingdom": {
+    animalsUrl: "https://www.kobe-oukoku.com/animals",
+    nameSelector: "main h3",
+    htmlTextPattern: '\\\\"name\\\\":\\\\"([^"\\\\]+)\\\\"',
+    minLength: 2,
+    maxLength: 30,
+  },
   "himeji-zoo": {
     animalsUrl: "https://www.city.himeji.lg.jp/dobutuen/0000007334.html",
     nameSelector: "#tmp_contents td",
     breakSelector: "#tmp_contents td br",
     htmlTextPattern: ">([^<>\\n]+?)<br\\s*/?>",
+    minLength: 2,
+    maxLength: 30,
+  },
+  "himeji-central-park": {
+    animalsUrls: [
+      "https://www.central-park.co.jp/safari/drivethrough/animals.html",
+      "https://www.central-park.co.jp/safari/walking/animals.html",
+      "https://www.central-park.co.jp/safari/childs-farm/animals.html",
+    ],
+    nameSelector: ".scraper-animal-name",
+    attributeSelector: "#Main .sec .box li img[alt]",
     minLength: 2,
     maxLength: 30,
   },
@@ -72,11 +90,22 @@ const SCRAPER_CONFIGS: Record<string, ZooScraperConfig> = {
     minLength: 2,
     maxLength: 20,
   },
-  "nara-koen-deer": {
-    animalsUrl: "https://www.pref.nara.lg.jp/site/park/1003.html",
-    nameSelector: "#tmp_contents h2, title",
+  "gokatsura-animal-park": {
+    animalsUrls: [
+      "https://gokatsura.jp/animals-list/oinai-zone/",
+      "https://gokatsura.jp/animals-list/mooboo-room/",
+      "https://gokatsura.jp/animals-list/cliff-zone/",
+      "https://gokatsura.jp/animals-list/kyun2-room/",
+      "https://gokatsura.jp/dokidoki-room/",
+      "https://gokatsura.jp/animals-list/me-be-zone/",
+      "https://gokatsura.jp/animals-list/moko-me-house/",
+      "https://gokatsura.jp/animals-list/new-area/",
+      "https://gokatsura.jp/animals-list/serow-conservation-facility/",
+      "https://gokatsura.jp/animals-list/information-center/",
+    ],
+    nameSelector: ".post_content p.is-style-border_left",
     minLength: 2,
-    maxLength: 40,
+    maxLength: 30,
   },
   "adventure-world": {
     animalsUrls: [
@@ -146,10 +175,6 @@ function normalizeAnimalName(text: string): string[] {
     return [];
   }
   if (normalized === "動物園") return [];
-  if (/奈良公園.*[鹿シカ]|[鹿シカ].*奈良公園/.test(normalized)) {
-    return ["シカ（ニホンジカ）"];
-  }
-
   const withoutEnglish = normalized.replace(/[A-Za-z][A-Za-z\s.'’()-]*$/g, "").trim();
   const candidates = withoutEnglish
     .split(/[、,／/｜|]/)

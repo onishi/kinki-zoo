@@ -10,6 +10,7 @@ const PREF_LABELS: Record<PrefectureCode, string> = {
   hyogo: "兵庫県",
   nara: "奈良県",
   shiga: "滋賀県",
+  mie: "三重県",
   wakayama: "和歌山県",
 };
 

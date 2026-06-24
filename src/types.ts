@@ -19,5 +19,7 @@ export interface Zoo {
   admission: string;
   website: string;
   wikipediaUrl?: string;
+  directorySourceName?: string;
+  directorySourceUrl?: string;
   features: string[];
 }

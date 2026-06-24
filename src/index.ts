@@ -1905,6 +1905,11 @@ ${renderGlobalNav("/")}
         <dt>開園時間</dt><dd>${escapeHtml(zoo.openingHours)}</dd>
         <dt>休園日</dt><dd>${escapeHtml(zoo.closedDays)}</dd>
         <dt>入園料</dt><dd>${escapeHtml(zoo.admission)}</dd>
+        ${
+          zoo.directorySourceName && zoo.directorySourceUrl
+            ? `<dt>施設一覧出典</dt><dd><a href="${escapeHtml(zoo.directorySourceUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(zoo.directorySourceName)}</a></dd>`
+            : ""
+        }
       </dl>
       <h3>特徴</h3>
       <ul>${features}</ul>

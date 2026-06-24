@@ -102,6 +102,17 @@
 npm install
 ```
 
+### 施設一覧のデータソース
+
+加盟施設の基準データには、日本動物園水族館協会（JAZA）の
+[加盟園館検索](https://www.jaza.jp/search-enkan)を使用します。
+JAZAから施設名と公式URLを同期し、住所・緯度経度・営業時間などは `src/data.ts` で補完します。
+
+```bash
+npm run sync:jaza   # JAZA近畿の加盟動物園・水族館を同期
+npm run check:jaza  # 現在の掲載施設と比較して未掲載候補を表示
+```
+
 ## ローカル開発
 
 ```bash

@@ -1,6 +1,7 @@
 import type { Zoo } from "./types";
+import { JAZA_KINKI_ZOOS, JAZA_MEMBER_SOURCE_URL } from "./jaza-members";
 
-export const zoos: Zoo[] = [
+const curatedZoos: Zoo[] = [
   {
     id: "tennoji-zoo",
     name: "天王寺動物園",
@@ -137,3 +138,20 @@ export const zoos: Zoo[] = [
     features: ["白いライオン", "白いトラ", "和歌山城隣接"],
   },
 ];
+
+function normalizeWebsiteHost(website: string): string {
+  return new URL(website).hostname.replace(/^www\./, "");
+}
+
+const jazaZooHosts = new Set(
+  JAZA_KINKI_ZOOS.map((facility) => normalizeWebsiteHost(facility.website))
+);
+
+export const zoos: Zoo[] = curatedZoos.map((zoo) => {
+  if (!jazaZooHosts.has(normalizeWebsiteHost(zoo.website))) return zoo;
+  return {
+    ...zoo,
+    directorySourceName: "日本動物園水族館協会（JAZA）加盟園館検索",
+    directorySourceUrl: JAZA_MEMBER_SOURCE_URL,
+  };
+});

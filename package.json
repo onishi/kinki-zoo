@@ -8,6 +8,8 @@
     "deploy": "npx wrangler deploy",
     "d1:migrate": "npx wrangler d1 migrations apply kinki-zoo-animals",
     "d1:migrate:remote": "npx wrangler d1 migrations apply kinki-zoo-animals --remote",
+    "sync:jaza": "node scripts/sync-jaza-members.mjs",
+    "check:jaza": "node scripts/check-jaza-coverage.mjs",
     "typecheck": "npx tsc --noEmit"
   },
   "devDependencies": {

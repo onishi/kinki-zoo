@@ -1351,14 +1351,14 @@ function renderMatchSummary(result: ZooSearchResult): string {
 function renderZooCard(result: ZooSearchResult): string {
   const zoo = result.zoo;
   const zooId = encodeURIComponent(zoo.id);
-  const escapedZooId = escapeHtml(zoo.id);
+  const zooDomId = `zoo-${zoo.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
   const prefLabel = PREF_LABELS[zoo.prefecture];
   const features = zoo.features.map((f) => `<span class="tag">${escapeHtml(f)}</span>`).join("");
   const wikiLink = zoo.wikipediaUrl
     ? `<a class="wiki-link" href="${escapeHtml(zoo.wikipediaUrl)}" target="_blank" rel="noopener noreferrer">Wikipedia</a>`
     : "";
   return `
-    <tr id="${escapedZooId}">
+    <tr id="${escapeHtml(zooDomId)}">
       <th scope="row" class="zoo-name">
         <a href="/zoos/${zooId}">${escapeHtml(zoo.name)}</a>
         ${wikiLink}
@@ -1701,7 +1701,7 @@ function renderAnimalCards(animals: AnimalListItem[]): string {
         ? `<p class="taxonomy">${taxonomyDetails}</p>`
         : `<p class="unclassified">分類未設定</p>`;
       const displayNames = item.displayNames
-        .map((displayName) => `<a href="${buildZooAnimalUrl(displayName)}">${escapeHtml(displayName)}</a>`)
+        .map((displayName) => `<a href="${escapeHtml(buildZooAnimalUrl(displayName))}">${escapeHtml(displayName)}</a>`)
         .join("");
       const displayNamesRow =
         item.canonicalName && displayNames

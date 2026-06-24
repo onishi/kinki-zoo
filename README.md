@@ -152,7 +152,11 @@ npm run d1:migrate:remote   # リモート D1 にマイグレーション適用
 curl -X POST http://localhost:8001/api/animals/refresh
 curl -X POST http://localhost:8001/api/animals/classify
 curl -X POST http://localhost:8001/api/animals/suggest-taxonomy
+npm run classify:unclassified -- --base-url http://localhost:8001 --zoo kobe-animal-kingdom
 ```
+
+分類バッチは `--zoo` を複数指定できます。省略時は全動物園の未分類データを対象にし、
+Gemini候補の生成と適用を未処理データがなくなるまで繰り返します。
 
 Gemini による分類候補生成には `GEMINI_API_KEY` が必要です。ローカルでは `.dev.vars` に設定します。
 

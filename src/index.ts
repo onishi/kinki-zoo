@@ -205,6 +205,8 @@ function normalizeClassName(value: string | null): string | null {
       return "爬虫類";
     case "両生綱":
       return "両生類";
+    case "節足動物門":
+      return "節足動物";
     default:
       return value;
   }
@@ -215,10 +217,16 @@ function normalizeOrderName(value: string | null): string | null {
 }
 
 function normalizeTaxonomyCandidate(candidate: TaxonomyCandidate): TaxonomyCandidate {
+  const japaneseOnly = (value: string | null): string | null =>
+    containsLatinLetters(value) ? null : value;
   return {
     ...candidate,
-    className: normalizeClassName(candidate.className),
-    orderName: normalizeOrderName(candidate.orderName),
+    canonicalName: japaneseOnly(candidate.canonicalName),
+    className: japaneseOnly(normalizeClassName(candidate.className)),
+    orderName: japaneseOnly(normalizeOrderName(candidate.orderName)),
+    familyName: japaneseOnly(candidate.familyName),
+    genusName: japaneseOnly(candidate.genusName),
+    speciesName: japaneseOnly(candidate.speciesName),
   };
 }
 
@@ -689,7 +697,15 @@ async function loadTaxonomyAnimals(
   return buildAnimalListItems(result.results ?? []);
 }
 
-async function loadUnclassifiedDisplayNames(db: D1Database, limit: number): Promise<string[]> {
+async function loadUnclassifiedDisplayNames(
+  db: D1Database,
+  limit: number,
+  zooIds: string[] = []
+): Promise<string[]> {
+  const zooFilter =
+    zooIds.length > 0
+      ? `AND za.zoo_id IN (${zooIds.map(() => "?").join(", ")})`
+      : "";
   const result = await db
     .prepare(
       `SELECT DISTINCT za.display_name
@@ -697,10 +713,11 @@ async function loadUnclassifiedDisplayNames(db: D1Database, limit: number): Prom
        LEFT JOIN animal_taxonomy_candidates c ON c.display_name = za.display_name
        WHERE za.animal_id IS NULL
          AND c.display_name IS NULL
+         ${zooFilter}
        ORDER BY za.display_name
        LIMIT ?`
     )
-    .bind(limit)
+    .bind(...zooIds, limit)
     .all<{ display_name: string }>();
 
   return (result.results ?? []).map((row) => row.display_name);
@@ -773,6 +790,64 @@ async function saveTaxonomyCandidates(
   );
 }
 
+async function loadPendingTaxonomyCandidates(
+  db: D1Database,
+  limit: number,
+  zooIds: string[] = []
+): Promise<TaxonomyCandidate[]> {
+  const zooFilter =
+    zooIds.length > 0
+      ? `AND za.zoo_id IN (${zooIds.map(() => "?").join(", ")})`
+      : "";
+  const result = await db
+    .prepare(
+      `SELECT DISTINCT
+         c.display_name,
+         c.canonical_name,
+         c.class_name,
+         c.order_name,
+         c.family_name,
+         c.genus_name,
+         c.species_name,
+         c.confidence,
+         c.reason,
+         c.sources_json
+       FROM animal_taxonomy_candidates c
+       JOIN zoo_animals za ON za.display_name = c.display_name
+       WHERE za.animal_id IS NULL
+         AND c.status = 'pending'
+         ${zooFilter}
+       ORDER BY c.display_name
+       LIMIT ?`
+    )
+    .bind(...zooIds, limit)
+    .all<{
+      display_name: string;
+      canonical_name: string | null;
+      class_name: string | null;
+      order_name: string | null;
+      family_name: string | null;
+      genus_name: string | null;
+      species_name: string | null;
+      confidence: number;
+      reason: string | null;
+      sources_json: string | null;
+    }>();
+
+  return (result.results ?? []).map((row) => ({
+    displayName: row.display_name,
+    canonicalName: row.canonical_name,
+    className: row.class_name,
+    orderName: row.order_name,
+    familyName: row.family_name,
+    genusName: row.genus_name,
+    speciesName: row.species_name,
+    confidence: row.confidence,
+    reason: row.reason ?? "",
+    sources: parseSourcesJson(row.sources_json),
+  }));
+}
+
 async function loadTaxonomyCandidates(db: D1Database): Promise<unknown[]> {
   const result = await db
     .prepare(
@@ -835,7 +910,7 @@ Google Search で確認しながら、次の日本語の動物表示名を分類
 
 重要なルール:
 - 種まで特定できる場合だけ genusName と speciesName を入れる。
-- 表示名が総称、品種、展示名、愛称、または種まで断定できない場合は canonicalName/className/orderName/familyName/genusName/speciesName をすべて null にする。
+- 表示名が総称、品種、展示名、愛称、または種まで断定できない場合でも、確認できる上位分類は入れ、確認できない項目だけ null にする。
 - canonicalName/className/orderName/familyName/genusName/speciesName は必ず日本語表記にする。
 - genusName は「ヒョウ属」「カモメ属」のような日本語の属名だけを入れる。Panthera、Larus、Centrochelys、sulcata などの学名・英字・ローマ字は絶対に入れない。
 - speciesName は「ユキヒョウ」「ウミネコ」のような日本語の種名だけを入れる。学名や種小名しか確認できない場合は null にする。
@@ -960,7 +1035,20 @@ async function applyTaxonomyCandidate(
     notes: "Gemini web grounding候補から投入",
   };
 
-  await upsertAnimalMasters(db, [taxonomy]);
+  const existingAnimal = await db
+    .prepare(
+      `SELECT id
+       FROM animals
+       WHERE canonical_name = ?
+          OR (genus_name = ? AND species_name = ?)
+       LIMIT 1`
+    )
+    .bind(canonicalName, genusName, speciesName)
+    .first<{ id: string }>();
+  const animalId = existingAnimal?.id ?? taxonomy.id;
+  if (!existingAnimal) {
+    await upsertAnimalMasters(db, [taxonomy]);
+  }
   await db.batch([
     db
       .prepare(
@@ -968,7 +1056,7 @@ async function applyTaxonomyCandidate(
          SET animal_id = ?
          WHERE display_name = ?`
       )
-      .bind(taxonomy.id, normalized.displayName),
+      .bind(animalId, normalized.displayName),
     db
       .prepare(
         `UPDATE animal_taxonomy_candidates
@@ -2121,6 +2209,8 @@ export default {
       const body = (await request.json().catch(() => ({}))) as {
         displayNames?: unknown;
         limit?: unknown;
+        zooIds?: unknown;
+        apply?: unknown;
       };
       const requestedNames = Array.isArray(body.displayNames)
         ? body.displayNames.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
@@ -2129,10 +2219,40 @@ export default {
         typeof body.limit === "number" && Number.isFinite(body.limit)
           ? Math.max(1, Math.min(20, Math.floor(body.limit)))
           : 10;
+      const requestedZooIds = Array.isArray(body.zooIds)
+        ? body.zooIds.filter(
+            (value): value is string =>
+              typeof value === "string" && zoos.some((zoo) => zoo.id === value)
+          )
+        : [];
       const displayNames =
         requestedNames.length > 0
           ? [...new Set(requestedNames.map((name) => name.trim()))].slice(0, 20)
-          : await loadUnclassifiedDisplayNames(env.DB, limit);
+          : await loadUnclassifiedDisplayNames(env.DB, limit, [...new Set(requestedZooIds)]);
+
+      if (body.apply === true && requestedNames.length === 0) {
+        const pendingCandidates = await loadPendingTaxonomyCandidates(
+          env.DB,
+          limit,
+          [...new Set(requestedZooIds)]
+        );
+        if (pendingCandidates.length > 0) {
+          const pendingResults: TaxonomyCandidateApplyResult[] = [];
+          for (const candidate of pendingCandidates) {
+            pendingResults.push(await applyTaxonomyCandidate(env.DB, candidate));
+          }
+          return jsonResponse({
+            requested: pendingCandidates.length,
+            suggested: pendingCandidates.length,
+            candidates: pendingCandidates,
+            groundingSources: [],
+            applied: pendingResults.filter((result) => result.status === "applied").length,
+            partial: pendingResults.filter((result) => result.status === "partial").length,
+            rejected: pendingResults.filter((result) => result.status === "rejected").length,
+            reusedPending: true,
+          });
+        }
+      }
 
       if (displayNames.length === 0) {
         return jsonResponse({ suggested: 0, candidates: [] });
@@ -2145,12 +2265,21 @@ export default {
         GEMINI_TAXONOMY_MODEL,
         suggestion.sources
       );
+      const applyResults: TaxonomyCandidateApplyResult[] = [];
+      if (body.apply === true) {
+        for (const candidate of suggestion.candidates) {
+          applyResults.push(await applyTaxonomyCandidate(env.DB, candidate));
+        }
+      }
 
       return jsonResponse({
         requested: displayNames.length,
         suggested: suggestion.candidates.length,
         candidates: suggestion.candidates,
         groundingSources: suggestion.sources,
+        applied: applyResults.filter((result) => result.status === "applied").length,
+        partial: applyResults.filter((result) => result.status === "partial").length,
+        rejected: applyResults.filter((result) => result.status === "rejected").length,
       });
     }
 

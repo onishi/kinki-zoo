@@ -1504,9 +1504,9 @@ function renderHtml(
   const emptyMessage = animal
     ? `「${escapedAnimal}」に該当する施設が見つかりませんでした。`
     : "該当する施設が見つかりませんでした。";
-  const zooListHtml =
-    count > 0
-      ? `<div class="zoo-list"><table class="zoo-table">
+  let zooListHtml = `<p class="empty">${emptyMessage}</p>`;
+  if (count > 0) {
+    zooListHtml = `<div class="zoo-list"><table class="zoo-table">
     <thead>
       <tr>
         <th scope="col">施設名</th>
@@ -1520,8 +1520,8 @@ function renderHtml(
     <tbody>
       ${rows}
     </tbody>
-  </table></div>`
-      : `<p class="empty">${emptyMessage}</p>`;
+  </table></div>`;
+  }
 
   return `<!DOCTYPE html>
 <html lang="ja">
@@ -1607,9 +1607,9 @@ function renderAnimalsHtml(animals: AnimalListItem[], filter: AnimalListFilter):
         ? `<p class="empty">分類未設定の動物はありません。</p>`
         : `<p class="empty">動物データがまだありません。各動物園の動物一覧を取得するか、全件更新を実行してください。</p>`
       : "";
-  const animalListHtml =
-    animals.length > 0
-      ? `<div class="animal-list"><table class="animal-table">
+  let animalListHtml = emptyMessage;
+  if (animals.length > 0) {
+    animalListHtml = `<div class="animal-list"><table class="animal-table">
     <thead>
       <tr>
         <th scope="col">動物名</th>
@@ -1622,8 +1622,8 @@ function renderAnimalsHtml(animals: AnimalListItem[], filter: AnimalListFilter):
     <tbody>
       ${items}
     </tbody>
-  </table></div>`
-      : emptyMessage;
+  </table></div>`;
+  }
 
   return `<!DOCTYPE html>
 <html lang="ja">

@@ -130,6 +130,14 @@ const TAXONOMY_RANKS: TaxonomyRankConfig[] = [
 
 const GEMINI_TAXONOMY_MODEL = "gemini-2.5-flash-lite";
 const APPLICABLE_CLASS_NAMES = new Set(["哺乳類", "鳥類", "爬虫類", "両生類", "魚類", "昆虫類", "節足動物", "軟体動物"]);
+const ORDER_NAME_ALIASES: Record<string, string> = {
+  インコ目: "オウム目",
+  ガンカモ目: "カモ目",
+  サル目: "霊長目",
+  ネコ目: "食肉目",
+  兎形目: "ウサギ目",
+  偶蹄目: "鯨偶蹄目",
+};
 
 function isPrefectureCode(value: string): value is PrefectureCode {
   return PREF_CODES.includes(value as PrefectureCode);
@@ -201,10 +209,15 @@ function normalizeClassName(value: string | null): string | null {
   }
 }
 
+function normalizeOrderName(value: string | null): string | null {
+  return value ? ORDER_NAME_ALIASES[value] ?? value : null;
+}
+
 function normalizeTaxonomyCandidate(candidate: TaxonomyCandidate): TaxonomyCandidate {
   return {
     ...candidate,
     className: normalizeClassName(candidate.className),
+    orderName: normalizeOrderName(candidate.orderName),
   };
 }
 
@@ -826,6 +839,7 @@ Google Search で確認しながら、次の日本語の動物表示名を分類
 - genusName は「ヒョウ属」「カモメ属」のような日本語の属名だけを入れる。Panthera、Larus、Centrochelys、sulcata などの学名・英字・ローマ字は絶対に入れない。
 - speciesName は「ユキヒョウ」「ウミネコ」のような日本語の種名だけを入れる。学名や種小名しか確認できない場合は null にする。
 - className は「哺乳類」「鳥類」「爬虫類」「両生類」「魚類」「昆虫類」など利用者向けの日本語分類名にする。「哺乳綱」「鳥綱」「爬虫綱」「両生綱」は使わない。
+- orderName は利用者向けに次の表記へ統一する: インコ目は「オウム目」、ガンカモ目は「カモ目」、サル目は「霊長目」、ネコ目は「食肉目」、兎形目は「ウサギ目」、偶蹄目は「鯨偶蹄目」とする。
 - 日本語の属名または日本語の種名が確認できない場合でも、className/orderName/familyName など確認できた上位分類は日本語で入れる。確認できない項目だけ null にする。
 - canonicalName は表示名に対応する代表和名を確認できる場合だけ入れる。代表和名を断定できない場合は null にする。
 - 無理に推測しない。曖昧なら null にする。
@@ -974,8 +988,9 @@ async function upsertAnimalMasters(db: D1Database, taxonomies: AnimalTaxonomy[])
 
   const updatedAt = new Date().toISOString();
   await db.batch(
-    unique.map((taxonomy) =>
-      db
+    unique.map((taxonomy) => {
+      const orderName = normalizeOrderName(taxonomy.orderName) ?? taxonomy.orderName;
+      return db
         .prepare(
           `INSERT INTO animals (
              id,
@@ -1006,14 +1021,14 @@ async function upsertAnimalMasters(db: D1Database, taxonomies: AnimalTaxonomy[])
           taxonomy.canonicalName,
           normalizeAnimalNameForSearch(taxonomy.canonicalName),
           taxonomy.className,
-          taxonomy.orderName,
+          orderName,
           taxonomy.familyName,
           taxonomy.genusName,
           taxonomy.speciesName,
           taxonomy.notes ?? null,
           updatedAt
-        )
-    )
+        );
+    })
   );
 }
 

@@ -573,7 +573,7 @@ async function loadTaxonomyOverview(db: D1Database): Promise<TaxonomyOverviewSec
            COUNT(DISTINCT a.id) AS animal_count,
            COUNT(DISTINCT za.zoo_id) AS zoo_count
          FROM animals a
-         LEFT JOIN zoo_animals za ON za.animal_id = a.id
+         JOIN zoo_animals za ON za.animal_id = a.id
          GROUP BY a.${rank.column}
          ORDER BY a.${rank.column}`
       )
@@ -636,7 +636,7 @@ async function loadChildTaxonomyValues(
          COUNT(DISTINCT a.id) AS animal_count,
          COUNT(DISTINCT za.zoo_id) AS zoo_count
        FROM animals a
-       LEFT JOIN zoo_animals za ON za.animal_id = a.id
+       JOIN zoo_animals za ON za.animal_id = a.id
        WHERE ${where}
        GROUP BY a.${childRank.column}
        ORDER BY a.${childRank.column}`
@@ -2220,6 +2220,7 @@ export default {
         const levels = [{ rank, value }];
         const childSection = await loadChildTaxonomyValues(env.DB, levels);
         const animals = await loadTaxonomyAnimals(env.DB, levels);
+        if (animals.length === 0) return notFound(`分類 '${value}' に該当する動物が見つかりません`);
         const html = renderTaxonomyDetailHtml(levels, childSection, animals);
         return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
       }
@@ -2231,6 +2232,9 @@ export default {
       if (!levels) return notFound("分類 URL が無効です");
       const childSection = await loadChildTaxonomyValues(env.DB, levels);
       const animals = await loadTaxonomyAnimals(env.DB, levels);
+      if (animals.length === 0) {
+        return notFound(`分類 '${levels.at(-1)?.value ?? ""}' に該当する動物が見つかりません`);
+      }
       const html = renderTaxonomyDetailHtml(levels, childSection, animals);
       return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
     }

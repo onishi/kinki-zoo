@@ -1350,15 +1350,17 @@ function renderMatchSummary(result: ZooSearchResult): string {
 
 function renderZooCard(result: ZooSearchResult): string {
   const zoo = result.zoo;
+  const zooId = encodeURIComponent(zoo.id);
+  const escapedZooId = escapeHtml(zoo.id);
   const prefLabel = PREF_LABELS[zoo.prefecture];
   const features = zoo.features.map((f) => `<span class="tag">${escapeHtml(f)}</span>`).join("");
   const wikiLink = zoo.wikipediaUrl
     ? `<a class="wiki-link" href="${escapeHtml(zoo.wikipediaUrl)}" target="_blank" rel="noopener noreferrer">Wikipedia</a>`
     : "";
   return `
-    <tr id="${zoo.id}">
+    <tr id="${escapedZooId}">
       <th scope="row" class="zoo-name">
-        <a href="/zoos/${zoo.id}">${escapeHtml(zoo.name)}</a>
+        <a href="/zoos/${zooId}">${escapeHtml(zoo.name)}</a>
         ${wikiLink}
         <p class="kana">${escapeHtml(zoo.nameKana)}</p>
       </th>
@@ -1374,7 +1376,7 @@ function renderZooCard(result: ZooSearchResult): string {
       <td>${renderMatchSummary(result)}</td>
       <td>
         <p class="links">
-          <a href="/zoos/${zoo.id}/animals">動物一覧</a>
+          <a href="/zoos/${zooId}/animals">動物一覧</a>
           <a href="${escapeHtml(zoo.website)}" target="_blank" rel="noopener noreferrer">公式サイト</a>
         </p>
         <div class="features">${features}</div>
@@ -1677,7 +1679,7 @@ function renderAnimalCards(animals: AnimalListItem[]): string {
   return animals
     .map((item) => {
       const zooLinks = item.zoos
-        .map((zoo) => `<a href="/zoos/${zoo.id}">${escapeHtml(zoo.name)}</a>`)
+        .map((zoo) => `<a href="/zoos/${encodeURIComponent(zoo.id)}">${escapeHtml(zoo.name)}</a>`)
         .join("");
       const primaryDisplayName = item.displayNames[0] ?? item.canonicalName ?? "";
       const searchName = item.canonicalName ?? primaryDisplayName;
@@ -1708,7 +1710,7 @@ function renderAnimalCards(animals: AnimalListItem[]): string {
 
       return `
         <tr>
-          <th scope="row" class="animal-name"><a href="${titleHref}">${title}</a></th>
+          <th scope="row" class="animal-name"><a href="${escapeHtml(titleHref)}">${title}</a></th>
           <td>${taxonomyRow}</td>
           <td>${displayNamesRow}</td>
           <td><span class="facility-count">${item.zoos.length} 施設</span></td>

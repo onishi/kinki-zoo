@@ -1504,6 +1504,24 @@ function renderHtml(
   const emptyMessage = animal
     ? `「${escapedAnimal}」に該当する施設が見つかりませんでした。`
     : "該当する施設が見つかりませんでした。";
+  const zooListHtml =
+    count > 0
+      ? `<div class="zoo-list"><table class="zoo-table">
+    <thead>
+      <tr>
+        <th scope="col">施設名</th>
+        <th scope="col">都道府県</th>
+        <th scope="col">住所</th>
+        <th scope="col">基本情報</th>
+        <th scope="col">検索ヒット</th>
+        <th scope="col">リンク・特徴</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rows}
+    </tbody>
+  </table></div>`
+      : `<p class="empty">${emptyMessage}</p>`;
 
   return `<!DOCTYPE html>
 <html lang="ja">
@@ -1566,25 +1584,7 @@ ${renderGlobalNav("/")}
     ${animal ? `<a href="${buildBrowseUrl(activePref, null)}">クリア</a>` : ""}
   </form>
   <p class="summary">${summary}</p>
-  ${
-    count > 0
-      ? `<div class="zoo-list"><table class="zoo-table">
-    <thead>
-      <tr>
-        <th scope="col">施設名</th>
-        <th scope="col">都道府県</th>
-        <th scope="col">住所</th>
-        <th scope="col">基本情報</th>
-        <th scope="col">検索ヒット</th>
-        <th scope="col">リンク・特徴</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${rows}
-    </tbody>
-  </table></div>`
-      : `<p class="empty">${emptyMessage}</p>`
-  }
+  ${zooListHtml}
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
 </body>
 </html>`;
@@ -1607,6 +1607,23 @@ function renderAnimalsHtml(animals: AnimalListItem[], filter: AnimalListFilter):
         ? `<p class="empty">分類未設定の動物はありません。</p>`
         : `<p class="empty">動物データがまだありません。各動物園の動物一覧を取得するか、全件更新を実行してください。</p>`
       : "";
+  const animalListHtml =
+    animals.length > 0
+      ? `<div class="animal-list"><table class="animal-table">
+    <thead>
+      <tr>
+        <th scope="col">動物名</th>
+        <th scope="col">分類</th>
+        <th scope="col">公式表示名</th>
+        <th scope="col">施設数</th>
+        <th scope="col">施設一覧</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${items}
+    </tbody>
+  </table></div>`
+      : emptyMessage;
 
   return `<!DOCTYPE html>
 <html lang="ja">
@@ -1650,24 +1667,7 @@ ${renderGlobalNav("/animals")}
     <a href="${buildAnimalsUrl("unclassified")}" class="tab${filter === "unclassified" ? " active" : ""}">分類未設定</a>
   </nav>
   <p class="summary">${summary}</p>
-  ${
-    animals.length > 0
-      ? `<div class="animal-list"><table class="animal-table">
-    <thead>
-      <tr>
-        <th scope="col">動物名</th>
-        <th scope="col">分類</th>
-        <th scope="col">公式表示名</th>
-        <th scope="col">施設数</th>
-        <th scope="col">施設一覧</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${items}
-    </tbody>
-  </table></div>`
-      : emptyMessage
-  }
+  ${animalListHtml}
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
 </body>
 </html>`;

@@ -1350,30 +1350,38 @@ function renderMatchSummary(result: ZooSearchResult): string {
 
 function renderZooCard(result: ZooSearchResult): string {
   const zoo = result.zoo;
+  const zooId = encodeURIComponent(zoo.id);
+  const zooDomId = `zoo-${zoo.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
   const prefLabel = PREF_LABELS[zoo.prefecture];
-  const features = zoo.features.map((f) => `<span class="tag">${f}</span>`).join("");
+  const features = zoo.features.map((f) => `<span class="tag">${escapeHtml(f)}</span>`).join("");
   const wikiLink = zoo.wikipediaUrl
-    ? `<a class="wiki-link" href="${zoo.wikipediaUrl}" target="_blank" rel="noopener noreferrer">Wikipedia</a>`
+    ? `<a class="wiki-link" href="${escapeHtml(zoo.wikipediaUrl)}" target="_blank" rel="noopener noreferrer">Wikipedia</a>`
     : "";
   return `
-    <article class="zoo-card" id="${zoo.id}">
-      <h2><a href="/zoos/${zoo.id}">${zoo.name}</a></h2>
-      ${wikiLink}
-      <p class="kana">${zoo.nameKana}</p>
-      <dl>
-        <dt>都道府県</dt><dd>${prefLabel}</dd>
-        <dt>住所</dt><dd>${zoo.address}</dd>
-        <dt>開園時間</dt><dd>${zoo.openingHours}</dd>
-        <dt>休園日</dt><dd>${zoo.closedDays}</dd>
-        <dt>入園料</dt><dd>${zoo.admission}</dd>
-      </dl>
-      <p class="links">
-        <a href="/zoos/${zoo.id}/animals">動物一覧</a>
-        <a href="${zoo.website}" target="_blank" rel="noopener noreferrer">公式サイト</a>
-      </p>
-      ${renderMatchSummary(result)}
-      <div class="features">${features}</div>
-    </article>`;
+    <tr id="${escapeHtml(zooDomId)}">
+      <th scope="row" class="zoo-name">
+        <a href="/zoos/${zooId}">${escapeHtml(zoo.name)}</a>
+        ${wikiLink}
+        <p class="kana">${escapeHtml(zoo.nameKana)}</p>
+      </th>
+      <td>${prefLabel}</td>
+      <td>${escapeHtml(zoo.address)}</td>
+      <td>
+        <ul class="meta-list">
+          <li><b>開園時間:</b> ${escapeHtml(zoo.openingHours)}</li>
+          <li><b>休園日:</b> ${escapeHtml(zoo.closedDays)}</li>
+          <li><b>入園料:</b> ${escapeHtml(zoo.admission)}</li>
+        </ul>
+      </td>
+      <td>${renderMatchSummary(result)}</td>
+      <td>
+        <p class="links">
+          <a href="/zoos/${zooId}/animals">動物一覧</a>
+          <a href="${escapeHtml(zoo.website)}" target="_blank" rel="noopener noreferrer">公式サイト</a>
+        </p>
+        <div class="features">${features}</div>
+      </td>
+    </tr>`;
 }
 
 function buildBrowseUrl(pref: PrefectureCode | null, animal: string | null): string {
@@ -1481,7 +1489,7 @@ function renderHtml(
   activePref: PrefectureCode | null,
   animal: string | null
 ): string {
-  const cards = results.map(renderZooCard).join("\n");
+  const rows = results.map(renderZooCard).join("\n");
   const escapedAnimal = animal ? escapeHtml(animal) : "";
   const allTab = activePref
     ? `<a href="${buildBrowseUrl(null, animal)}" class="tab">すべて</a>`
@@ -1498,6 +1506,24 @@ function renderHtml(
   const emptyMessage = animal
     ? `「${escapedAnimal}」に該当する施設が見つかりませんでした。`
     : "該当する施設が見つかりませんでした。";
+  let zooListHtml = `<p class="empty">${emptyMessage}</p>`;
+  if (count > 0) {
+    zooListHtml = `<div class="zoo-list"><table class="zoo-table">
+    <thead>
+      <tr>
+        <th scope="col">施設名</th>
+        <th scope="col">都道府県</th>
+        <th scope="col">住所</th>
+        <th scope="col">基本情報</th>
+        <th scope="col">検索ヒット</th>
+        <th scope="col">リンク・特徴</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rows}
+    </tbody>
+  </table></div>`;
+  }
 
   return `<!DOCTYPE html>
 <html lang="ja">
@@ -1518,27 +1544,28 @@ function renderHtml(
     .search-form button { border: 1px solid #1f5b45; background: #1f5b45; color: #fff; padding: 0.5rem 0.9rem; cursor: pointer; }
     .search-form a { padding: 0.5rem 0.7rem; color: #1f5b45; text-decoration: none; border: 1px solid #1f5b45; }
     .summary { padding: 0.75rem 1.5rem; font-size: 0.9rem; color: #666; }
-    .zoo-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1rem; padding: 1rem 1.5rem; }
-    .zoo-card { background: #fff; border: 1px solid #ddd; padding: 1rem; }
-    .zoo-card h2 { font-size: 1.1rem; margin-bottom: 0.25rem; }
-    .zoo-card h2 a { color: #2d6a4f; text-decoration: none; }
-    .zoo-card h2 a:hover { text-decoration: underline; }
+    .zoo-list { padding: 1rem 1.5rem; overflow-x: auto; }
+    .zoo-table { width: 100%; border-collapse: collapse; min-width: 960px; border: 1px solid #ddd; }
+    .zoo-table th, .zoo-table td { border: 1px solid #ddd; padding: 0.65rem; vertical-align: top; font-size: 0.86rem; text-align: left; }
+    .zoo-table thead th { background: #f7f7f7; color: #555; }
+    .zoo-name a { color: #2d6a4f; text-decoration: none; font-size: 1rem; }
+    .zoo-name a:hover { text-decoration: underline; }
     .wiki-link { font-size: 0.8rem; font-weight: normal; margin-left: 0.5rem; color: #666; text-decoration: none; }
     .wiki-link:hover { text-decoration: underline; }
-    .kana { font-size: 0.8rem; color: #888; margin-bottom: 0.75rem; }
-    dl { display: grid; grid-template-columns: 5.5em 1fr; gap: 0.2rem 0.5rem; font-size: 0.85rem; }
-    dt { color: #666; font-weight: bold; }
-    .links { margin-top: 0.75rem; display: flex; gap: 0.75rem; font-size: 0.85rem; }
+    .kana { font-size: 0.8rem; color: #888; margin-top: 0.25rem; }
+    .meta-list { list-style: none; display: grid; gap: 0.25rem; }
+    .meta-list li { color: #444; }
+    .links { display: flex; flex-wrap: wrap; gap: 0.75rem; font-size: 0.85rem; margin-bottom: 0.5rem; }
     .links a { color: #2d6a4f; text-decoration: none; }
     .links a:hover { text-decoration: underline; }
-    .match-box { margin-top: 0.85rem; padding: 0.75rem; border: 1px solid #d7eadc; border-radius: 8px; background: #f3fbf5; display: grid; gap: 0.55rem; }
+    .match-box { padding: 0.55rem; border: 1px solid #d7eadc; border-radius: 6px; background: #f3fbf5; display: grid; gap: 0.45rem; }
     .match-row { display: grid; gap: 0.35rem; }
     .match-label { color: #456052; font-size: 0.75rem; font-weight: bold; }
     .match-values { display: flex; flex-wrap: wrap; gap: 0.35rem; }
     .match-chip { background: #fff; color: #1b5e3b; border: 1px solid #b7dcc3; border-radius: 999px; padding: 0.18rem 0.55rem; font-size: 0.75rem; font-weight: bold; }
     .match-more { color: #5d7166; font-size: 0.75rem; align-self: center; }
     .match-note { color: #6d756f; font-size: 0.75rem; line-height: 1.5; }
-    .features { margin-top: 0.75rem; display: flex; flex-wrap: wrap; gap: 0.35rem; }
+    .features { display: flex; flex-wrap: wrap; gap: 0.35rem; }
     .tag { color: #555; font-size: 0.8rem; }
     .tag::before { content: "・"; }
     .empty { padding: 2rem 1.5rem; color: #888; }
@@ -1559,7 +1586,7 @@ ${renderGlobalNav("/")}
     ${animal ? `<a href="${buildBrowseUrl(activePref, null)}">クリア</a>` : ""}
   </form>
   <p class="summary">${summary}</p>
-  ${count > 0 ? `<div class="zoo-list">${cards}</div>` : `<p class="empty">${emptyMessage}</p>`}
+  ${zooListHtml}
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
 </body>
 </html>`;
@@ -1582,6 +1609,23 @@ function renderAnimalsHtml(animals: AnimalListItem[], filter: AnimalListFilter):
         ? `<p class="empty">分類未設定の動物はありません。</p>`
         : `<p class="empty">動物データがまだありません。各動物園の動物一覧を取得するか、全件更新を実行してください。</p>`
       : "";
+  let animalListHtml = emptyMessage;
+  if (animals.length > 0) {
+    animalListHtml = `<div class="animal-list"><table class="animal-table">
+    <thead>
+      <tr>
+        <th scope="col">動物名</th>
+        <th scope="col">分類</th>
+        <th scope="col">公式表示名</th>
+        <th scope="col">施設数</th>
+        <th scope="col">施設一覧</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${items}
+    </tbody>
+  </table></div>`;
+  }
 
   return `<!DOCTYPE html>
 <html lang="ja">
@@ -1597,33 +1641,24 @@ function renderAnimalsHtml(animals: AnimalListItem[], filter: AnimalListFilter):
     .tab.active { font-weight: bold; text-decoration: underline; text-underline-offset: 0.2em; }
     .tab:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .summary { padding: 0.75rem 1.5rem; font-size: 0.9rem; color: #666; }
-    .animal-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; padding: 1rem 1.5rem; }
-    .animal-item { border: 1px solid #ddd; padding: 1rem; }
-    .animal-item h2 { font-size: 1.05rem; margin-bottom: 0.35rem; }
-    .animal-item h2 a { color: #1f5b45; text-decoration: none; }
-    .animal-item h2 a:hover { text-decoration: underline; }
-    .taxonomy-details { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border: 1px solid #e1e1e1; margin-bottom: 0.65rem; }
-    .taxonomy-details div { min-width: 0; border-right: 1px solid #e1e1e1; }
-    .taxonomy-details div:last-child { border-right: 0; }
-    .taxonomy-details dt { background: #f6f8f7; color: #666; font-size: 0.7rem; padding: 0.28rem 0.35rem; border-bottom: 1px solid #e1e1e1; }
-    .taxonomy-details dd { color: #222; font-size: 0.78rem; padding: 0.35rem; min-height: 2.2rem; overflow-wrap: anywhere; }
-    .unclassified { color: #777; background: #f7f7f7; border: 1px solid #e1e1e1; padding: 0.45rem 0.55rem; margin-bottom: 0.65rem; font-size: 0.8rem; }
-    .display-names { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; margin-bottom: 0.55rem; color: #666; font-size: 0.75rem; }
+    .animal-list { padding: 1rem 1.5rem; overflow-x: auto; }
+    .animal-table { width: 100%; min-width: 900px; border-collapse: collapse; border: 1px solid #ddd; }
+    .animal-table th, .animal-table td { border: 1px solid #ddd; padding: 0.65rem; vertical-align: top; text-align: left; font-size: 0.84rem; }
+    .animal-table thead th { background: #f7f7f7; color: #555; }
+    .animal-name a { color: #1f5b45; text-decoration: none; font-size: 0.98rem; }
+    .animal-name a:hover { text-decoration: underline; }
+    .taxonomy { color: #444; line-height: 1.5; }
+    .unclassified { color: #777; }
+    .display-names { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; color: #666; font-size: 0.75rem; }
     .display-names b { color: #555; margin-right: 0.1rem; }
     .display-names a { background: #f7f7f7; border: 1px solid #e1e1e1; color: #1f5b45; padding: 0.12rem 0.35rem; text-decoration: none; }
     .display-names a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
-    .animal-item p { color: #666; font-size: 0.85rem; margin-bottom: 0.65rem; }
+    .facility-count { color: #666; font-size: 0.85rem; }
     .zoo-links { display: flex; flex-wrap: wrap; gap: 0.4rem; }
     .zoo-links a { color: #2d6a4f; border: 1px solid #d3e4d8; background: #f7fbf8; padding: 0.2rem 0.45rem; font-size: 0.78rem; text-decoration: none; }
     .zoo-links a:hover { text-decoration: underline; }
     .empty { padding: 2rem 1.5rem; color: #888; }
     footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; }
-    @media (max-width: 560px) {
-      .taxonomy-details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .taxonomy-details div { border-bottom: 1px solid #e1e1e1; }
-      .taxonomy-details div:nth-child(2n) { border-right: 0; }
-      .taxonomy-details div:last-child { border-bottom: 0; }
-    }
   </style>
 </head>
 <body>
@@ -1634,7 +1669,7 @@ ${renderGlobalNav("/animals")}
     <a href="${buildAnimalsUrl("unclassified")}" class="tab${filter === "unclassified" ? " active" : ""}">分類未設定</a>
   </nav>
   <p class="summary">${summary}</p>
-  ${animals.length > 0 ? `<div class="animal-list">${items}</div>` : emptyMessage}
+  ${animalListHtml}
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
 </body>
 </html>`;
@@ -1644,7 +1679,7 @@ function renderAnimalCards(animals: AnimalListItem[]): string {
   return animals
     .map((item) => {
       const zooLinks = item.zoos
-        .map((zoo) => `<a href="/zoos/${zoo.id}">${escapeHtml(zoo.name)}</a>`)
+        .map((zoo) => `<a href="/zoos/${encodeURIComponent(zoo.id)}">${escapeHtml(zoo.name)}</a>`)
         .join("");
       const primaryDisplayName = item.displayNames[0] ?? item.canonicalName ?? "";
       const searchName = item.canonicalName ?? primaryDisplayName;
@@ -1660,33 +1695,27 @@ function renderAnimalCards(animals: AnimalListItem[]): string {
         ["種", item.speciesName],
       ]
         .filter((detail): detail is [string, string] => Boolean(detail[1]))
-        .map(
-          ([label, value]) => `
-            <div>
-              <dt>${escapeHtml(label)}</dt>
-              <dd>${escapeHtml(value)}</dd>
-            </div>`
-        )
-        .join("");
+        .map(([label, value]) => `${escapeHtml(label)}: ${escapeHtml(value)}`)
+        .join(" / ");
       const taxonomyRow = taxonomyDetails
-        ? `<dl class="taxonomy-details">${taxonomyDetails}</dl>`
+        ? `<p class="taxonomy">${taxonomyDetails}</p>`
         : `<p class="unclassified">分類未設定</p>`;
       const displayNames = item.displayNames
-        .map((displayName) => `<a href="${buildZooAnimalUrl(displayName)}">${escapeHtml(displayName)}</a>`)
+        .map((displayName) => `<a href="${escapeHtml(buildZooAnimalUrl(displayName))}">${escapeHtml(displayName)}</a>`)
         .join("");
       const displayNamesRow =
         item.canonicalName && displayNames
           ? `<div class="display-names"><b>公式表示</b>${displayNames}</div>`
-          : "";
+          : "-";
 
       return `
-        <article class="animal-item">
-          <h2><a href="${titleHref}">${title}</a></h2>
-          ${taxonomyRow}
-          ${displayNamesRow}
-          <p>${item.zoos.length} 施設</p>
-          <div class="zoo-links">${zooLinks}</div>
-        </article>`;
+        <tr>
+          <th scope="row" class="animal-name"><a href="${escapeHtml(titleHref)}">${title}</a></th>
+          <td>${taxonomyRow}</td>
+          <td>${displayNamesRow}</td>
+          <td><span class="facility-count">${item.zoos.length} 施設</span></td>
+          <td><div class="zoo-links">${zooLinks}</div></td>
+        </tr>`;
     })
     .join("\n");
 }
@@ -1990,12 +2019,13 @@ function renderZooDetailHtml(zoo: Zoo, scraped: ScrapeResult): string {
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
     main { max-width: 840px; margin: 0 auto; padding: 1.5rem; }
-    .card { background: #fff; border: 1px solid #ddd; padding: 1.25rem; margin-bottom: 1rem; }
+    .section { border: 1px solid #ddd; padding: 1rem; margin-bottom: 1rem; }
     h2 { margin-bottom: 0.5rem; }
     h3 { font-size: 1.05rem; margin-bottom: 0.75rem; }
     .kana { color: #777; margin-bottom: 1rem; }
-    dl { display: grid; grid-template-columns: 6em 1fr; gap: 0.25rem 0.5rem; margin-bottom: 1rem; }
-    dt { color: #666; font-weight: bold; }
+    .info-table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }
+    .info-table th, .info-table td { border: 1px solid #ddd; padding: 0.45rem 0.55rem; text-align: left; vertical-align: top; font-size: 0.86rem; }
+    .info-table th { width: 8em; background: #f7f7f7; color: #666; font-weight: bold; }
     ul { padding-left: 1.2rem; }
     .animal-summary { color: #666; font-size: 0.85rem; margin-bottom: 0.75rem; }
     .animal-links { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.4rem 1rem; padding: 0; list-style: none; }
@@ -2017,25 +2047,27 @@ ${renderGlobalNav("/")}
       <a href="/zoos/${zoo.id}/animals">動物一覧だけ見る</a>
       <a href="${escapeHtml(zoo.website)}" target="_blank" rel="noopener noreferrer">公式サイト</a>
     </nav>
-    <section class="card">
+    <section class="section">
       <h2>${escapeHtml(zoo.name)}</h2>
       <p class="kana">${escapeHtml(zoo.nameKana)}</p>
-      <dl>
-        <dt>都道府県</dt><dd>${prefLabel}</dd>
-        <dt>住所</dt><dd>${escapeHtml(zoo.address)}</dd>
-        <dt>開園時間</dt><dd>${escapeHtml(zoo.openingHours)}</dd>
-        <dt>休園日</dt><dd>${escapeHtml(zoo.closedDays)}</dd>
-        <dt>入園料</dt><dd>${escapeHtml(zoo.admission)}</dd>
-        ${
-          zoo.directorySourceName && zoo.directorySourceUrl
-            ? `<dt>施設一覧出典</dt><dd><a href="${escapeHtml(zoo.directorySourceUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(zoo.directorySourceName)}</a></dd>`
-            : ""
-        }
-      </dl>
+      <table class="info-table">
+        <tbody>
+          <tr><th scope="row">都道府県</th><td>${prefLabel}</td></tr>
+          <tr><th scope="row">住所</th><td>${escapeHtml(zoo.address)}</td></tr>
+          <tr><th scope="row">開園時間</th><td>${escapeHtml(zoo.openingHours)}</td></tr>
+          <tr><th scope="row">休園日</th><td>${escapeHtml(zoo.closedDays)}</td></tr>
+          <tr><th scope="row">入園料</th><td>${escapeHtml(zoo.admission)}</td></tr>
+          ${
+            zoo.directorySourceName && zoo.directorySourceUrl
+              ? `<tr><th scope="row">施設一覧出典</th><td><a href="${escapeHtml(zoo.directorySourceUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(zoo.directorySourceName)}</a></td></tr>`
+              : ""
+          }
+        </tbody>
+      </table>
       <h3>特徴</h3>
       <ul>${features}</ul>
     </section>
-    <section class="card" id="animals">
+    <section class="section" id="animals">
       <h3>見られる動物</h3>
       <p class="animal-summary">${scraped.animals.length} 件</p>
       ${scraped.error ? `<p class="error">取得に失敗しました: ${escapeHtml(scraped.error)}</p>` : ""}
@@ -2164,7 +2196,7 @@ function renderZooAnimalsHtml(zoo: Zoo, scraped: Awaited<ReturnType<typeof scrap
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
     main { max-width: 840px; margin: 0 auto; padding: 1.5rem; }
-    .card { background: #fff; border: 1px solid #ddd; padding: 1.25rem; }
+    .section { border: 1px solid #ddd; padding: 1rem; }
     h2 { margin-bottom: 0.75rem; }
     ul { padding-left: 1.2rem; }
     li { margin-bottom: 0.35rem; }
@@ -2180,7 +2212,7 @@ ${renderGlobalNav("/")}
       <a href="/zoos/${zoo.id}">${escapeHtml(zoo.name)}の詳細</a>
       <a href="${escapeHtml(zoo.website)}" target="_blank" rel="noopener noreferrer">公式サイト</a>
     </nav>
-    <section class="card">
+    <section class="section">
       <h2>${escapeHtml(zoo.name)}の動物一覧</h2>
       ${scraped.error ? `<p class="error">取得に失敗しました: ${escapeHtml(scraped.error)}</p>` : ""}
       ${

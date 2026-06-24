@@ -1826,11 +1826,22 @@ ${renderGlobalNav("/taxonomy")}
 </html>`;
 }
 
-function renderZooDetailHtml(zoo: Zoo): string {
+function renderZooDetailHtml(zoo: Zoo, scraped: ScrapeResult): string {
   const prefLabel = PREF_LABELS[zoo.prefecture];
   const features = zoo.features
     .map((feature) => `<li>${escapeHtml(feature)}</li>`)
     .join("\n");
+  const animalLinks = scraped.animals
+    .map(
+      (animal) =>
+        `<li><a href="${buildZooAnimalUrl(animal)}">${escapeHtml(animal)}</a></li>`
+    )
+    .join("\n");
+  const updatedAt = new Date(scraped.scrapedAt).toLocaleString("ja-JP");
+  const animalListHtml =
+    scraped.animals.length > 0
+      ? `<ul class="animal-links">${animalLinks}</ul>`
+      : `<p class="empty">動物一覧を取得できませんでした。公式サイトもあわせてご確認ください。</p>`;
 
   return `<!DOCTYPE html>
 <html lang="ja">
@@ -1850,6 +1861,14 @@ function renderZooDetailHtml(zoo: Zoo): string {
     dl { display: grid; grid-template-columns: 6em 1fr; gap: 0.25rem 0.5rem; margin-bottom: 1rem; }
     dt { color: #666; font-weight: bold; }
     ul { padding-left: 1.2rem; }
+    .animal-summary { color: #666; font-size: 0.85rem; margin-bottom: 0.75rem; }
+    .animal-links { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.4rem 1rem; padding: 0; list-style: none; }
+    .animal-links li { min-width: 0; }
+    .animal-links a { display: block; color: #1f5b45; border-bottom: 1px solid #e7eee9; padding: 0.35rem 0; text-decoration: none; overflow-wrap: anywhere; }
+    .animal-links a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .animal-meta { color: #777; font-size: 0.78rem; margin-top: 0.85rem; }
+    .error { color: #b00020; margin-bottom: 0.75rem; }
+    .empty { color: #777; }
     #map { height: 320px; border: 1px solid #ddd; }
   </style>
 </head>
@@ -1858,7 +1877,8 @@ ${renderSiteHeader()}
 ${renderGlobalNav("/")}
   <main>
     <nav class="page-nav">
-      <a href="/zoos/${zoo.id}/animals">この動物園の動物一覧</a>
+      <a href="#animals">動物一覧</a>
+      <a href="/zoos/${zoo.id}/animals">動物一覧だけ見る</a>
       <a href="${escapeHtml(zoo.website)}" target="_blank" rel="noopener noreferrer">公式サイト</a>
     </nav>
     <section class="card">
@@ -1873,6 +1893,13 @@ ${renderGlobalNav("/")}
       </dl>
       <h3>特徴</h3>
       <ul>${features}</ul>
+    </section>
+    <section class="card" id="animals">
+      <h3>見られる動物</h3>
+      <p class="animal-summary">${scraped.animals.length} 件</p>
+      ${scraped.error ? `<p class="error">取得に失敗しました: ${escapeHtml(scraped.error)}</p>` : ""}
+      ${animalListHtml}
+      <p class="animal-meta">最終取得: ${escapeHtml(updatedAt)}</p>
     </section>
     <div id="map"></div>
   </main>
@@ -2244,7 +2271,8 @@ export default {
       const id = zooPageMatch[1];
       const zoo = zoos.find((z) => z.id === id);
       if (!zoo) return notFound(`動物園 '${id}' が見つかりません`);
-      const html = renderZooDetailHtml(zoo);
+      const scraped = await getAnimalResult(env.DB, id, url.searchParams.get("refresh") === "1");
+      const html = renderZooDetailHtml(zoo, scraped);
       return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
     }
 

@@ -2113,7 +2113,7 @@ function renderTaxonomyHtml(
         .join("");
       return `
         <li class="class-node">
-          <details open>
+          <details>
             <summary>
               <a href="${classUrl}">${escapeHtml(classNode.name)}</a>
               <small>${classNode.animalCount} 種 / ${classNode.zooCount} 施設</small>
@@ -2164,13 +2164,17 @@ function renderTaxonomyHtml(
     .taxonomy-tree { display: grid; gap: 0.55rem; }
     .taxonomy-tree ul { margin: 0.4rem 0 0 0.65rem; padding-left: 1rem; border-left: 1px solid #cbd8cf; }
     .taxonomy-tree li + li { margin-top: 0.35rem; }
-    .taxonomy-tree summary { cursor: pointer; padding: 0.32rem 0; }
-    .taxonomy-tree summary::marker { color: #587466; }
+    .taxonomy-tree summary { display: flex; align-items: center; gap: 0.55rem; min-height: 2.75rem; cursor: pointer; padding: 0.55rem 0.65rem; list-style: none; }
+    .taxonomy-tree summary::-webkit-details-marker { display: none; }
+    .taxonomy-tree summary::before { content: "▶"; flex: 0 0 1.15rem; color: #587466; font-size: 1.05rem; line-height: 1; text-align: center; transition: transform 0.15s ease; }
+    .taxonomy-tree details[open] > summary::before { transform: rotate(90deg); }
+    .taxonomy-tree summary:hover { background: #f3f7f4; }
+    .taxonomy-tree summary:focus-visible { outline: 2px solid #1f5b45; outline-offset: -2px; }
     .taxonomy-tree a { color: #1f5b45; font-weight: bold; text-decoration: none; }
     .taxonomy-tree a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .taxonomy-tree small { margin-left: 0.45rem; color: #6b786f; font-size: 0.72rem; font-weight: normal; }
-    .class-node > details > summary { font-size: 1rem; }
-    .order-node > details > summary { font-size: 0.9rem; }
+    .class-node > details > summary { font-size: 1rem; border-bottom: 1px solid #e3e9e5; }
+    .order-node > details > summary { min-height: 2.5rem; font-size: 0.9rem; }
     .family-node { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem; padding: 0.22rem 0; font-size: 0.84rem; }
     .family-node a { font-weight: normal; }
     .family-node small { margin-left: 0.25rem; }

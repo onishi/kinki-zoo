@@ -116,6 +116,22 @@ interface TaxonomyOverviewSection extends TaxonomyRankConfig {
   values: TaxonomyValueRow[];
 }
 
+interface TaxonomyTreeNode {
+  name: string;
+  animalCount: number;
+  zooCount: number;
+  children: TaxonomyTreeNode[];
+}
+
+interface TaxonomyTreeRow {
+  rank_level: "class" | "order" | "family";
+  class_name: string;
+  order_name: string | null;
+  family_name: string | null;
+  animal_count: number;
+  zoo_count: number;
+}
+
 interface TaxonomyPathLevel {
   rank: TaxonomyRankConfig;
   value: string;
@@ -648,6 +664,104 @@ async function loadTaxonomyOverview(
   }
 
   return sections;
+}
+
+async function loadTaxonomyTree(
+  db: D1Database,
+  pref: PrefectureCode | null = null
+): Promise<TaxonomyTreeNode[]> {
+  const zooIds = getZooIdsForPrefecture(pref);
+  const where = pref
+    ? `WHERE za.zoo_id IN (${buildPlaceholders(zooIds)})`
+    : "";
+  const result = await db
+    .prepare(
+      `SELECT
+         'class' AS rank_level,
+         a.class_name,
+         NULL AS order_name,
+         NULL AS family_name,
+         COUNT(DISTINCT a.id) AS animal_count,
+         COUNT(DISTINCT za.zoo_id) AS zoo_count
+       FROM animals a
+       JOIN zoo_animals za ON za.animal_id = a.id
+       ${where}
+       GROUP BY a.class_name
+       UNION ALL
+       SELECT
+         'order' AS rank_level,
+         a.class_name,
+         a.order_name,
+         NULL AS family_name,
+         COUNT(DISTINCT a.id) AS animal_count,
+         COUNT(DISTINCT za.zoo_id) AS zoo_count
+       FROM animals a
+       JOIN zoo_animals za ON za.animal_id = a.id
+       ${where}
+       GROUP BY a.class_name, a.order_name
+       UNION ALL
+       SELECT
+         'family' AS rank_level,
+         a.class_name,
+         a.order_name,
+         a.family_name,
+         COUNT(DISTINCT a.id) AS animal_count,
+         COUNT(DISTINCT za.zoo_id) AS zoo_count
+       FROM animals a
+       JOIN zoo_animals za ON za.animal_id = a.id
+       ${where}
+       GROUP BY a.class_name, a.order_name, a.family_name
+       ORDER BY class_name, order_name, family_name`
+    )
+    .bind(
+      ...(pref ? zooIds : []),
+      ...(pref ? zooIds : []),
+      ...(pref ? zooIds : [])
+    )
+    .all<TaxonomyTreeRow>();
+
+  const classes = new Map<string, TaxonomyTreeNode>();
+  for (const row of result.results ?? []) {
+    const classNode = classes.get(row.class_name) ?? {
+      name: row.class_name,
+      animalCount: 0,
+      zooCount: 0,
+      children: [],
+    };
+    if (row.rank_level === "class") {
+      classNode.animalCount = row.animal_count;
+      classNode.zooCount = row.zoo_count;
+      classes.set(row.class_name, classNode);
+      continue;
+    }
+    if (!row.order_name) continue;
+    let orderNode = classNode.children.find((node) => node.name === row.order_name);
+    if (!orderNode) {
+      orderNode = {
+        name: row.order_name,
+        animalCount: 0,
+        zooCount: 0,
+        children: [],
+      };
+      classNode.children.push(orderNode);
+    }
+    if (row.rank_level === "order") {
+      orderNode.animalCount = row.animal_count;
+      orderNode.zooCount = row.zoo_count;
+      classes.set(row.class_name, classNode);
+      continue;
+    }
+    if (!row.family_name) continue;
+    orderNode.children.push({
+      name: row.family_name,
+      animalCount: row.animal_count,
+      zooCount: row.zoo_count,
+      children: [],
+    });
+    classes.set(row.class_name, classNode);
+  }
+
+  return [...classes.values()];
 }
 
 function getTaxonomyRank(value: string): TaxonomyRankConfig | undefined {
@@ -1962,9 +2076,53 @@ ${renderGlobalNav("/animals")}
 
 function renderTaxonomyHtml(
   sections: TaxonomyOverviewSection[],
+  tree: TaxonomyTreeNode[],
   activePref: PrefectureCode | null
 ): string {
   const prefLabel = activePref ? PREF_LABELS[activePref] : "近畿一円";
+  const treeHtml = tree
+    .map((classNode) => {
+      const classUrl = buildTaxonomyPathUrl([classNode.name]);
+      const orders = classNode.children
+        .map((orderNode) => {
+          const orderUrl = buildTaxonomyPathUrl([classNode.name, orderNode.name]);
+          const families = orderNode.children
+            .map(
+              (familyNode) => `
+                <li class="family-node">
+                  <a href="${buildTaxonomyPathUrl([
+                    classNode.name,
+                    orderNode.name,
+                    familyNode.name,
+                  ])}">${escapeHtml(familyNode.name)}</a>
+                  <small>${familyNode.animalCount} 種 / ${familyNode.zooCount} 施設</small>
+                </li>`
+            )
+            .join("");
+          return `
+            <li class="order-node">
+              <details>
+                <summary>
+                  <a href="${orderUrl}">${escapeHtml(orderNode.name)}</a>
+                  <small>${orderNode.animalCount} 種 / ${orderNode.zooCount} 施設</small>
+                </summary>
+                <ul>${families}</ul>
+              </details>
+            </li>`;
+        })
+        .join("");
+      return `
+        <li class="class-node">
+          <details open>
+            <summary>
+              <a href="${classUrl}">${escapeHtml(classNode.name)}</a>
+              <small>${classNode.animalCount} 種 / ${classNode.zooCount} 施設</small>
+            </summary>
+            <ul>${orders}</ul>
+          </details>
+        </li>`;
+    })
+    .join("");
   const sectionHtml = sections
     .map((section) => {
       const values = section.values
@@ -2000,6 +2158,22 @@ function renderTaxonomyHtml(
     body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
     .taxonomy-scope { padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; color: #666; font-size: 0.9rem; }
     .taxonomy-page { display: grid; gap: 1.25rem; padding: 1rem 1.5rem 1.5rem; }
+    .tree-section { border-bottom: 1px solid #ddd; padding-bottom: 1.25rem; }
+    .tree-section h2, .rank-sections-title { font-size: 1.08rem; margin-bottom: 0.75rem; }
+    .taxonomy-tree, .taxonomy-tree ul { list-style: none; }
+    .taxonomy-tree { display: grid; gap: 0.55rem; }
+    .taxonomy-tree ul { margin: 0.4rem 0 0 0.65rem; padding-left: 1rem; border-left: 1px solid #cbd8cf; }
+    .taxonomy-tree li + li { margin-top: 0.35rem; }
+    .taxonomy-tree summary { cursor: pointer; padding: 0.32rem 0; }
+    .taxonomy-tree summary::marker { color: #587466; }
+    .taxonomy-tree a { color: #1f5b45; font-weight: bold; text-decoration: none; }
+    .taxonomy-tree a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .taxonomy-tree small { margin-left: 0.45rem; color: #6b786f; font-size: 0.72rem; font-weight: normal; }
+    .class-node > details > summary { font-size: 1rem; }
+    .order-node > details > summary { font-size: 0.9rem; }
+    .family-node { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem; padding: 0.22rem 0; font-size: 0.84rem; }
+    .family-node a { font-weight: normal; }
+    .family-node small { margin-left: 0.25rem; }
     .taxonomy-section { border-top: 1px solid #ddd; padding-top: 1rem; }
     .taxonomy-section:first-child { border-top: 0; padding-top: 0; }
     .taxonomy-section h2 { font-size: 1.05rem; margin-bottom: 0.75rem; }
@@ -2015,7 +2189,18 @@ function renderTaxonomyHtml(
 ${renderSiteHeader()}
 ${renderGlobalNav("/taxonomy")}
   <p class="taxonomy-scope">${escapeHtml(prefLabel)}の分類</p>
-  <main class="taxonomy-page">${sectionHtml}</main>
+  <main class="taxonomy-page">
+    <section class="tree-section">
+      <h2>分類ツリー（類・目・科）</h2>
+      ${
+        treeHtml
+          ? `<ul class="taxonomy-tree">${treeHtml}</ul>`
+          : `<p>この地域には分類済みの動物がありません。</p>`
+      }
+    </section>
+    <h2 class="rank-sections-title">ランク別一覧</h2>
+    ${sectionHtml}
+  </main>
   <footer>分類は利用者が探しやすい粒度で整理しています。最新情報は各施設の公式サイトでご確認ください。</footer>
 </body>
 </html>`;
@@ -2536,8 +2721,11 @@ export default {
 
     // HTML: /taxonomy
     if (pathname === "/taxonomy") {
-      const sections = await loadTaxonomyOverview(env.DB, activePref);
-      const html = renderTaxonomyHtml(sections, activePref);
+      const [sections, tree] = await Promise.all([
+        loadTaxonomyOverview(env.DB, activePref),
+        loadTaxonomyTree(env.DB, activePref),
+      ]);
+      const html = renderTaxonomyHtml(sections, tree, activePref);
       return htmlResponse(html, url, activePref);
     }
 

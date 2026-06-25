@@ -144,6 +144,21 @@ function isPrefectureCode(value: string): value is PrefectureCode {
   return PREF_CODES.includes(value as PrefectureCode);
 }
 
+function getActivePrefecture(url: URL): PrefectureCode | null {
+  const pref = url.searchParams.get("pref");
+  return pref && isPrefectureCode(pref) ? pref : null;
+}
+
+function getZooIdsForPrefecture(pref: PrefectureCode | null): string[] {
+  return zoos
+    .filter((zoo) => !pref || zoo.prefecture === pref)
+    .map((zoo) => zoo.id);
+}
+
+function buildPlaceholders(values: unknown[]): string {
+  return values.length > 0 ? values.map(() => "?").join(", ") : "NULL";
+}
+
 function normalizeSearchTerm(value?: string | null): string | null {
   const normalized = value?.trim();
   return normalized ? normalized : null;
@@ -477,17 +492,26 @@ function buildAnimalListItems(rows: AnimalListRow[]): AnimalListItem[] {
   return [...animals.values()];
 }
 
-async function loadAnimalList(db: D1Database, filter: AnimalListFilter = "all"): Promise<AnimalListItem[]> {
-  const where =
+async function loadAnimalList(
+  db: D1Database,
+  filter: AnimalListFilter = "all",
+  pref: PrefectureCode | null = null
+): Promise<AnimalListItem[]> {
+  const conditions =
     filter === "unclassified"
-      ? `WHERE a.id IS NULL
+      ? [`a.id IS NULL
            AND NULLIF(c.canonical_name, 'null') IS NULL
            AND NULLIF(c.class_name, 'null') IS NULL
            AND NULLIF(c.order_name, 'null') IS NULL
            AND NULLIF(c.family_name, 'null') IS NULL
            AND NULLIF(c.genus_name, 'null') IS NULL
-           AND NULLIF(c.species_name, 'null') IS NULL`
-      : "";
+           AND NULLIF(c.species_name, 'null') IS NULL`]
+      : [];
+  const zooIds = getZooIdsForPrefecture(pref);
+  if (pref) {
+    conditions.push(`za.zoo_id IN (${buildPlaceholders(zooIds)})`);
+  }
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
   const result = await db
     .prepare(
       `SELECT
@@ -510,12 +534,21 @@ async function loadAnimalList(db: D1Database, filter: AnimalListFilter = "all"):
        ${where}
        ORDER BY COALESCE(a.normalized_name, za.normalized_display_name), za.display_name, za.zoo_id`
     )
+    .bind(...(pref ? zooIds : []))
     .all<AnimalListRow>();
 
   return buildAnimalListItems(result.results ?? []);
 }
 
-async function loadZooAnimalDetail(db: D1Database, displayName: string): Promise<ZooAnimalDetail | null> {
+async function loadZooAnimalDetail(
+  db: D1Database,
+  displayName: string,
+  pref: PrefectureCode | null = null
+): Promise<ZooAnimalDetail | null> {
+  const zooIds = getZooIdsForPrefecture(pref);
+  const zooFilter = pref
+    ? `AND za.zoo_id IN (${buildPlaceholders(zooIds)})`
+    : "";
   const result = await db
     .prepare(
       `SELECT
@@ -531,9 +564,10 @@ async function loadZooAnimalDetail(db: D1Database, displayName: string): Promise
        FROM zoo_animals za
        LEFT JOIN animals a ON a.id = za.animal_id
        WHERE za.display_name = ?
+       ${zooFilter}
        ORDER BY za.zoo_id`
     )
-    .bind(displayName)
+    .bind(displayName, ...(pref ? zooIds : []))
     .all<AnimalListRow>();
 
   const rows = result.results ?? [];
@@ -584,8 +618,15 @@ async function loadZooAnimalDetail(db: D1Database, displayName: string): Promise
   };
 }
 
-async function loadTaxonomyOverview(db: D1Database): Promise<TaxonomyOverviewSection[]> {
+async function loadTaxonomyOverview(
+  db: D1Database,
+  pref: PrefectureCode | null = null
+): Promise<TaxonomyOverviewSection[]> {
   const sections: TaxonomyOverviewSection[] = [];
+  const zooIds = getZooIdsForPrefecture(pref);
+  const where = pref
+    ? `WHERE za.zoo_id IN (${buildPlaceholders(zooIds)})`
+    : "";
 
   for (const rank of TAXONOMY_RANKS) {
     const result = await db
@@ -596,9 +637,11 @@ async function loadTaxonomyOverview(db: D1Database): Promise<TaxonomyOverviewSec
            COUNT(DISTINCT za.zoo_id) AS zoo_count
          FROM animals a
          JOIN zoo_animals za ON za.animal_id = a.id
+         ${where}
          GROUP BY a.${rank.column}
          ORDER BY a.${rank.column}`
       )
+      .bind(...(pref ? zooIds : []))
       .all<TaxonomyValueRow>();
 
     sections.push({ ...rank, values: result.results ?? [] });
@@ -642,14 +685,19 @@ function parseTaxonomyPath(pathname: string): TaxonomyPathLevel[] | null {
 
 async function loadChildTaxonomyValues(
   db: D1Database,
-  levels: TaxonomyPathLevel[]
+  levels: TaxonomyPathLevel[],
+  pref: PrefectureCode | null = null
 ): Promise<TaxonomyOverviewSection | null> {
   const current = levels.at(-1);
   if (!current) return null;
   const { rank } = current;
   const childRank = getNextTaxonomyRank(rank);
   if (!childRank) return null;
-  const where = buildTaxonomyWhereClause(levels);
+  const zooIds = getZooIdsForPrefecture(pref);
+  const where = [
+    buildTaxonomyWhereClause(levels),
+    ...(pref ? [`za.zoo_id IN (${buildPlaceholders(zooIds)})`] : []),
+  ].join(" AND ");
 
   const result = await db
     .prepare(
@@ -663,7 +711,7 @@ async function loadChildTaxonomyValues(
        GROUP BY a.${childRank.column}
        ORDER BY a.${childRank.column}`
     )
-    .bind(...levels.map((level) => level.value))
+    .bind(...levels.map((level) => level.value), ...(pref ? zooIds : []))
     .all<TaxonomyValueRow>();
 
   return { ...childRank, values: result.results ?? [] };
@@ -671,9 +719,14 @@ async function loadChildTaxonomyValues(
 
 async function loadTaxonomyAnimals(
   db: D1Database,
-  levels: TaxonomyPathLevel[]
+  levels: TaxonomyPathLevel[],
+  pref: PrefectureCode | null = null
 ): Promise<AnimalListItem[]> {
-  const where = buildTaxonomyWhereClause(levels);
+  const zooIds = getZooIdsForPrefecture(pref);
+  const where = [
+    buildTaxonomyWhereClause(levels),
+    ...(pref ? [`za.zoo_id IN (${buildPlaceholders(zooIds)})`] : []),
+  ].join(" AND ");
   const result = await db
     .prepare(
       `SELECT
@@ -691,7 +744,7 @@ async function loadTaxonomyAnimals(
        WHERE ${where}
        ORDER BY a.normalized_name, za.display_name, za.zoo_id`
     )
-    .bind(...levels.map((level) => level.value))
+    .bind(...levels.map((level) => level.value), ...(pref ? zooIds : []))
     .all<AnimalListRow>();
 
   return buildAnimalListItems(result.results ?? []);
@@ -1421,6 +1474,71 @@ function buildTaxonomyUrl(levels: TaxonomyPathLevel[], value: string): string {
   return buildTaxonomyPathUrl([...levels.map((level) => level.value), value]);
 }
 
+function addPrefectureToInternalUrl(href: string, pref: PrefectureCode | null): string {
+  if (!pref || !href.startsWith("/") || href.startsWith("//")) return href;
+  const parsed = new URL(href, "https://kinki-zoo.invalid");
+  if (!parsed.searchParams.has("pref")) {
+    parsed.searchParams.set("pref", pref);
+  }
+  return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+}
+
+function renderPrefectureSelector(url: URL, activePref: PrefectureCode | null): string {
+  const hiddenInputs = [...url.searchParams.entries()]
+    .filter(([name]) => name !== "pref")
+    .map(
+      ([name, value]) =>
+        `<input type="hidden" name="${escapeHtml(name)}" value="${escapeHtml(value)}">`
+    )
+    .join("");
+  const options = [
+    `<option value=""${activePref ? "" : " selected"}>近畿一円</option>`,
+    ...PREF_CODES.map(
+      (code) =>
+        `<option value="${code}"${code === activePref ? " selected" : ""}>${escapeHtml(PREF_LABELS[code])}</option>`
+    ),
+  ].join("");
+
+  return `<form class="pref-selector" action="${escapeHtml(url.pathname)}" method="get">
+    ${hiddenInputs}
+    <label for="prefecture-select">地域</label>
+    <select id="prefecture-select" name="pref" onchange="this.form.submit()">${options}</select>
+    <noscript><button type="submit">表示</button></noscript>
+  </form>`;
+}
+
+function htmlResponse(html: string, url: URL, activePref: PrefectureCode | null): Response {
+  let rewriter = new HTMLRewriter()
+    .on(".site-header", {
+      element(element) {
+        element.append(renderPrefectureSelector(url, activePref), { html: true });
+      },
+    })
+    .on("a[href]", {
+      element(element) {
+        const href = element.getAttribute("href");
+        if (href) {
+          element.setAttribute("href", addPrefectureToInternalUrl(href, activePref));
+        }
+      },
+    });
+
+  if (activePref) {
+    rewriter = rewriter.on("form:not(.pref-selector)", {
+      element(element) {
+        element.prepend(
+          `<input type="hidden" name="pref" value="${escapeHtml(activePref)}">`,
+          { html: true }
+        );
+      },
+    });
+  }
+
+  return rewriter.transform(
+    new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } })
+  );
+}
+
 function renderTaxonomyBreadcrumb(levels: TaxonomyPathLevel[]): string {
   const crumbs = [
     `<a href="/taxonomy">分類一覧</a>`,
@@ -1448,10 +1566,15 @@ function renderPrefTab(
 }
 
 const COMMON_STYLES = `
-    .site-header { padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; }
+    .site-header { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem 2rem; padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; }
+    .site-heading { flex: 1 1 320px; }
     .site-header h1 { font-size: 1.5rem; }
     .site-header h1 a { color: inherit; text-decoration: none; }
     .site-header p { font-size: 0.9rem; color: #555; margin-top: 0.25rem; }
+    .pref-selector { display: flex; align-items: center; gap: 0.5rem; }
+    .pref-selector label { color: #555; font-size: 0.82rem; font-weight: bold; }
+    .pref-selector select { min-width: 9rem; border: 1px solid #aaa; background: #fff; padding: 0.45rem 2rem 0.45rem 0.6rem; font: inherit; }
+    .pref-selector button { border: 1px solid #1f5b45; background: #fff; color: #1f5b45; padding: 0.4rem 0.65rem; }
     .global-nav { display: flex; flex-wrap: wrap; gap: 1rem; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; }
     .global-nav a { color: #1f5b45; text-decoration: none; font-size: 0.9rem; }
     .global-nav a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
@@ -1461,8 +1584,10 @@ const COMMON_STYLES = `
 
 function renderSiteHeader(): string {
   return `  <header class="site-header">
-    <h1><a href="/">近畿動物園情報</a></h1>
-    <p>近畿一円の動物園・動物施設をまとめて調べられます</p>
+    <div class="site-heading">
+      <h1><a href="/">近畿動物園情報</a></h1>
+      <p>近畿一円の動物園・動物施設をまとめて調べられます</p>
+    </div>
   </header>`;
 }
 
@@ -1491,12 +1616,6 @@ function renderHtml(
 ): string {
   const rows = results.map(renderZooCard).join("\n");
   const escapedAnimal = animal ? escapeHtml(animal) : "";
-  const allTab = activePref
-    ? `<a href="${buildBrowseUrl(null, animal)}" class="tab">すべて</a>`
-    : `<a href="${buildBrowseUrl(null, animal)}" class="tab active">すべて</a>`;
-  const prefTabs = PREF_CODES.map((code) =>
-    renderPrefTab(code, PREF_LABELS[code], code === activePref, animal)
-  ).join("\n");
 
   const count = results.length;
   const prefLabel = activePref && isPrefectureCode(activePref) ? PREF_LABELS[activePref] : "近畿一円";
@@ -1534,10 +1653,6 @@ function renderHtml(
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
-    .tabs { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; }
-    .tab { color: #1f5b45; text-decoration: none; font-size: 0.9rem; }
-    .tab.active { font-weight: bold; text-decoration: underline; text-underline-offset: 0.2em; }
-    .tab:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .search-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; }
     .search-form input { flex: 1 1 220px; max-width: 320px; padding: 0.55rem 0.75rem; border: 1px solid #bbb; font-size: 0.95rem; }
     .search-form button, .search-form a { font-size: 0.875rem; }
@@ -1575,12 +1690,7 @@ function renderHtml(
 <body>
 ${renderSiteHeader()}
 ${renderGlobalNav("/")}
-  <nav class="tabs">
-    ${allTab}
-    ${prefTabs}
-  </nav>
   <form class="search-form" action="/" method="get">
-    ${activePref ? `<input type="hidden" name="pref" value="${activePref}">` : ""}
     <input type="search" name="animal" value="${escapedAnimal}" placeholder="動物名で検索（例: パンダ）" aria-label="動物名で検索">
     <button type="submit">検索</button>
     ${animal ? `<a href="${buildBrowseUrl(activePref, null)}">クリア</a>` : ""}
@@ -1596,12 +1706,17 @@ function buildAnimalsUrl(filter: AnimalListFilter): string {
   return filter === "unclassified" ? "/animals?filter=unclassified" : "/animals";
 }
 
-function renderAnimalsHtml(animals: AnimalListItem[], filter: AnimalListFilter): string {
+function renderAnimalsHtml(
+  animals: AnimalListItem[],
+  filter: AnimalListFilter,
+  activePref: PrefectureCode | null
+): string {
   const items = renderAnimalCards(animals);
+  const prefLabel = activePref ? PREF_LABELS[activePref] : "近畿一円";
   const summary =
     filter === "unclassified"
-      ? `分類未設定: ${animals.length} 件`
-      : `登録動物: ${animals.length} 件`;
+      ? `${prefLabel}の分類未設定: ${animals.length} 件`
+      : `${prefLabel}の登録動物: ${animals.length} 件`;
 
   const emptyMessage =
     animals.length === 0
@@ -1845,7 +1960,11 @@ ${renderGlobalNav("/animals")}
 </html>`;
 }
 
-function renderTaxonomyHtml(sections: TaxonomyOverviewSection[]): string {
+function renderTaxonomyHtml(
+  sections: TaxonomyOverviewSection[],
+  activePref: PrefectureCode | null
+): string {
+  const prefLabel = activePref ? PREF_LABELS[activePref] : "近畿一円";
   const sectionHtml = sections
     .map((section) => {
       const values = section.values
@@ -1879,6 +1998,7 @@ function renderTaxonomyHtml(sections: TaxonomyOverviewSection[]): string {
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
+    .taxonomy-scope { padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; color: #666; font-size: 0.9rem; }
     .taxonomy-page { display: grid; gap: 1.25rem; padding: 1rem 1.5rem 1.5rem; }
     .taxonomy-section { border-top: 1px solid #ddd; padding-top: 1rem; }
     .taxonomy-section:first-child { border-top: 0; padding-top: 0; }
@@ -1894,6 +2014,7 @@ function renderTaxonomyHtml(sections: TaxonomyOverviewSection[]): string {
 <body>
 ${renderSiteHeader()}
 ${renderGlobalNav("/taxonomy")}
+  <p class="taxonomy-scope">${escapeHtml(prefLabel)}の分類</p>
   <main class="taxonomy-page">${sectionHtml}</main>
   <footer>分類は利用者が探しやすい粒度で整理しています。最新情報は各施設の公式サイトでご確認ください。</footer>
 </body>
@@ -2094,12 +2215,6 @@ ${renderGlobalNav("/")}
 
 function renderMapHtml(filteredZoos: Zoo[], activePref: PrefectureCode | null, animal: string | null): string {
   const escapedAnimal = animal ? escapeHtml(animal) : "";
-  const allTab = activePref
-    ? `<a href="${buildMapUrl(null, animal)}" class="tab">すべて</a>`
-    : `<a href="${buildMapUrl(null, animal)}" class="tab active">すべて</a>`;
-  const prefTabs = PREF_CODES.map((code) =>
-    `<a href="${buildMapUrl(code, animal)}" class="${code === activePref ? "tab active" : "tab"}">${PREF_LABELS[code]}</a>`
-  ).join("\n");
 
   // Embed only the data needed for map markers; safe to embed as JSON in <script>
   const mapData = JSON.stringify(
@@ -2124,11 +2239,8 @@ function renderMapHtml(filteredZoos: Zoo[], activePref: PrefectureCode | null, a
     body { font-family: sans-serif; background: #fff; color: #222; display: flex; flex-direction: column; height: 100vh; }${COMMON_STYLES}
     .site-header { flex-shrink: 0; }
     .global-nav { flex-shrink: 0; }
-    .tabs { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; flex-shrink: 0; }
-    .tab { color: #1f5b45; text-decoration: none; font-size: 0.9rem; }
-    .tab.active { font-weight: bold; text-decoration: underline; text-underline-offset: 0.2em; }
-    .tab:hover { text-decoration: underline; text-underline-offset: 0.2em; }
-    .list-link { margin-left: auto; font-size: 0.85rem; color: #1f5b45; text-decoration: none; }
+    .map-toolbar { display: flex; justify-content: flex-end; padding: 0.55rem 1.5rem; border-bottom: 1px solid #ddd; flex-shrink: 0; }
+    .list-link { font-size: 0.85rem; color: #1f5b45; text-decoration: none; }
     .list-link:hover { text-decoration: underline; }
     .search-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; flex-shrink: 0; }
     .search-form input { flex: 1 1 220px; max-width: 320px; padding: 0.55rem 0.75rem; border: 1px solid #bbb; font-size: 0.95rem; }
@@ -2142,13 +2254,10 @@ function renderMapHtml(filteredZoos: Zoo[], activePref: PrefectureCode | null, a
 <body>
 ${renderSiteHeader()}
 ${renderGlobalNav("/map")}
-  <nav class="tabs">
-    ${allTab}
-    ${prefTabs}
+  <nav class="map-toolbar">
     <a href="${buildBrowseUrl(activePref, animal)}" class="list-link">一覧で見る →</a>
   </nav>
   <form class="search-form" action="/map" method="get">
-    ${activePref ? `<input type="hidden" name="pref" value="${activePref}">` : ""}
     <input type="search" name="animal" value="${escapedAnimal}" placeholder="動物名で検索（例: パンダ）" aria-label="動物名で検索">
     <button type="submit">検索</button>
     ${animal ? `<a href="${buildMapUrl(activePref, null)}">クリア</a>` : ""}
@@ -2168,7 +2277,7 @@ ${renderGlobalNav("/map")}
     }
     zoos.forEach(function(zoo) {
       L.marker([zoo.lat, zoo.lon])
-        .bindPopup('<b><a href="/zoos/' + esc(zoo.id) + '">' + esc(zoo.name) + '</a></b>')
+        .bindPopup('<b><a href="/zoos/' + esc(zoo.id) + '${activePref ? `?pref=${activePref}` : ""}">' + esc(zoo.name) + '</a></b>')
         .addTo(map);
     });
     if (zoos.length > 0) {
@@ -2231,15 +2340,16 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const pathname = url.pathname;
+    const prefParam = url.searchParams.get("pref");
+    if (prefParam && !isPrefectureCode(prefParam)) {
+      return notFound(`都道府県コード '${prefParam}' は無効です`);
+    }
+    const activePref = getActivePrefecture(url);
 
     // JSON API: /api/zoos
     if (pathname === "/api/zoos") {
-      const pref = url.searchParams.get("pref");
       const animal = normalizeSearchTerm(url.searchParams.get("animal"));
-      if (pref && !isPrefectureCode(pref)) {
-        return notFound(`都道府県コード '${pref}' は無効です`);
-      }
-      const results = await searchZoos(env.DB, pref, animal);
+      const results = await searchZoos(env.DB, activePref, animal);
       return jsonResponse(results.map((result) => toApiZoo(result, Boolean(animal))));
     }
 
@@ -2360,9 +2470,9 @@ export default {
     if (pathname === "/animals") {
       const filter: AnimalListFilter =
         url.searchParams.get("filter") === "unclassified" ? "unclassified" : "all";
-      const animals = await loadAnimalList(env.DB, filter);
-      const html = renderAnimalsHtml(animals, filter);
-      return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+      const animals = await loadAnimalList(env.DB, filter, activePref);
+      const html = renderAnimalsHtml(animals, filter, activePref);
+      return htmlResponse(html, url, activePref);
     }
 
     // HTML: /animal/:displayName
@@ -2372,10 +2482,16 @@ export default {
         return jsonResponse({ error: "POST を使用してください" }, 405);
       }
       const displayName = decodeURIComponent(animalClassifyMatch[1]);
-      const detail = await loadZooAnimalDetail(env.DB, displayName);
+      const detail = await loadZooAnimalDetail(env.DB, displayName, activePref);
       if (!detail) return notFound(`動物 '${displayName}' が見つかりません`);
       const redirectTo = (status: string) =>
-        Response.redirect(`${url.origin}${buildZooAnimalUrl(displayName)}?llm=${encodeURIComponent(status)}`, 303);
+        Response.redirect(
+          `${url.origin}${addPrefectureToInternalUrl(
+            `${buildZooAnimalUrl(displayName)}?llm=${encodeURIComponent(status)}`,
+            activePref
+          )}`,
+          303
+        );
 
       if (!env.GEMINI_API_KEY) {
         return redirectTo("missing-key");
@@ -2397,7 +2513,7 @@ export default {
 
     if (pathname.startsWith("/animal/")) {
       const displayName = decodeURIComponent(pathname.slice("/animal/".length));
-      const detail = await loadZooAnimalDetail(env.DB, displayName);
+      const detail = await loadZooAnimalDetail(env.DB, displayName, activePref);
       if (!detail) return notFound(`動物 '${displayName}' が見つかりません`);
       const llmStatus = url.searchParams.get("llm");
       const notice =
@@ -2415,14 +2531,14 @@ export default {
                   ? "LLM分類でエラーが発生しました。"
                   : undefined;
       const html = renderZooAnimalDetailHtml(detail, notice);
-      return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+      return htmlResponse(html, url, activePref);
     }
 
     // HTML: /taxonomy
     if (pathname === "/taxonomy") {
-      const sections = await loadTaxonomyOverview(env.DB);
-      const html = renderTaxonomyHtml(sections);
-      return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+      const sections = await loadTaxonomyOverview(env.DB, activePref);
+      const html = renderTaxonomyHtml(sections, activePref);
+      return htmlResponse(html, url, activePref);
     }
 
     // HTML: /taxonomy/:rank/:value
@@ -2432,11 +2548,11 @@ export default {
       if (rank) {
         const value = decodeURIComponent(taxonomyPageMatch[2]);
         const levels = [{ rank, value }];
-        const childSection = await loadChildTaxonomyValues(env.DB, levels);
-        const animals = await loadTaxonomyAnimals(env.DB, levels);
+        const childSection = await loadChildTaxonomyValues(env.DB, levels, activePref);
+        const animals = await loadTaxonomyAnimals(env.DB, levels, activePref);
         if (animals.length === 0) return notFound(`分類 '${value}' に該当する動物が見つかりません`);
         const html = renderTaxonomyDetailHtml(levels, childSection, animals);
-        return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+        return htmlResponse(html, url, activePref);
       }
     }
 
@@ -2444,13 +2560,13 @@ export default {
     if (pathname.startsWith("/taxonomy/")) {
       const levels = parseTaxonomyPath(pathname);
       if (!levels) return notFound("分類 URL が無効です");
-      const childSection = await loadChildTaxonomyValues(env.DB, levels);
-      const animals = await loadTaxonomyAnimals(env.DB, levels);
+      const childSection = await loadChildTaxonomyValues(env.DB, levels, activePref);
+      const animals = await loadTaxonomyAnimals(env.DB, levels, activePref);
       if (animals.length === 0) {
         return notFound(`分類 '${levels.at(-1)?.value ?? ""}' に該当する動物が見つかりません`);
       }
       const html = renderTaxonomyDetailHtml(levels, childSection, animals);
-      return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+      return htmlResponse(html, url, activePref);
     }
 
     // JSON API: /api/zoos/:id/animals
@@ -2477,10 +2593,12 @@ export default {
     if (zooAnimalsPageMatch) {
       const id = zooAnimalsPageMatch[1];
       const zoo = zoos.find((z) => z.id === id);
-      if (!zoo) return notFound(`動物園 '${id}' が見つかりません`);
+      if (!zoo || (activePref && zoo.prefecture !== activePref)) {
+        return notFound(`選択中の地域に動物園 '${id}' が見つかりません`);
+      }
       const scraped = await getAnimalResult(env.DB, id, url.searchParams.get("refresh") === "1");
       const html = renderZooAnimalsHtml(zoo, scraped);
-      return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+      return htmlResponse(html, url, activePref);
     }
 
     // HTML: /zoos/:id
@@ -2488,32 +2606,28 @@ export default {
     if (zooPageMatch) {
       const id = zooPageMatch[1];
       const zoo = zoos.find((z) => z.id === id);
-      if (!zoo) return notFound(`動物園 '${id}' が見つかりません`);
+      if (!zoo || (activePref && zoo.prefecture !== activePref)) {
+        return notFound(`選択中の地域に動物園 '${id}' が見つかりません`);
+      }
       const scraped = await getAnimalResult(env.DB, id, url.searchParams.get("refresh") === "1");
       const html = renderZooDetailHtml(zoo, scraped);
-      return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+      return htmlResponse(html, url, activePref);
     }
 
     // HTML: /map
     if (pathname === "/map") {
-      const pref = url.searchParams.get("pref");
       const animal = normalizeSearchTerm(url.searchParams.get("animal"));
-      const activePref: PrefectureCode | null = pref && isPrefectureCode(pref) ? pref : null;
       const filtered = (await searchZoos(env.DB, activePref, animal)).map((result) => result.zoo);
       const html = renderMapHtml(filtered, activePref, animal);
-      return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+      return htmlResponse(html, url, activePref);
     }
 
     // HTML: /
     if (pathname === "/") {
-      const pref = url.searchParams.get("pref");
       const animal = normalizeSearchTerm(url.searchParams.get("animal"));
-      const activePref: PrefectureCode | null = pref && isPrefectureCode(pref) ? pref : null;
       const results = await searchZoos(env.DB, activePref, animal);
       const html = renderHtml(results, activePref, animal);
-      return new Response(html, {
-        headers: { "Content-Type": "text/html; charset=utf-8" },
-      });
+      return htmlResponse(html, url, activePref);
     }
 
     return notFound("ページが見つかりません");

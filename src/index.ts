@@ -1531,17 +1531,17 @@ function renderZooCard(result: ZooSearchResult): string {
         ${wikiLink}
         <p class="kana">${escapeHtml(zoo.nameKana)}</p>
       </th>
-      <td>${prefLabel}</td>
-      <td>${escapeHtml(zoo.address)}</td>
-      <td>
+      <td data-label="都道府県">${prefLabel}</td>
+      <td data-label="住所">${escapeHtml(zoo.address)}</td>
+      <td data-label="基本情報">
         <ul class="meta-list">
           <li><b>開園時間:</b> ${escapeHtml(zoo.openingHours)}</li>
           <li><b>休園日:</b> ${escapeHtml(zoo.closedDays)}</li>
           <li><b>入園料:</b> ${escapeHtml(zoo.admission)}</li>
         </ul>
       </td>
-      <td>${renderMatchSummary(result)}</td>
-      <td>
+      <td data-label="検索ヒット">${renderMatchSummary(result)}</td>
+      <td data-label="リンク・特徴">
         <p class="links">
           <a href="/zoos/${zooId}/animals">動物一覧</a>
           <a href="${escapeHtml(zoo.website)}" target="_blank" rel="noopener noreferrer">公式サイト</a>
@@ -1680,8 +1680,12 @@ function renderPrefTab(
 }
 
 const COMMON_STYLES = `
+    html { -webkit-text-size-adjust: 100%; }
+    body { min-width: 0; overflow-wrap: anywhere; }
+    img, svg { max-width: 100%; }
+    button, input, select { font: inherit; }
     .site-header { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem 2rem; padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; }
-    .site-heading { flex: 1 1 320px; }
+    .site-heading { flex: 1 1 320px; min-width: 0; }
     .site-header h1 { font-size: 1.5rem; }
     .site-header h1 a { color: inherit; text-decoration: none; }
     .site-header p { font-size: 0.9rem; color: #555; margin-top: 0.25rem; }
@@ -1694,7 +1698,22 @@ const COMMON_STYLES = `
     .global-nav a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .global-nav a[aria-current="page"] { font-weight: bold; text-decoration: underline; text-underline-offset: 0.2em; }
     .page-nav { margin-bottom: 1rem; display: flex; gap: 1rem; flex-wrap: wrap; }
-    .page-nav a { color: #2d6a4f; text-decoration: none; }`;
+    .page-nav a { color: #2d6a4f; text-decoration: none; }
+    @media (max-width: 640px) {
+      .site-header { display: grid; gap: 0.75rem; padding: 0.75rem; }
+      .site-heading { width: 100%; }
+      .site-header h1 { font-size: 1.2rem; line-height: 1.35; }
+      .site-header p { font-size: 0.78rem; line-height: 1.45; }
+      .pref-selector { width: 100%; }
+      .pref-selector label { flex: 0 0 auto; }
+      .pref-selector select { flex: 1 1 auto; min-width: 0; min-height: 44px; }
+      .pref-selector button { min-height: 44px; }
+      .global-nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; padding: 0; }
+      .global-nav a { display: flex; min-width: 0; min-height: 44px; align-items: center; justify-content: center; padding: 0.55rem 0.35rem; border-right: 1px solid #eee; border-bottom: 1px solid #eee; text-align: center; font-size: 0.82rem; }
+      .global-nav a:nth-child(2n) { border-right: 0; }
+      .page-nav { gap: 0.5rem; }
+      .page-nav a { display: inline-flex; align-items: center; min-height: 44px; }
+    }`;
 
 function renderSiteHeader(): string {
   return `  <header class="site-header">
@@ -1799,6 +1818,25 @@ function renderHtml(
     .tag::before { content: "・"; }
     .empty { padding: 2rem 1.5rem; color: #888; }
     footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; }
+    @media (max-width: 700px) {
+      .search-form { display: grid; grid-template-columns: 1fr auto; padding: 0.75rem; }
+      .search-form input { width: 100%; max-width: none; min-width: 0; min-height: 44px; grid-column: 1 / -1; }
+      .search-form button, .search-form a { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; }
+      .summary { padding: 0.7rem 0.75rem; line-height: 1.5; }
+      .zoo-list { padding: 0.75rem; overflow: visible; }
+      .zoo-table { min-width: 0; border: 0; }
+      .zoo-table thead { display: none; }
+      .zoo-table tbody, .zoo-table tr, .zoo-table th, .zoo-table td { display: block; width: 100%; }
+      .zoo-table tr { margin-bottom: 0.75rem; border: 1px solid #d8ddd9; }
+      .zoo-table th, .zoo-table td { border: 0; border-bottom: 1px solid #e5e8e6; padding: 0.7rem 0.75rem; }
+      .zoo-table td:empty { display: none; }
+      .zoo-table tr > :last-child { border-bottom: 0; }
+      .zoo-table td::before { content: attr(data-label); display: block; margin-bottom: 0.35rem; color: #6a746d; font-size: 0.7rem; font-weight: bold; }
+      .zoo-name { background: #f7faf8; }
+      .links { margin-bottom: 0.7rem; }
+      .empty { padding: 1.5rem 0.75rem; }
+      footer { padding: 1rem 0.75rem; line-height: 1.5; }
+    }
   </style>
 </head>
 <body>
@@ -1888,6 +1926,22 @@ function renderAnimalsHtml(
     .zoo-links a:hover { text-decoration: underline; }
     .empty { padding: 2rem 1.5rem; color: #888; }
     footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; }
+    @media (max-width: 700px) {
+      .tabs { padding: 0.65rem 0.75rem; }
+      .tab { display: inline-flex; min-height: 44px; align-items: center; }
+      .summary { padding: 0.7rem 0.75rem; line-height: 1.5; }
+      .animal-list { padding: 0.75rem; overflow: visible; }
+      .animal-table { min-width: 0; border: 0; }
+      .animal-table thead { display: none; }
+      .animal-table tbody, .animal-table tr, .animal-table th, .animal-table td { display: block; width: 100%; }
+      .animal-table tr { margin-bottom: 0.75rem; border: 1px solid #d8ddd9; }
+      .animal-table th, .animal-table td { border: 0; border-bottom: 1px solid #e5e8e6; padding: 0.7rem 0.75rem; }
+      .animal-table tr > :last-child { border-bottom: 0; }
+      .animal-table td::before { content: attr(data-label); display: block; margin-bottom: 0.35rem; color: #6a746d; font-size: 0.7rem; font-weight: bold; }
+      .animal-name { background: #f7faf8; }
+      .empty { padding: 1.5rem 0.75rem; }
+      footer { padding: 1rem 0.75rem; line-height: 1.5; }
+    }
   </style>
 </head>
 <body>
@@ -1940,10 +1994,10 @@ function renderAnimalCards(animals: AnimalListItem[]): string {
       return `
         <tr>
           <th scope="row" class="animal-name"><a href="${escapeHtml(titleHref)}">${title}</a></th>
-          <td>${taxonomyRow}</td>
-          <td>${displayNamesRow}</td>
-          <td><span class="facility-count">${item.zoos.length} 施設</span></td>
-          <td><div class="zoo-links">${zooLinks}</div></td>
+          <td data-label="分類">${taxonomyRow}</td>
+          <td data-label="公式表示名">${displayNamesRow}</td>
+          <td data-label="施設数"><span class="facility-count">${item.zoos.length} 施設</span></td>
+          <td data-label="施設一覧"><div class="zoo-links">${zooLinks}</div></td>
         </tr>`;
     })
     .join("\n");
@@ -2042,11 +2096,20 @@ function renderZooAnimalDetailHtml(detail: ZooAnimalDetail, notice?: string): st
     .zoo-list a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .zoo-list span { color: #777; font-size: 0.8rem; }
     footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; }
-    @media (max-width: 560px) {
-      .taxonomy-details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .taxonomy-details div { border-bottom: 1px solid #e1e1e1; }
-      .taxonomy-details div:nth-child(2n) { border-right: 0; }
+    @media (max-width: 640px) {
+      .page-title { padding: 0.7rem 0.75rem; }
+      main { padding: 0.75rem; }
+      .taxonomy-details { grid-template-columns: 1fr; }
+      .taxonomy-details div { border-right: 0; border-bottom: 1px solid #e1e1e1; }
       .taxonomy-details div:last-child { border-bottom: 0; }
+      .taxonomy-details dd { min-height: 0; }
+      .actions a, .classify-form button { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
+      .classify-form button { width: 100%; }
+      .zoo-list li { align-items: center; }
+      footer { padding: 1rem 0.75rem; line-height: 1.5; }
+    }
+    @media (max-width: 560px) {
+      .taxonomy-details { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -2187,6 +2250,19 @@ function renderTaxonomyHtml(
     .taxonomy-link span { font-weight: bold; overflow-wrap: anywhere; }
     .taxonomy-link small { color: #617469; font-size: 0.75rem; }
     footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; }
+    @media (max-width: 640px) {
+      .taxonomy-scope { padding: 0.7rem 0.75rem; }
+      .taxonomy-page { gap: 1rem; padding: 0.75rem; }
+      .taxonomy-tree { gap: 0.35rem; }
+      .taxonomy-tree ul { margin-left: 0.25rem; padding-left: 0.45rem; }
+      .taxonomy-tree summary { align-items: flex-start; gap: 0.35rem; min-height: 44px; padding: 0.65rem 0.35rem; }
+      .taxonomy-tree summary::before { flex-basis: 1.35rem; font-size: 1.15rem; margin-top: 0.05rem; }
+      .taxonomy-tree summary small { margin-left: auto; padding-left: 0.25rem; text-align: right; line-height: 1.4; }
+      .family-node { min-height: 40px; align-items: center; padding: 0.35rem; }
+      .taxonomy-links { grid-template-columns: 1fr; }
+      .taxonomy-link { min-height: 54px; }
+      footer { padding: 1rem 0.75rem; line-height: 1.5; }
+    }
   </style>
 </head>
 <body>
@@ -2262,30 +2338,36 @@ function renderTaxonomyDetailHtml(
     .taxonomy-link:hover { border-color: #9bc4ab; background: #f1f8f3; }
     .taxonomy-link span { font-weight: bold; overflow-wrap: anywhere; }
     .taxonomy-link small { color: #617469; font-size: 0.75rem; }
-    .animal-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; padding: 1rem 1.5rem; }
-    .animal-item { border: 1px solid #ddd; padding: 1rem; }
-    .animal-item h2 { font-size: 1.05rem; margin-bottom: 0.35rem; }
-    .animal-item h2 a { color: #1f5b45; text-decoration: none; }
-    .animal-item h2 a:hover { text-decoration: underline; }
-    .taxonomy-details { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border: 1px solid #e1e1e1; margin-bottom: 0.65rem; }
-    .taxonomy-details div { min-width: 0; border-right: 1px solid #e1e1e1; }
-    .taxonomy-details div:last-child { border-right: 0; }
-    .taxonomy-details dt { background: #f6f8f7; color: #666; font-size: 0.7rem; padding: 0.28rem 0.35rem; border-bottom: 1px solid #e1e1e1; }
-    .taxonomy-details dd { color: #222; font-size: 0.78rem; padding: 0.35rem; min-height: 2.2rem; overflow-wrap: anywhere; }
-    .display-names { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; margin-bottom: 0.55rem; color: #666; font-size: 0.75rem; }
+    .animal-list { padding: 1rem 1.5rem; overflow-x: auto; }
+    .animal-table { width: 100%; min-width: 900px; border-collapse: collapse; border: 1px solid #ddd; }
+    .animal-table th, .animal-table td { border: 1px solid #ddd; padding: 0.65rem; vertical-align: top; text-align: left; font-size: 0.84rem; }
+    .animal-table thead th { background: #f7f7f7; color: #555; }
+    .animal-name a { color: #1f5b45; text-decoration: none; font-size: 0.98rem; }
+    .animal-name a:hover { text-decoration: underline; }
+    .taxonomy { color: #444; line-height: 1.5; }
+    .unclassified { color: #777; }
+    .display-names { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; color: #666; font-size: 0.75rem; }
     .display-names b { color: #555; margin-right: 0.1rem; }
-    .display-names span { background: #f7f7f7; border: 1px solid #e1e1e1; padding: 0.12rem 0.35rem; }
-    .animal-item p { color: #666; font-size: 0.85rem; margin-bottom: 0.65rem; }
+    .display-names a { background: #f7f7f7; border: 1px solid #e1e1e1; color: #1f5b45; padding: 0.12rem 0.35rem; text-decoration: none; }
+    .facility-count { color: #666; font-size: 0.85rem; }
     .zoo-links { display: flex; flex-wrap: wrap; gap: 0.4rem; }
     .zoo-links a { color: #2d6a4f; border: 1px solid #d3e4d8; background: #f7fbf8; padding: 0.2rem 0.45rem; font-size: 0.78rem; text-decoration: none; }
     .zoo-links a:hover { text-decoration: underline; }
     .empty { padding: 2rem 1.5rem; color: #888; }
     footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; }
-    @media (max-width: 560px) {
-      .taxonomy-details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .taxonomy-details div { border-bottom: 1px solid #e1e1e1; }
-      .taxonomy-details div:nth-child(2n) { border-right: 0; }
-      .taxonomy-details div:last-child { border-bottom: 0; }
+    @media (max-width: 700px) {
+      .breadcrumb, .summary, .child-taxonomy { padding-left: 0.75rem; padding-right: 0.75rem; }
+      .taxonomy-links { grid-template-columns: 1fr; }
+      .animal-list { padding: 0.75rem; overflow: visible; }
+      .animal-table { min-width: 0; border: 0; }
+      .animal-table thead { display: none; }
+      .animal-table tbody, .animal-table tr, .animal-table th, .animal-table td { display: block; width: 100%; }
+      .animal-table tr { margin-bottom: 0.75rem; border: 1px solid #d8ddd9; }
+      .animal-table th, .animal-table td { border: 0; border-bottom: 1px solid #e5e8e6; padding: 0.7rem 0.75rem; }
+      .animal-table tr > :last-child { border-bottom: 0; }
+      .animal-table td::before { content: attr(data-label); display: block; margin-bottom: 0.35rem; color: #6a746d; font-size: 0.7rem; font-weight: bold; }
+      .animal-name { background: #f7faf8; }
+      footer { padding: 1rem 0.75rem; line-height: 1.5; }
     }
   </style>
 </head>
@@ -2295,7 +2377,22 @@ ${renderGlobalNav("/taxonomy")}
   ${breadcrumb}
   <p class="summary">${escapeHtml(rank.label)}: ${escapedValue} / 動物: ${animals.length} 件</p>
   ${childSectionHtml}
-  ${animals.length > 0 ? `<div class="animal-list">${items}</div>` : `<p class="empty">該当する動物がありません。</p>`}
+  ${
+    animals.length > 0
+      ? `<div class="animal-list"><table class="animal-table">
+    <thead>
+      <tr>
+        <th scope="col">動物名</th>
+        <th scope="col">分類</th>
+        <th scope="col">公式表示名</th>
+        <th scope="col">施設数</th>
+        <th scope="col">施設一覧</th>
+      </tr>
+    </thead>
+    <tbody>${items}</tbody>
+  </table></div>`
+      : `<p class="empty">該当する動物がありません。</p>`
+  }
   <footer>分類は利用者が探しやすい粒度で整理しています。最新情報は各施設の公式サイトでご確認ください。</footer>
 </body>
 </html>`;
@@ -2346,6 +2443,18 @@ function renderZooDetailHtml(zoo: Zoo, scraped: ScrapeResult): string {
     .error { color: #b00020; margin-bottom: 0.75rem; }
     .empty { color: #777; }
     #map { height: 320px; border: 1px solid #ddd; }
+    @media (max-width: 640px) {
+      main { padding: 0.75rem; }
+      .section { padding: 0.75rem; }
+      .info-table, .info-table tbody, .info-table tr, .info-table th, .info-table td { display: block; width: 100%; }
+      .info-table tr { border: 1px solid #ddd; border-bottom: 0; }
+      .info-table tr:last-child { border-bottom: 1px solid #ddd; }
+      .info-table th, .info-table td { border: 0; }
+      .info-table th { padding-bottom: 0.2rem; }
+      .info-table td { padding-top: 0.2rem; }
+      .animal-links { grid-template-columns: 1fr; }
+      #map { height: 260px; }
+    }
   </style>
 </head>
 <body>
@@ -2425,7 +2534,7 @@ function renderMapHtml(filteredZoos: Zoo[], activePref: PrefectureCode | null, a
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: sans-serif; background: #fff; color: #222; display: flex; flex-direction: column; height: 100vh; }${COMMON_STYLES}
+    body { font-family: sans-serif; background: #fff; color: #222; display: flex; flex-direction: column; height: 100vh; height: 100dvh; }${COMMON_STYLES}
     .site-header { flex-shrink: 0; }
     .global-nav { flex-shrink: 0; }
     .map-toolbar { display: flex; justify-content: flex-end; padding: 0.55rem 1.5rem; border-bottom: 1px solid #ddd; flex-shrink: 0; }
@@ -2438,6 +2547,15 @@ function renderMapHtml(filteredZoos: Zoo[], activePref: PrefectureCode | null, a
     .search-form a { padding: 0.5rem 0.7rem; color: #1f5b45; text-decoration: none; border: 1px solid #1f5b45; }
     .summary { padding: 0.4rem 1.5rem; font-size: 0.9rem; color: #666; flex-shrink: 0; }
     #map { flex: 1; min-height: 0; }
+    @media (max-width: 640px) {
+      .map-toolbar { justify-content: stretch; padding: 0 0.75rem; }
+      .list-link { display: flex; min-height: 40px; align-items: center; }
+      .search-form { display: grid; grid-template-columns: 1fr auto; padding: 0.65rem 0.75rem; }
+      .search-form input { width: 100%; max-width: none; min-width: 0; min-height: 44px; grid-column: 1 / -1; }
+      .search-form button, .search-form a { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; }
+      .summary { padding: 0.45rem 0.75rem; font-size: 0.8rem; line-height: 1.4; }
+      #map { min-height: 240px; }
+    }
   </style>
 </head>
 <body>
@@ -2500,6 +2618,11 @@ function renderZooAnimalsHtml(zoo: Zoo, scraped: Awaited<ReturnType<typeof scrap
     li { margin-bottom: 0.35rem; }
     .meta { margin-top: 1rem; color: #666; font-size: 0.85rem; }
     .error { color: #b00020; margin-bottom: 0.75rem; }
+    @media (max-width: 640px) {
+      main { padding: 0.75rem; }
+      .section { padding: 0.75rem; }
+      h2 { font-size: 1.1rem; line-height: 1.45; }
+    }
   </style>
 </head>
 <body>

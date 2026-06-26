@@ -52,6 +52,8 @@ interface AnimalListItem {
   zoos: Zoo[];
 }
 
+type ClassificationStatus = "registered" | "llm_candidate" | "unclassified" | "rejected";
+
 interface ZooAnimalDetail {
   displayName: string;
   canonicalName?: string;
@@ -61,6 +63,7 @@ interface ZooAnimalDetail {
   genusName?: string;
   speciesName?: string;
   zoos: Zoo[];
+  classificationStatus: ClassificationStatus;
 }
 
 interface ScrapeResultRow {
@@ -591,7 +594,7 @@ async function loadZooAnimalDetail(
 
   const zooById = new Map(zoos.map((zoo) => [zoo.id, zoo]));
   const taxonomicRow = rows.find((row) => row.animal_id) ?? rows[0];
-  const candidate =
+  const candidateRow =
     taxonomicRow.animal_id
       ? null
       : await db
@@ -602,12 +605,16 @@ async function loadZooAnimalDetail(
                order_name,
                family_name,
                genus_name,
-               species_name
+               species_name,
+               status,
+               confidence
              FROM animal_taxonomy_candidates
              WHERE display_name = ?
-               AND status IN ('partial', 'pending')
-               AND confidence >= 0.8
-             ORDER BY updated_at DESC
+             ORDER BY
+               /* Prioritize qualifying candidates (status='partial'/'pending' with high confidence)
+                  so taxonomy data is used for display only when reliable */
+               CASE WHEN status IN ('partial', 'pending') AND confidence >= 0.8 THEN 0 ELSE 1 END,
+               updated_at DESC
              LIMIT 1`
           )
           .bind(displayName)
@@ -618,7 +625,21 @@ async function loadZooAnimalDetail(
             family_name: string | null;
             genus_name: string | null;
             species_name: string | null;
+            status: string;
+            confidence: number;
           }>();
+  const isQualifyingCandidate =
+    candidateRow !== null &&
+    (candidateRow.status === "partial" || candidateRow.status === "pending") &&
+    candidateRow.confidence >= 0.8;
+  const candidate = isQualifyingCandidate ? candidateRow : null;
+  const classificationStatus: ClassificationStatus = taxonomicRow.animal_id
+    ? "registered"
+    : isQualifyingCandidate
+      ? "llm_candidate"
+      : candidateRow?.status === "rejected"
+        ? "rejected"
+        : "unclassified";
   return {
     displayName,
     canonicalName: taxonomicRow.canonical_name ?? normalizeOptionalText(candidate?.canonical_name) ?? undefined,
@@ -631,6 +652,7 @@ async function loadZooAnimalDetail(
       const zoo = zooById.get(row.zoo_id);
       return zoo ? [zoo] : [];
     }),
+    classificationStatus,
   };
 }
 
@@ -2037,6 +2059,14 @@ function renderZooAnimalDetailHtml(detail: ZooAnimalDetail, notice?: string): st
   const taxonomyHtml = taxonomyDetails
     ? `<dl class="taxonomy-details">${taxonomyDetails}</dl>`
     : `<p class="unclassified">分類未設定</p>`;
+  const statusBadgeConfig: Record<ClassificationStatus, { label: string; cls: string }> = {
+    registered: { label: "分類マスタ登録済み", cls: "status-registered" },
+    llm_candidate: { label: "LLM候補による部分分類", cls: "status-llm-candidate" },
+    unclassified: { label: "分類未設定", cls: "status-unclassified" },
+    rejected: { label: "分類却下", cls: "status-rejected" },
+  };
+  const statusBadge = statusBadgeConfig[detail.classificationStatus];
+  const statusBadgeHtml = `<span class="classification-status ${statusBadge.cls}">${escapeHtml(statusBadge.label)}</span>`;
   const canonicalHtml =
     detail.canonicalName && detail.canonicalName !== detail.displayName
       ? `<p class="canonical">分類マスタ: ${escapeHtml(detail.canonicalName)}</p>`
@@ -2084,6 +2114,11 @@ function renderZooAnimalDetailHtml(detail: ZooAnimalDetail, notice?: string): st
     .taxonomy-details dd { color: #222; font-size: 0.86rem; padding: 0.45rem 0.4rem; min-height: 2.35rem; overflow-wrap: anywhere; }
     .unclassified { color: #777; background: #f7f7f7; border: 1px solid #e1e1e1; padding: 0.55rem 0.65rem; font-size: 0.85rem; }
     .notice { border: 1px solid #cfe5d8; background: #f5fbf7; color: #244d37; padding: 0.6rem 0.75rem; font-size: 0.86rem; }
+    .classification-status { display: inline-block; font-size: 0.78rem; padding: 0.2rem 0.55rem; border-radius: 2px; margin-bottom: 0.75rem; }
+    .status-registered { background: #e8f5ee; border: 1px solid #b6ddc8; color: #1f5b45; }
+    .status-llm-candidate { background: #fef9e7; border: 1px solid #f0d98a; color: #7a5c00; }
+    .status-unclassified { background: #f7f7f7; border: 1px solid #e1e1e1; color: #777; }
+    .status-rejected { background: #fef0ec; border: 1px solid #f0c0b0; color: #8b3a20; }
     .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
     .actions a { color: #1f5b45; border: 1px solid #d3e4d8; background: #f7fbf8; padding: 0.35rem 0.6rem; font-size: 0.82rem; text-decoration: none; }
     .actions a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
@@ -2121,6 +2156,7 @@ ${renderGlobalNav("/animals")}
     ${noticeHtml}
     <section>
       <h2>分類</h2>
+      ${statusBadgeHtml}
       ${canonicalHtml}
       ${taxonomyHtml}
       ${taxonomyLink ? `<div class="actions">${taxonomyLink}</div>` : ""}

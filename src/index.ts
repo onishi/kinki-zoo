@@ -1408,7 +1408,7 @@ async function saveScrapeResult(db: D1Database, result: ScrapeResult): Promise<v
     ...diffs.map((diff) =>
       db
         .prepare(
-         `INSERT INTO animal_scrape_diffs (
+          `INSERT INTO animal_scrape_diffs (
             zoo_id,
             scraped_at,
             diff_type,
@@ -1418,17 +1418,17 @@ async function saveScrapeResult(db: D1Database, result: ScrapeResult): Promise<v
           VALUES (?, ?, ?, ?, ?)`
         )
         .bind(
-         result.zooId,
-         result.scrapedAt,
-         diff.type,
-         diff.previousDisplayName,
-         diff.currentDisplayName
+          result.zooId,
+          result.scrapedAt,
+          diff.type,
+          diff.previousDisplayName,
+          diff.currentDisplayName
         )
     ),
     db
       .prepare(
         `UPDATE zoo_animals
-        SET animal_id = (
+         SET animal_id = (
            SELECT a.id
            FROM animal_taxonomy_candidates c
            JOIN animals a

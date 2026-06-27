@@ -72,6 +72,13 @@ interface ScrapeResultRow {
   error: string | null;
 }
 
+interface ZooCoverageStats {
+  total: number;
+  classified: number;
+  partial: number;
+  unclassified: number;
+}
+
 interface ClassifyResult {
   classifiedDisplayNames: number;
   linkedRows: number;
@@ -478,6 +485,47 @@ async function loadCachedScrapeResult(db: D1Database, zooId: string): Promise<Sc
     animals: (animalsResult.results ?? []).map((row) => row.display_name),
     scrapedAt: meta.scraped_at,
     error: meta.error ?? undefined,
+  };
+}
+
+async function loadZooCoverage(db: D1Database, zooId: string): Promise<ZooCoverageStats> {
+  const row = await db
+    .prepare(
+      `SELECT
+         COUNT(*) AS total,
+         COUNT(CASE WHEN za.animal_id IS NOT NULL THEN 1 END) AS classified,
+         COUNT(CASE WHEN za.animal_id IS NULL AND (
+           NULLIF(c.canonical_name, 'null') IS NOT NULL OR
+           NULLIF(c.class_name, 'null') IS NOT NULL OR
+           NULLIF(c.order_name, 'null') IS NOT NULL OR
+           NULLIF(c.family_name, 'null') IS NOT NULL OR
+           NULLIF(c.genus_name, 'null') IS NOT NULL OR
+           NULLIF(c.species_name, 'null') IS NOT NULL
+         ) THEN 1 END) AS partial,
+         COUNT(CASE WHEN za.animal_id IS NULL AND
+           NULLIF(c.canonical_name, 'null') IS NULL AND
+           NULLIF(c.class_name, 'null') IS NULL AND
+           NULLIF(c.order_name, 'null') IS NULL AND
+           NULLIF(c.family_name, 'null') IS NULL AND
+           NULLIF(c.genus_name, 'null') IS NULL AND
+           NULLIF(c.species_name, 'null') IS NULL
+         THEN 1 END) AS unclassified
+       FROM zoo_animals za
+       LEFT JOIN animal_taxonomy_candidates c
+         ON c.display_name = za.display_name
+        AND za.animal_id IS NULL
+        AND c.status IN ('partial', 'pending')
+        AND c.confidence >= 0.8
+       WHERE za.zoo_id = ?`
+    )
+    .bind(zooId)
+    .first<{ total: number; classified: number; partial: number; unclassified: number }>();
+
+  return {
+    total: row?.total ?? 0,
+    classified: row?.classified ?? 0,
+    partial: row?.partial ?? 0,
+    unclassified: row?.unclassified ?? 0,
   };
 }
 
@@ -2434,7 +2482,7 @@ ${renderGlobalNav("/taxonomy")}
 </html>`;
 }
 
-function renderZooDetailHtml(zoo: Zoo, scraped: ScrapeResult): string {
+function renderZooDetailHtml(zoo: Zoo, scraped: ScrapeResult, coverage: ZooCoverageStats): string {
   const prefLabel = PREF_LABELS[zoo.prefecture];
   const features = zoo.features
     .map((feature) => `<li>${escapeHtml(feature)}</li>`)
@@ -2450,6 +2498,14 @@ function renderZooDetailHtml(zoo: Zoo, scraped: ScrapeResult): string {
     scraped.animals.length > 0
       ? `<ul class="animal-links">${animalLinks}</ul>`
       : `<p class="empty">動物一覧を取得できませんでした。公式サイトもあわせてご確認ください。</p>`;
+  const coverageHtml = coverage.total > 0
+    ? `<dl class="coverage-stats">
+        <div><dt>総動物数</dt><dd>${coverage.total}</dd></div>
+        <div><dt>分類済み</dt><dd>${coverage.classified}</dd></div>
+        <div><dt>部分分類</dt><dd>${coverage.partial}</dd></div>
+        <div><dt>未分類</dt><dd>${coverage.unclassified}</dd></div>
+      </dl>`
+    : "";
 
   return `<!DOCTYPE html>
 <html lang="ja">
@@ -2471,6 +2527,10 @@ function renderZooDetailHtml(zoo: Zoo, scraped: ScrapeResult): string {
     .info-table th { width: 8em; background: #f7f7f7; color: #666; font-weight: bold; }
     ul { padding-left: 1.2rem; }
     .animal-summary { color: #666; font-size: 0.85rem; margin-bottom: 0.75rem; }
+    .coverage-stats { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; padding: 0; list-style: none; }
+    .coverage-stats div { background: #f7f7f7; border: 1px solid #e0e0e0; border-radius: 4px; padding: 0.4rem 0.65rem; min-width: 6em; }
+    .coverage-stats dt { font-size: 0.72rem; color: #777; margin-bottom: 0.15rem; }
+    .coverage-stats dd { font-size: 1rem; font-weight: bold; color: #222; }
     .animal-links { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.4rem 1rem; padding: 0; list-style: none; }
     .animal-links li { min-width: 0; }
     .animal-links a { display: block; color: #1f5b45; border-bottom: 1px solid #e7eee9; padding: 0.35rem 0; text-decoration: none; overflow-wrap: anywhere; }
@@ -2524,6 +2584,7 @@ ${renderGlobalNav("/")}
     </section>
     <section class="section" id="animals">
       <h3>見られる動物</h3>
+      ${coverageHtml}
       <p class="animal-summary">${scraped.animals.length} 件</p>
       ${scraped.error ? `<p class="error">取得に失敗しました: ${escapeHtml(scraped.error)}</p>` : ""}
       ${animalListHtml}
@@ -2960,8 +3021,11 @@ export default {
       if (!zoo || (activePref && zoo.prefecture !== activePref)) {
         return notFound(`選択中の地域に動物園 '${id}' が見つかりません`);
       }
-      const scraped = await getAnimalResult(env.DB, id, url.searchParams.get("refresh") === "1");
-      const html = renderZooDetailHtml(zoo, scraped);
+      const [scraped, coverage] = await Promise.all([
+        getAnimalResult(env.DB, id, url.searchParams.get("refresh") === "1"),
+        loadZooCoverage(env.DB, id),
+      ]);
+      const html = renderZooDetailHtml(zoo, scraped, coverage);
       return htmlResponse(html, url, activePref);
     }
 

@@ -515,12 +515,24 @@ async function loadCachedAnimalMatches(
          AND (
            za.normalized_display_name LIKE ?
            OR a.normalized_name LIKE ?
+           OR a.class_name LIKE ?
+           OR a.order_name LIKE ?
+           OR a.family_name LIKE ?
            OR a.genus_name LIKE ?
            OR a.species_name LIKE ?
          )
        ORDER BY za.zoo_id, za.display_name`
     )
-    .bind(...zooIds, `%${searchKeyword}%`, `%${searchKeyword}%`, `%${searchKeyword}%`, `%${searchKeyword}%`)
+    .bind(
+      ...zooIds,
+      `%${searchKeyword}%`,
+      `%${searchKeyword}%`,
+      `%${searchKeyword}%`,
+      `%${searchKeyword}%`,
+      `%${searchKeyword}%`,
+      `%${searchKeyword}%`,
+      `%${searchKeyword}%`
+    )
     .all<AnimalRow>();
 
   const matches = new Map<string, string[]>();
@@ -1664,16 +1676,15 @@ async function searchZoos(db: D1Database, pref?: string | null, animal?: string 
   );
 
   return prefFiltered.flatMap((zoo) => {
-    const matchedFeatures = findMatches(zoo.features, searchKeyword);
     const matchedAnimals = animalMatches.get(zoo.id) ?? [];
     const searchResult: ZooSearchResult = {
       zoo,
       matchedAnimals,
-      matchedFeatures,
+      matchedFeatures: [],
       animalSearchAvailable: true,
     };
 
-    if (matchedAnimals.length > 0 || matchedFeatures.length > 0) {
+    if (matchedAnimals.length > 0) {
       return [searchResult];
     }
 
@@ -1710,24 +1721,18 @@ function renderMatchedValues(label: string, values: string[]): string {
 }
 
 function renderMatchSummary(result: ZooSearchResult): string {
-  const animalMatches = renderMatchedValues("ヒットした動物", result.matchedAnimals);
-  const featureMatches = renderMatchedValues("関連する特徴", result.matchedFeatures);
-  const notice =
-    result.animalSearchError && result.matchedAnimals.length === 0
-      ? `<p class="match-note">動物一覧を取得できなかったため、登録済みの特徴タグで判定しました。</p>`
-      : "";
+  const animalMatches = renderMatchedValues("ヒットした動物・分類", result.matchedAnimals);
 
-  if (!animalMatches && !featureMatches && !notice) return "";
+  if (!animalMatches) return "";
 
-  return `<div class="match-box">${animalMatches}${featureMatches}${notice}</div>`;
+  return `<div class="match-box">${animalMatches}</div>`;
 }
 
-function renderZooCard(result: ZooSearchResult): string {
+function renderZooCard(result: ZooSearchResult, includeMatchSummary: boolean): string {
   const zoo = result.zoo;
   const zooId = encodeURIComponent(zoo.id);
   const zooDomId = `zoo-${zoo.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
   const prefLabel = PREF_LABELS[zoo.prefecture];
-  const features = zoo.features.map((f) => `<span class="tag">${escapeHtml(f)}</span>`).join("");
   const wikiLink = zoo.wikipediaUrl
     ? `<a class="wiki-link" href="${escapeHtml(zoo.wikipediaUrl)}" target="_blank" rel="noopener noreferrer">Wikipedia</a>`
     : "";
@@ -1747,13 +1752,11 @@ function renderZooCard(result: ZooSearchResult): string {
           <li><b>入園料:</b> ${escapeHtml(zoo.admission)}</li>
         </ul>
       </td>
-      <td data-label="検索ヒット">${renderMatchSummary(result)}</td>
-      <td data-label="リンク・特徴">
+      ${includeMatchSummary ? `<td data-label="検索ヒット">${renderMatchSummary(result)}</td>` : ""}
+      <td data-label="リンク">
         <p class="links">
-          <a href="/zoos/${zooId}/animals">動物一覧</a>
           <a href="${escapeHtml(zoo.website)}" target="_blank" rel="noopener noreferrer">公式サイト</a>
         </p>
-        <div class="features">${features}</div>
       </td>
     </tr>`;
 }
@@ -1954,7 +1957,8 @@ function renderHtml(
   activePref: PrefectureCode | null,
   animal: string | null
 ): string {
-  const rows = results.map(renderZooCard).join("\n");
+  const includeMatchSummary = Boolean(animal);
+  const rows = results.map((result) => renderZooCard(result, includeMatchSummary)).join("\n");
   const escapedAnimal = animal ? escapeHtml(animal) : "";
 
   const count = results.length;
@@ -1974,8 +1978,8 @@ function renderHtml(
         <th scope="col">都道府県</th>
         <th scope="col">住所</th>
         <th scope="col">基本情報</th>
-        <th scope="col">検索ヒット</th>
-        <th scope="col">リンク・特徴</th>
+        ${includeMatchSummary ? `<th scope="col">検索ヒット</th>` : ""}
+        <th scope="col">リンク</th>
       </tr>
     </thead>
     <tbody>
@@ -2020,9 +2024,6 @@ function renderHtml(
     .match-chip { background: #fff; color: #1b5e3b; border: 1px solid #b7dcc3; border-radius: 999px; padding: 0.18rem 0.55rem; font-size: 0.75rem; font-weight: bold; }
     .match-more { color: #5d7166; font-size: 0.75rem; align-self: center; }
     .match-note { color: #6d756f; font-size: 0.75rem; line-height: 1.5; }
-    .features { display: flex; flex-wrap: wrap; gap: 0.35rem; }
-    .tag { color: #555; font-size: 0.8rem; }
-    .tag::before { content: "・"; }
     .empty { padding: 2rem 1.5rem; color: #888; }
     footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; }
     @media (max-width: 700px) {
@@ -2621,9 +2622,6 @@ ${renderGlobalNav("/taxonomy")}
 
 function renderZooDetailHtml(zoo: Zoo, scraped: ScrapeResult, coverage: ZooCoverageStats): string {
   const prefLabel = PREF_LABELS[zoo.prefecture];
-  const features = zoo.features
-    .map((feature) => `<li>${escapeHtml(feature)}</li>`)
-    .join("\n");
   const animalLinks = scraped.animals
     .map(
       (animal) =>
@@ -2662,7 +2660,6 @@ function renderZooDetailHtml(zoo: Zoo, scraped: ScrapeResult, coverage: ZooCover
     .info-table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }
     .info-table th, .info-table td { border: 1px solid #ddd; padding: 0.45rem 0.55rem; text-align: left; vertical-align: top; font-size: 0.86rem; }
     .info-table th { width: 8em; background: #f7f7f7; color: #666; font-weight: bold; }
-    ul { padding-left: 1.2rem; }
     .animal-summary { color: #666; font-size: 0.85rem; margin-bottom: 0.75rem; }
     .coverage-stats { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; padding: 0; list-style: none; }
     .coverage-stats div { background: #f7f7f7; border: 1px solid #e0e0e0; border-radius: 4px; padding: 0.4rem 0.65rem; min-width: 6em; }
@@ -2696,7 +2693,6 @@ ${renderGlobalNav("/")}
   <main>
     <nav class="page-nav">
       <a href="#animals">動物一覧</a>
-      <a href="/zoos/${zoo.id}/animals">動物一覧だけ見る</a>
       <a href="${escapeHtml(zoo.website)}" target="_blank" rel="noopener noreferrer">公式サイト</a>
     </nav>
     <section class="section">
@@ -2716,8 +2712,6 @@ ${renderGlobalNav("/")}
           }
         </tbody>
       </table>
-      <h3>特徴</h3>
-      <ul>${features}</ul>
     </section>
     <section class="section" id="animals">
       <h3>見られる動物</h3>
@@ -2826,58 +2820,6 @@ ${renderGlobalNav("/map")}
       map.fitBounds(bounds, { padding: [40, 40] });
     }
   </script>
-</body>
-</html>`;
-}
-
-function renderZooAnimalsHtml(zoo: Zoo, scraped: Awaited<ReturnType<typeof scrapeAnimals>>): string {
-  const items = scraped.animals
-    .map((animal) => `<li>${escapeHtml(animal)}</li>`)
-    .join("\n");
-  const updatedAt = new Date(scraped.scrapedAt).toLocaleString("ja-JP");
-
-  return `<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${escapeHtml(zoo.name)}の動物一覧 | 近畿動物園情報</title>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
-    main { max-width: 840px; margin: 0 auto; padding: 1.5rem; }
-    .section { border: 1px solid #ddd; padding: 1rem; }
-    h2 { margin-bottom: 0.75rem; }
-    ul { padding-left: 1.2rem; }
-    li { margin-bottom: 0.35rem; }
-    .meta { margin-top: 1rem; color: #666; font-size: 0.85rem; }
-    .error { color: #b00020; margin-bottom: 0.75rem; }
-    @media (max-width: 640px) {
-      main { padding: 0.75rem; }
-      .section { padding: 0.75rem; }
-      h2 { font-size: 1.1rem; line-height: 1.45; }
-    }
-  </style>
-</head>
-<body>
-${renderSiteHeader()}
-${renderGlobalNav("/")}
-  <main>
-    <nav class="page-nav">
-      <a href="/zoos/${zoo.id}">${escapeHtml(zoo.name)}の詳細</a>
-      <a href="${escapeHtml(zoo.website)}" target="_blank" rel="noopener noreferrer">公式サイト</a>
-    </nav>
-    <section class="section">
-      <h2>${escapeHtml(zoo.name)}の動物一覧</h2>
-      ${scraped.error ? `<p class="error">取得に失敗しました: ${escapeHtml(scraped.error)}</p>` : ""}
-      ${
-        scraped.animals.length > 0
-          ? `<ul>${items}</ul>`
-          : "<p>動物一覧を取得できませんでした。公式サイトもあわせてご確認ください。</p>"
-      }
-      <p class="meta">最終取得: ${escapeHtml(updatedAt)}</p>
-    </section>
-  </main>
 </body>
 </html>`;
 }
@@ -3144,9 +3086,10 @@ export default {
       if (!zoo || (activePref && zoo.prefecture !== activePref)) {
         return notFound(`選択中の地域に動物園 '${id}' が見つかりません`);
       }
-      const scraped = await getAnimalResult(env.DB, id, url.searchParams.get("refresh") === "1");
-      const html = renderZooAnimalsHtml(zoo, scraped);
-      return htmlResponse(html, url, activePref);
+      const destination = new URL(`/zoos/${encodeURIComponent(id)}`, url.origin);
+      if (activePref) destination.searchParams.set("pref", activePref);
+      destination.hash = "animals";
+      return Response.redirect(destination.toString(), 301);
     }
 
     // HTML: /zoos/:id

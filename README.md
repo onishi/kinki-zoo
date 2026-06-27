@@ -8,7 +8,7 @@
 
 - 近畿地方（大阪・京都・兵庫・奈良・滋賀・三重・和歌山）の動物園・動物施設を一覧表示
 - 都道府県での絞り込みが可能
-- D1 に保存したスクレイピング結果と登録済みの特徴タグをもとに、動物名での絞り込みが可能
+- D1 に保存したスクレイピング結果と分類マスタをもとに、動物名・分類名での絞り込みが可能
 - ブラウザで見やすい HTML ページと、アプリ連携向けの JSON API を提供
 
 ### エンドポイント
@@ -22,10 +22,9 @@
 | `GET /taxonomy/:class/:order/:family/:genus/:species` | 分類階層を URL にした動物一覧 HTML（途中階層まででも可） |
 | `GET /map` | 動物園位置を地図で表示 HTML（都道府県・動物名での絞り込み可） |
 | `GET /zoos/:id` | 動物園ごとの詳細 HTML ページ（地図付き） |
-| `GET /zoos/:id/animals` | 動物園ごとの動物一覧 HTML ページ（D1 キャッシュ優先、未保存時は公式サイトをスクレイピング） |
 | `GET /api/zoos` | 全動物園を JSON で返す |
 | `GET /api/zoos?pref=osaka` | 都道府県コードで絞り込んだ動物園を返す |
-| `GET /api/zoos?animal=パンダ` | D1 に保存済みの動物名と特徴タグに一致する動物園を返す |
+| `GET /api/zoos?animal=パンダ` | D1 に保存済みの動物名・分類名に一致する動物園を返す |
 | `GET /api/zoos/:id` | 特定の動物園の詳細を JSON で返す |
 | `GET /api/zoos/:id/animals` | D1 キャッシュ優先で動物リストを返す（`?refresh=1` で再取得・保存） |
 | `POST /api/animals/refresh` | 全動物園の動物リストを再スクレイピングして D1 に保存する |
@@ -80,8 +79,7 @@
 ### 現在の実装状況（2026-06 時点）
 
 - [x] 動物園一覧ページ（都道府県タブ・動物検索）
-- [x] 動物園詳細ページ（`/zoos/:id`）
-- [x] 動物園ごとの動物一覧ページ（`/zoos/:id/animals`）
+- [x] 動物園詳細ページ（`/zoos/:id`、動物一覧を含む）
 - [x] JSON API（`/api/zoos`, `/api/zoos/:id`, `/api/zoos/:id/animals`）
 - [x] [各動物園スクレイピング](https://github.com/onishi/kinki-zoo/issues/10)
 - [x] [動物園ごとのページ / 動物一覧ページ作成](https://github.com/onishi/kinki-zoo/issues/15)

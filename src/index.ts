@@ -255,13 +255,13 @@ function buildScrapeDiffs(previousAnimals: string[], currentAnimals: string[]): 
   const renamed: ScrapeDiffRecord[] = [];
   for (const entry of added) {
     const candidates = removedByNormalized.get(entry.normalized);
-    const matchIndex = candidates?.find((index) => !removed[index].matched);
-    if (matchIndex === undefined) continue;
+    const matchedRemovedIndex = candidates?.find((removedIndex) => !removed[removedIndex].matched);
+    if (matchedRemovedIndex === undefined) continue;
     entry.matched = true;
-    removed[matchIndex].matched = true;
+    removed[matchedRemovedIndex].matched = true;
     renamed.push({
       type: "renamed",
-      previousDisplayName: removed[matchIndex].name,
+      previousDisplayName: removed[matchedRemovedIndex].name,
       currentDisplayName: entry.name,
     });
   }

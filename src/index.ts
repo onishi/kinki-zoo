@@ -79,6 +79,14 @@ interface ZooCoverageStats {
   unclassified: number;
 }
 
+type ScrapeDiffType = "added" | "removed" | "renamed";
+
+interface ScrapeDiffRecord {
+  type: ScrapeDiffType;
+  previousDisplayName: string | null;
+  currentDisplayName: string | null;
+}
+
 interface ClassifyResult {
   classifiedDisplayNames: number;
   linkedRows: number;
@@ -218,6 +226,72 @@ function findMatches(values: string[], searchKeyword: string): string[] {
 
 function normalizeAnimalNameForSearch(value: string): string {
   return value.toLocaleLowerCase("ja-JP");
+}
+
+function normalizeAnimalNameForDiff(value: string): string {
+  return normalizeAnimalNameForSearch(value).replace(/[\s　]+/g, "");
+}
+
+function uniqueDisplayNames(values: string[]): string[] {
+  const unique: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    if (seen.has(value)) continue;
+    seen.add(value);
+    unique.push(value);
+  }
+  return unique;
+}
+
+function buildScrapeDiffs(previousAnimals: string[], currentAnimals: string[]): ScrapeDiffRecord[] {
+  const previousUnique = uniqueDisplayNames(previousAnimals);
+  const currentUnique = uniqueDisplayNames(currentAnimals);
+  const previousSet = new Set(previousUnique);
+  const currentSet = new Set(currentUnique);
+  const added = currentUnique
+    .filter((name) => !previousSet.has(name))
+    .map((name) => ({ name, normalized: normalizeAnimalNameForDiff(name), matched: false }));
+  const removed = previousUnique
+    .filter((name) => !currentSet.has(name))
+    .map((name) => ({ name, normalized: normalizeAnimalNameForDiff(name), matched: false }));
+
+  const removedByNormalized = new Map<string, number[]>();
+  removed.forEach((entry, index) => {
+    const indexes = removedByNormalized.get(entry.normalized) ?? [];
+    indexes.push(index);
+    removedByNormalized.set(entry.normalized, indexes);
+  });
+
+  const renamed: ScrapeDiffRecord[] = [];
+  for (const entry of added) {
+    const candidates = removedByNormalized.get(entry.normalized);
+    const matchedRemovedIndex = candidates?.find((removedIndex) => !removed[removedIndex].matched);
+    if (matchedRemovedIndex === undefined) continue;
+    entry.matched = true;
+    removed[matchedRemovedIndex].matched = true;
+    renamed.push({
+      type: "renamed",
+      previousDisplayName: removed[matchedRemovedIndex].name,
+      currentDisplayName: entry.name,
+    });
+  }
+
+  const addedDiffs = added
+    .filter((entry) => !entry.matched)
+    .map<ScrapeDiffRecord>((entry) => ({
+      type: "added",
+      previousDisplayName: null,
+      currentDisplayName: entry.name,
+    }));
+  const removedDiffs = removed
+    .filter((entry) => !entry.matched)
+    .map<ScrapeDiffRecord>((entry) => ({
+      type: "removed",
+      previousDisplayName: entry.name,
+      currentDisplayName: null,
+    }));
+
+  return [...addedDiffs, ...removedDiffs, ...renamed];
 }
 
 function uniqueTaxonomies(taxonomies: AnimalTaxonomy[]): AnimalTaxonomy[] {
@@ -1391,6 +1465,17 @@ async function upsertAnimalMasters(db: D1Database, taxonomies: AnimalTaxonomy[])
 }
 
 async function saveScrapeResult(db: D1Database, result: ScrapeResult): Promise<void> {
+  const previousRows = await db
+    .prepare(
+      `SELECT display_name
+       FROM zoo_animals
+       WHERE zoo_id = ?
+       ORDER BY display_name`
+    )
+    .bind(result.zooId)
+    .all<{ display_name: string }>();
+  const previousAnimals = (previousRows.results ?? []).map((row) => row.display_name);
+  const diffs = buildScrapeDiffs(previousAnimals, result.animals);
   const taxonomies = result.animals.flatMap((animal) => {
     const taxonomy = findAnimalTaxonomy(animal);
     return taxonomy ? [taxonomy] : [];
@@ -1422,6 +1507,26 @@ async function saveScrapeResult(db: D1Database, result: ScrapeResult): Promise<v
           taxonomy?.id ?? null
         );
     }),
+    ...diffs.map((diff) =>
+      db
+        .prepare(
+          `INSERT INTO animal_scrape_diffs (
+            zoo_id,
+            scraped_at,
+            diff_type,
+            previous_display_name,
+            current_display_name
+          )
+          VALUES (?, ?, ?, ?, ?)`
+        )
+        .bind(
+          result.zooId,
+          result.scrapedAt,
+          diff.type,
+          diff.previousDisplayName,
+          diff.currentDisplayName
+        )
+    ),
     db
       .prepare(
         `UPDATE zoo_animals

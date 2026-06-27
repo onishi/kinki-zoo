@@ -934,6 +934,38 @@ async function loadTaxonomyAnimals(
   return buildAnimalListItems(result.results ?? []);
 }
 
+async function resolveLegacyTaxonomyPath(
+  db: D1Database,
+  rank: TaxonomyRankConfig,
+  value: string,
+  pref: PrefectureCode | null = null
+): Promise<string[] | null> {
+  const rankIndex = TAXONOMY_RANKS.findIndex((candidate) => candidate.key === rank.key);
+  if (rankIndex < 0) return null;
+
+  const pathRanks = TAXONOMY_RANKS.slice(0, rankIndex + 1);
+  const zooIds = getZooIdsForPrefecture(pref);
+  const prefFilter = pref ? `AND za.zoo_id IN (${buildPlaceholders(zooIds)})` : "";
+  const result = await db
+    .prepare(
+      `SELECT DISTINCT
+         ${pathRanks.map((item) => `a.${item.column} AS ${item.key}_name`).join(",\n         ")}
+       FROM animals a
+       JOIN zoo_animals za ON za.animal_id = a.id
+       WHERE a.${rank.column} = ?
+         ${prefFilter}
+       ORDER BY ${pathRanks.map((item) => `${item.key}_name`).join(", ")}
+       LIMIT 2`
+    )
+    .bind(value, ...(pref ? zooIds : []))
+    .all<Record<string, string>>();
+
+  const rows = result.results ?? [];
+  if (rows.length !== 1) return null;
+
+  return pathRanks.map((item) => rows[0][`${item.key}_name`]);
+}
+
 async function loadUnclassifiedDisplayNames(
   db: D1Database,
   limit: number,
@@ -2959,12 +2991,11 @@ export default {
       const rank = getTaxonomyRank(taxonomyPageMatch[1]);
       if (rank) {
         const value = decodeURIComponent(taxonomyPageMatch[2]);
-        const levels = [{ rank, value }];
-        const childSection = await loadChildTaxonomyValues(env.DB, levels, activePref);
-        const animals = await loadTaxonomyAnimals(env.DB, levels, activePref);
-        if (animals.length === 0) return notFound(`分類 '${value}' に該当する動物が見つかりません`);
-        const html = renderTaxonomyDetailHtml(levels, childSection, animals);
-        return htmlResponse(html, url, activePref);
+        const canonicalPath = await resolveLegacyTaxonomyPath(env.DB, rank, value, activePref);
+        if (!canonicalPath) return notFound(`分類 '${value}' に該当する動物が見つかりません`);
+        const destination = new URL(buildTaxonomyPathUrl(canonicalPath), url.origin);
+        if (activePref) destination.searchParams.set("pref", activePref);
+        return Response.redirect(destination.toString(), 301);
       }
     }
 

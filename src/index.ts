@@ -3690,13 +3690,15 @@ ${renderGlobalNav("/taxonomy")}
 </html>`;
 }
 
-function renderZooDetailHtml(zoo: Zoo, scraped: ScrapeResult, coverage: ZooCoverageStats): string {
+function renderZooDetailHtml(zoo: Zoo, scraped: ScrapeResult, coverage: ZooCoverageStats, imageKeys: Set<string> = new Set()): string {
   const prefLabel = PREF_LABELS[zoo.prefecture];
   const animalLinks = scraped.animals
-    .map(
-      (animal) =>
-        `<li><a href="${buildZooAnimalUrl(animal)}">${escapeHtml(animal)}</a></li>`
-    )
+    .map((animal) => {
+      const thumb = imageKeys.has(normalizeAnimalImageKey(animal))
+        ? `<img src="/animal-images/${encodeURIComponent(animal)}" alt="" class="animal-thumb" loading="lazy" width="36" height="36">`
+        : `<span class="animal-thumb"></span>`;
+      return `<li><a href="${buildZooAnimalUrl(animal)}">${thumb}<span>${escapeHtml(animal)}</span></a></li>`;
+    })
     .join("\n");
   const updatedAt = new Date(scraped.scrapedAt).toLocaleString("ja-JP");
   const animalListHtml =
@@ -3722,7 +3724,7 @@ function renderZooDetailHtml(zoo: Zoo, scraped: ScrapeResult, coverage: ZooCover
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
-    main { max-width: 840px; margin: 0 auto; padding: 1.5rem; }
+    main { max-width: 1040px; margin: 0 auto; padding: 1.5rem; }
     .section { border: 1px solid #ddd; padding: 1rem; margin-bottom: 1rem; }
     h2 { margin-bottom: 0.5rem; }
     h3 { font-size: 1.05rem; margin-bottom: 0.75rem; }
@@ -3737,8 +3739,9 @@ function renderZooDetailHtml(zoo: Zoo, scraped: ScrapeResult, coverage: ZooCover
     .coverage-stats dd { font-size: 1rem; font-weight: bold; color: #222; }
     .animal-links { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.4rem 1rem; padding: 0; list-style: none; }
     .animal-links li { min-width: 0; }
-    .animal-links a { display: block; color: #1f5b45; border-bottom: 1px solid #e7eee9; padding: 0.35rem 0; text-decoration: none; overflow-wrap: anywhere; }
+    .animal-links a { display: flex; align-items: center; gap: 0.5rem; color: #1f5b45; border-bottom: 1px solid #e7eee9; padding: 0.35rem 0; text-decoration: none; overflow-wrap: anywhere; }
     .animal-links a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .animal-links .animal-thumb { width: 36px; height: 36px; object-fit: cover; flex-shrink: 0; border-radius: 2px; background: #f0f0f0; }
     .animal-meta { color: #777; font-size: 0.78rem; margin-top: 0.85rem; }
     .error { color: #b00020; margin-bottom: 0.75rem; }
     .empty { color: #777; }
@@ -4420,11 +4423,12 @@ export default {
       if (!zoo || (activePref && zoo.prefecture !== activePref)) {
         return notFound(`選択中の地域に動物園 '${id}' が見つかりません`);
       }
-      const [scraped, coverage] = await Promise.all([
+      const [scraped, coverage, imageKeys] = await Promise.all([
         getAnimalResult(env.DB, id, url.searchParams.get("refresh") === "1"),
         loadZooCoverage(env.DB, id),
+        loadAnimalImageKeys(env.DB),
       ]);
-      const html = renderZooDetailHtml(zoo, scraped, coverage);
+      const html = renderZooDetailHtml(zoo, scraped, coverage, imageKeys);
       return htmlResponse(html, url, activePref);
     }
 

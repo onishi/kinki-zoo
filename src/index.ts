@@ -3907,6 +3907,30 @@ ${renderGlobalNav("/map")}
 </html>`;
 }
 
+function isAdminPath(pathname: string): boolean {
+  return (
+    pathname === "/animal-images" ||
+    pathname === "/animal-images/generate" ||
+    pathname === "/animal-images/select" ||
+    pathname.startsWith("/animal-images/manage/") ||
+    pathname.startsWith("/animal-image-generations/") ||
+    pathname === "/api/animal-images/generate" ||
+    pathname === "/api/animals/refresh" ||
+    pathname === "/api/animals/classify" ||
+    pathname === "/api/animals/suggest-taxonomy" ||
+    pathname === "/api/animals/taxonomy-candidates"
+  );
+}
+
+function checkAdminAuth(request: Request, adminPassword: string): boolean {
+  const auth = request.headers.get("Authorization");
+  if (!auth?.startsWith("Basic ")) return false;
+  const decoded = atob(auth.slice(6));
+  const colon = decoded.indexOf(":");
+  const password = colon >= 0 ? decoded.slice(colon + 1) : decoded;
+  return password === adminPassword;
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -3916,6 +3940,15 @@ export default {
       return notFound(`都道府県コード '${prefParam}' は無効です`);
     }
     const activePref = getActivePrefecture(url);
+
+    if (isAdminPath(pathname)) {
+      if (!env.ADMIN_PASSWORD || !checkAdminAuth(request, env.ADMIN_PASSWORD)) {
+        return new Response("Unauthorized", {
+          status: 401,
+          headers: { "WWW-Authenticate": 'Basic realm="Admin", charset="UTF-8"' },
+        });
+      }
+    }
 
     // JSON API: /api/zoos
     if (pathname === "/api/zoos") {

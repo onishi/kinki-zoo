@@ -2646,7 +2646,7 @@ function renderGlobalNav(activePath: string): string {
     ["/animals", "動物一覧"],
     ["/taxonomy", "分類から探す"],
     ["/map", "地図で見る"],
-    ["/animal-images", "画像管理"],
+    ["/animal-images", "動物管理"],
   ];
   const links = navItems
     .map(([href, label]) => {
@@ -2745,7 +2745,7 @@ function renderAnimalImageManageListHtml(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>動物画像管理 | 近畿動物園情報</title>
+  <title>動物管理 | 近畿動物園情報</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
@@ -2788,6 +2788,14 @@ function renderAnimalImageManageListHtml(
     .generation-thumb button:disabled { border-color: #ccc; color: #777; background: #f7f7f7; cursor: default; }
     .empty-generations { color: #777; font-size: 0.82rem; }
     .empty-message { color: #777; padding: 1rem 0; }
+    .admin-classify { border: 1px solid #dce7df; background: #f8fbf9; padding: 0.85rem 1rem; display: grid; gap: 0.55rem; }
+    .admin-section-title { font-size: 0.88rem; color: #444; }
+    .admin-section-desc { font-size: 0.82rem; color: #666; }
+    .classify-controls { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+    .classify-run-btn { min-height: 38px; border: 1px solid #1f5b45; background: #1f5b45; color: #fff; padding: 0.4rem 0.9rem; cursor: pointer; font-size: 0.84rem; }
+    .classify-run-btn:disabled { border-color: #aaa; background: #aaa; cursor: default; }
+    .classify-status { font-size: 0.82rem; color: #555; }
+    .classify-result { font-size: 0.78rem; color: #333; background: #fff; border: 1px solid #ddd; padding: 0.65rem 0.75rem; overflow-x: auto; white-space: pre-wrap; margin-top: 0.35rem; }
     @media (max-width: 640px) {
       main { padding: 0.85rem 0.75rem 1.25rem; }
       .toolbar { display: grid; grid-template-columns: 1fr auto; }
@@ -2806,8 +2814,17 @@ function renderAnimalImageManageListHtml(
 ${renderSiteHeader()}
 ${renderGlobalNav("/animal-images")}
   <main>
-    <h1 class="page-title">動物画像管理</h1>
+    <h1 class="page-title">動物管理</h1>
     ${noticeHtml}
+    <section class="admin-classify">
+      <h2 class="admin-section-title">LLM分類</h2>
+      <p class="admin-section-desc">未分類・部分分類の動物を Gemini で一括分類します。</p>
+      <div class="classify-controls">
+        <button id="classify-btn" class="classify-run-btn">一括分類を実行</button>
+        <span id="classify-status" class="classify-status"></span>
+      </div>
+      <pre id="classify-result" class="classify-result" hidden></pre>
+    </section>
     <section class="model-toolbar" aria-label="画像生成モデル">
       <div class="model-field-group">
         <label for="shared-image-model">生成モデル</label>
@@ -2839,6 +2856,27 @@ ${renderGlobalNav("/animal-images")}
         if (customModelField && customModel) customModelField.value = customModel.value;
       });
     });
+    var classifyBtn = document.getElementById('classify-btn');
+    var classifyStatus = document.getElementById('classify-status');
+    var classifyResult = document.getElementById('classify-result');
+    if (classifyBtn) {
+      classifyBtn.addEventListener('click', async function() {
+        classifyBtn.disabled = true;
+        classifyStatus.textContent = '実行中…';
+        classifyResult.hidden = true;
+        try {
+          var res = await fetch('/api/animals/classify', { method: 'POST' });
+          var data = await res.json();
+          classifyStatus.textContent = '完了';
+          classifyResult.textContent = JSON.stringify(data, null, 2);
+          classifyResult.hidden = false;
+        } catch (e) {
+          classifyStatus.textContent = 'エラー: ' + e.message;
+        } finally {
+          classifyBtn.disabled = false;
+        }
+      });
+    }
   </script>
 </body>
 </html>`;
@@ -3295,29 +3333,13 @@ function renderZooAnimalDetailHtml(detail: ZooAnimalDetail, notice?: string, ima
   const taxonomyHtml = taxonomyDetails
     ? `<dl class="taxonomy-details">${taxonomyDetails}</dl>`
     : `<p class="unclassified">分類未設定</p>`;
-  const statusBadgeConfig: Record<ClassificationStatus, { label: string; cls: string }> = {
-    registered: { label: "分類マスタ登録済み", cls: "status-registered" },
-    llm_candidate: { label: "LLM候補による部分分類", cls: "status-llm-candidate" },
-    unclassified: { label: "分類未設定", cls: "status-unclassified" },
-    rejected: { label: "分類却下", cls: "status-rejected" },
-  };
-  const statusBadge = statusBadgeConfig[detail.classificationStatus];
-  const statusBadgeHtml = `<span class="classification-status ${statusBadge.cls}">${escapeHtml(statusBadge.label)}</span>`;
   const canonicalHtml =
     detail.canonicalName && detail.canonicalName !== detail.displayName
       ? `<p class="canonical">分類マスタ: ${escapeHtml(detail.canonicalName)}</p>`
       : "";
-  const taxonomyLink = taxonomyPath
-    ? `<a href="${taxonomyPath}">分類ページ</a>`
-    : "";
   const noticeHtml = notice
     ? `<p class="notice">${escapeHtml(notice)}</p>`
     : "";
-  const classifyAction = `${buildZooAnimalUrl(detail.displayName)}/classify`;
-  const classifyForm = `
-    <form class="classify-form" action="${classifyAction}" method="post">
-      <button type="submit">LLMで分類しなおす</button>
-    </form>`;
   const zooLinks = detail.zoos
     .map(
       (zoo) => `
@@ -3349,12 +3371,7 @@ function renderZooAnimalDetailHtml(detail: ZooAnimalDetail, notice?: string, ima
     .hero-name { font-size: 1.5rem; font-weight: bold; overflow-wrap: anywhere; line-height: 1.3; }
     .canonical { color: #777; font-size: 0.88rem; }
     .notice { border: 1px solid #cfe5d8; background: #f5fbf7; color: #244d37; padding: 0.6rem 0.75rem; font-size: 0.86rem; }
-    .classification-status { display: inline-block; font-size: 0.75rem; padding: 0.18rem 0.5rem; border-radius: 2px; }
-    .status-registered { background: #e8f5ee; border: 1px solid #b6ddc8; color: #1f5b45; }
-    .status-llm-candidate { background: #fef9e7; border: 1px solid #f0d98a; color: #7a5c00; }
-    .status-unclassified { background: #f7f7f7; border: 1px solid #e1e1e1; color: #777; }
-    .status-rejected { background: #fef0ec; border: 1px solid #f0c0b0; color: #8b3a20; }
-    .taxonomy-details { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border: 1px solid #e1e1e1; }
+.taxonomy-details { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border: 1px solid #e1e1e1; }
     .taxonomy-details div { min-width: 0; border-right: 1px solid #e1e1e1; }
     .taxonomy-details div:last-child { border-right: 0; }
     .taxonomy-details dt { background: #f6f8f7; color: #666; font-size: 0.72rem; padding: 0.32rem 0.4rem; border-bottom: 1px solid #e1e1e1; }
@@ -3362,30 +3379,20 @@ function renderZooAnimalDetailHtml(detail: ZooAnimalDetail, notice?: string, ima
     .taxonomy-details dd a { color: #1f5b45; text-decoration: none; }
     .taxonomy-details dd a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .unclassified { color: #777; background: #f7f7f7; border: 1px solid #e1e1e1; padding: 0.55rem 0.65rem; font-size: 0.85rem; }
-    .hero-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
-    .hero-actions a { color: #1f5b45; border: 1px solid #d3e4d8; background: #f7fbf8; padding: 0.3rem 0.55rem; font-size: 0.8rem; text-decoration: none; }
-    .hero-actions a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
-    section { border-top: 1px solid #ddd; padding: 1rem 1.5rem; }
+section { border-top: 1px solid #ddd; padding: 1rem 1.5rem; }
     h2 { font-size: 1rem; margin-bottom: 0.75rem; color: #444; }
     .zoo-list { display: grid; gap: 0.45rem; list-style: none; }
     .zoo-list li { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: baseline; border: 1px solid #e1e1e1; padding: 0.65rem 0.75rem; }
     .zoo-list a { color: #1f5b45; font-weight: bold; text-decoration: none; }
     .zoo-list a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .zoo-list span { color: #777; font-size: 0.8rem; }
-    .admin-section { border-top: 1px solid #ddd; padding: 1rem 1.5rem; }
-    .admin-section h2 { font-size: 0.85rem; color: #999; margin-bottom: 0.6rem; }
-    .admin-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
-    .admin-actions a { color: #999; border: 1px solid #ddd; padding: 0.3rem 0.55rem; font-size: 0.8rem; text-decoration: none; }
-    .admin-actions a:hover { color: #555; }
-    .classify-form button { border: 1px solid #bbb; background: #fff; color: #777; padding: 0.3rem 0.55rem; font-size: 0.8rem; cursor: pointer; }
-    .classify-form button:hover { border-color: #888; color: #444; }
-    footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; border-top: 1px solid #eee; }
+footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; border-top: 1px solid #eee; }
     @media (max-width: 640px) {
       .hero { grid-template-columns: 1fr; justify-items: center; padding: 1rem 0.75rem; gap: 1rem; }
       .animal-image { width: 180px; height: 180px; }
       .hero-info { width: 100%; }
       .hero-name { font-size: 1.3rem; }
-      section, .admin-section { padding: 0.9rem 0.75rem; }
+      section { padding: 0.9rem 0.75rem; }
       .taxonomy-details { grid-template-columns: repeat(3, 1fr); }
       .taxonomy-details div:nth-child(3) { border-right: 0; }
       .taxonomy-details div:nth-child(4), .taxonomy-details div:nth-child(5) { border-top: 1px solid #e1e1e1; }
@@ -3406,22 +3413,13 @@ ${renderGlobalNav("/animals")}
       <div class="hero-info">
         <h1 class="hero-name">${escapedDisplayName}</h1>
         ${canonicalHtml}
-        <div>${statusBadgeHtml}</div>
         ${taxonomyHtml}
-        ${taxonomyLink ? `<div class="hero-actions">${taxonomyLink}</div>` : ""}
       </div>
     </div>
     <section>
       <h2>見られる施設</h2>
       <ul class="zoo-list">${zooLinks}</ul>
     </section>
-    <div class="admin-section">
-      <h2>管理</h2>
-      <div class="admin-actions">
-        ${classifyForm}
-        <a href="${buildAnimalSearchUrl(detail.displayName)}">この名前で検索</a>
-      </div>
-    </div>
   </main>
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
 </body>
@@ -3918,7 +3916,8 @@ function isAdminPath(pathname: string): boolean {
     pathname === "/api/animals/refresh" ||
     pathname === "/api/animals/classify" ||
     pathname === "/api/animals/suggest-taxonomy" ||
-    pathname === "/api/animals/taxonomy-candidates"
+    pathname === "/api/animals/taxonomy-candidates" ||
+    /^\/animal\/.+\/classify$/.test(pathname)
   );
 }
 

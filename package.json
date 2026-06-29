@@ -11,6 +11,9 @@
     "sync:jaza": "node scripts/sync-jaza-members.mjs",
     "check:jaza": "node scripts/check-jaza-coverage.mjs",
     "classify:unclassified": "node scripts/classify-unclassified.mjs",
+    "generate:animal-images": "node scripts/generate-animal-images.mjs",
+    "generate:all-animal-images": "node scripts/generate-all-animal-images.mjs",
+    "upload:images-to-r2": "node scripts/upload-images-to-r2.mjs",
     "typecheck": "npx tsc --noEmit"
   },
   "devDependencies": {

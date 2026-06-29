@@ -20,6 +20,7 @@ interface ZooSearchResult {
   zoo: Zoo;
   matchedAnimals: string[];
   matchedFeatures: string[];
+  animalCount: number;
   animalSearchAvailable: boolean;
   animalSearchError?: string;
 }
@@ -34,6 +35,7 @@ interface AnimalListRow {
   zoo_id: string;
   animal_id: string | null;
   canonical_name: string | null;
+  name_sort_key: string | null;
   class_name: string | null;
   order_name: string | null;
   family_name: string | null;
@@ -44,6 +46,7 @@ interface AnimalListRow {
 interface AnimalListItem {
   displayNames: string[];
   canonicalName?: string;
+  nameSortKey?: string;
   className?: string;
   orderName?: string;
   familyName?: string;
@@ -115,6 +118,53 @@ interface TaxonomyCandidateApplyResult {
   candidate: TaxonomyCandidate;
 }
 
+interface AnimalImageRecord {
+  animalKey: string;
+  displayName: string;
+  normalizedName: string;
+  selectedGenerationId?: number;
+  prompt: string;
+  model: string;
+  mimeType: string;
+  imageBase64: string;
+  width: number;
+  height: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface AnimalImageGenerationRecord {
+  id: number;
+  animalKey: string;
+  displayName: string;
+  normalizedName: string;
+  prompt: string;
+  model: string;
+  mimeType: string;
+  imageBase64: string;
+  width: number;
+  height: number;
+  createdAt: string;
+  selected: boolean;
+}
+
+interface AnimalImageManageItem {
+  displayName: string;
+  animalKey: string;
+  selectedGenerationId: number | null;
+  generationCount: number;
+  updatedAt: string | null;
+  generations: AnimalImageGenerationSummary[];
+}
+
+interface AnimalImageGenerationSummary {
+  id: number;
+  animalKey: string;
+  model: string;
+  createdAt: string;
+  selected: boolean;
+}
+
 type TaxonomyRank = "class" | "order" | "family" | "genus" | "species";
 type AnimalListFilter = "all" | "unclassified";
 
@@ -164,6 +214,12 @@ const TAXONOMY_RANKS: TaxonomyRankConfig[] = [
 ];
 
 const GEMINI_TAXONOMY_MODEL = "gemini-2.5-flash-lite";
+const GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image";
+const GEMINI_IMAGE_MODELS = [
+  "gemini-2.5-flash-image",
+  "gemini-3-pro-image",
+];
+const ANIMAL_IMAGE_SIZE = 512;
 const APPLICABLE_CLASS_NAMES = new Set(["哺乳類", "鳥類", "爬虫類", "両生類", "魚類", "昆虫類", "節足動物", "軟体動物"]);
 const ORDER_NAME_ALIASES: Record<string, string> = {
   インコ目: "オウム目",
@@ -229,6 +285,10 @@ function normalizeAnimalNameForSearch(value: string): string {
 }
 
 function normalizeAnimalNameForDiff(value: string): string {
+  return normalizeAnimalNameForSearch(value).replace(/[\s　]+/g, "");
+}
+
+function normalizeAnimalImageKey(value: string): string {
   return normalizeAnimalNameForSearch(value).replace(/[\s　]+/g, "");
 }
 
@@ -471,6 +531,102 @@ function parseGeminiSuggestionResponse(text: string): GeminiSuggestionResponse {
   };
 }
 
+function buildAnimalImagePrompt(displayName: string): string {
+  return `正方形の動物アイコン画像を1枚生成してください。
+
+対象の動物名: ${displayName}
+
+要件:
+- 512x512 の正方形。
+- 背景は完全な白一色にする。グラデーション、影付きの背景、風景、小物、装飾は入れない。
+- 動物の全身または顔と体の特徴がわかる構図。斜め向きや横向きなど、真正面を向いた構図は避ける。
+- 図鑑風で、清潔感のある写実寄りのイラスト。
+- 文字、ロゴ、透かし、枠、UI要素は入れない。
+- 複数個体ではなく1個体を中心に描く。
+- 動物園の公式写真や既存キャラクターを模倣しない。`;
+}
+
+function extractGeminiImage(response: unknown): { mimeType: string; data: string } {
+  const data = response as {
+    candidates?: Array<{
+      content?: {
+        parts?: Array<{
+          inlineData?: { mimeType?: unknown; data?: unknown };
+          inline_data?: { mime_type?: unknown; data?: unknown };
+        }>;
+      };
+    }>;
+  };
+
+  for (const candidate of data.candidates ?? []) {
+    for (const part of candidate.content?.parts ?? []) {
+      const inlineData = part.inlineData;
+      if (inlineData && typeof inlineData.data === "string") {
+        return {
+          mimeType: typeof inlineData.mimeType === "string" ? inlineData.mimeType : "image/png",
+          data: inlineData.data,
+        };
+      }
+      const inlineDataSnake = part.inline_data;
+      if (inlineDataSnake && typeof inlineDataSnake.data === "string") {
+        return {
+          mimeType: typeof inlineDataSnake.mime_type === "string" ? inlineDataSnake.mime_type : "image/png",
+          data: inlineDataSnake.data,
+        };
+      }
+    }
+  }
+
+  throw new Error("Gemini response did not include an image");
+}
+
+async function generateAnimalImageWithGemini(
+  apiKey: string,
+  displayName: string,
+  model = GEMINI_IMAGE_MODEL
+): Promise<{ prompt: string; mimeType: string; imageBase64: string }> {
+  const prompt = buildAnimalImagePrompt(displayName);
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: prompt }],
+          },
+        ],
+        generationConfig: {
+          responseModalities: ["IMAGE"],
+        },
+      }),
+    }
+  );
+
+  const responseText = await response.text();
+  if (!response.ok) {
+    throw new Error(`Gemini image API error ${response.status}: ${responseText.slice(0, 500)}`);
+  }
+
+  const image = extractGeminiImage(JSON.parse(responseText) as unknown);
+  return {
+    prompt,
+    mimeType: image.mimeType,
+    imageBase64: image.data,
+  };
+}
+
+function base64ToUint8Array(value: string): Uint8Array {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
 function parseSourcesJson(value: string | null): Array<{ title?: string; url: string }> {
   if (!value) return [];
   try {
@@ -489,13 +645,30 @@ function parseSourcesJson(value: string | null): Array<{ title?: string; url: st
   }
 }
 
-function buildSearchResult(zoo: Zoo): ZooSearchResult {
+function buildSearchResult(zoo: Zoo, animalCount = 0): ZooSearchResult {
   return {
     zoo,
     matchedAnimals: [],
     matchedFeatures: [],
+    animalCount,
     animalSearchAvailable: false,
   };
+}
+
+async function loadZooAnimalCounts(db: D1Database, zooIds: string[]): Promise<Map<string, number>> {
+  if (zooIds.length === 0) return new Map();
+
+  const result = await db
+    .prepare(
+      `SELECT zoo_id, COUNT(DISTINCT display_name) AS animal_count
+       FROM zoo_animals
+       WHERE zoo_id IN (${buildPlaceholders(zooIds)})
+       GROUP BY zoo_id`
+    )
+    .bind(...zooIds)
+    .all<{ zoo_id: string; animal_count: number }>();
+
+  return new Map((result.results ?? []).map((row) => [row.zoo_id, row.animal_count]));
 }
 
 async function loadCachedAnimalMatches(
@@ -626,6 +799,7 @@ function buildAnimalListItems(rows: AnimalListRow[]): AnimalListItem[] {
     const item = animals.get(key) ?? {
       displayNames: [],
       canonicalName: row.canonical_name ?? undefined,
+      nameSortKey: row.name_sort_key ?? undefined,
       className: row.class_name ?? undefined,
       orderName: row.order_name ?? undefined,
       familyName: row.family_name ?? undefined,
@@ -672,6 +846,7 @@ async function loadAnimalList(
          za.zoo_id,
          za.animal_id,
          COALESCE(a.canonical_name, NULLIF(c.canonical_name, 'null')) AS canonical_name,
+         COALESCE(a.sort_key, a.canonical_name, za.sort_key, za.display_name) AS name_sort_key,
          COALESCE(a.class_name, NULLIF(c.class_name, 'null')) AS class_name,
          COALESCE(a.order_name, NULLIF(c.order_name, 'null')) AS order_name,
          COALESCE(a.family_name, NULLIF(c.family_name, 'null')) AS family_name,
@@ -685,12 +860,494 @@ async function loadAnimalList(
         AND c.status IN ('partial', 'pending')
         AND c.confidence >= 0.8
        ${where}
-       ORDER BY COALESCE(a.normalized_name, za.normalized_display_name), za.display_name, za.zoo_id`
+       ORDER BY COALESCE(a.sort_key, a.normalized_name, za.sort_key, za.normalized_display_name), za.display_name, za.zoo_id`
     )
     .bind(...(pref ? zooIds : []))
     .all<AnimalListRow>();
 
   return buildAnimalListItems(result.results ?? []);
+}
+
+async function loadAnimalImageKeys(db: D1Database): Promise<Set<string>> {
+  const result = await db.prepare("SELECT animal_key FROM animal_images").all<{ animal_key: string }>();
+  return new Set(result.results?.map((r) => r.animal_key) ?? []);
+}
+
+async function loadAnimalImage(db: D1Database, displayName: string): Promise<AnimalImageRecord | null> {
+  const animalKey = normalizeAnimalImageKey(displayName);
+  const row = await db
+    .prepare(
+      `SELECT
+         animal_key,
+         display_name,
+         normalized_name,
+         prompt,
+         model,
+         mime_type,
+         image_base64,
+         selected_generation_id,
+         width,
+         height,
+         created_at,
+         updated_at
+       FROM animal_images
+       WHERE animal_key = ?`
+    )
+    .bind(animalKey)
+    .first<{
+      animal_key: string;
+      display_name: string;
+      normalized_name: string;
+      prompt: string;
+      model: string;
+      mime_type: string;
+      image_base64: string;
+      selected_generation_id: number | null;
+      width: number;
+      height: number;
+      created_at: string;
+      updated_at: string;
+    }>();
+
+  return row
+    ? {
+        animalKey: row.animal_key,
+        displayName: row.display_name,
+        normalizedName: row.normalized_name,
+        prompt: row.prompt,
+        model: row.model,
+        mimeType: row.mime_type,
+        imageBase64: row.image_base64,
+        selectedGenerationId: row.selected_generation_id ?? undefined,
+        width: row.width,
+        height: row.height,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }
+    : null;
+}
+
+async function saveAnimalImage(
+  db: D1Database,
+  displayName: string,
+  prompt: string,
+  model: string,
+  mimeType: string,
+  imageBase64: string
+): Promise<AnimalImageRecord> {
+  const now = new Date().toISOString();
+  const animalKey = normalizeAnimalImageKey(displayName);
+  const normalizedName = normalizeAnimalNameForSearch(displayName);
+  await db
+    .prepare(
+      `INSERT INTO animal_image_generations (
+         animal_key,
+         display_name,
+         normalized_name,
+         prompt,
+         model,
+         mime_type,
+         image_base64,
+         width,
+         height,
+         created_at
+       )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .bind(
+      animalKey,
+      displayName,
+      normalizedName,
+      prompt,
+      model,
+      mimeType,
+      imageBase64,
+      ANIMAL_IMAGE_SIZE,
+      ANIMAL_IMAGE_SIZE,
+      now
+    )
+    .run();
+  const generation = await db
+    .prepare(
+      `SELECT id
+       FROM animal_image_generations
+       WHERE animal_key = ?
+         AND created_at = ?
+       ORDER BY id DESC
+       LIMIT 1`
+    )
+    .bind(animalKey, now)
+    .first<{ id: number }>();
+  if (!generation) {
+    throw new Error("Generated image was not saved");
+  }
+
+  await db
+    .prepare(
+      `INSERT INTO animal_images (
+         animal_key,
+         display_name,
+         normalized_name,
+         prompt,
+         model,
+         mime_type,
+         image_base64,
+         selected_generation_id,
+         width,
+         height,
+         created_at,
+         updated_at
+       )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(animal_key) DO UPDATE SET
+         display_name = excluded.display_name,
+         normalized_name = excluded.normalized_name,
+         prompt = excluded.prompt,
+         model = excluded.model,
+         mime_type = excluded.mime_type,
+         image_base64 = excluded.image_base64,
+         selected_generation_id = excluded.selected_generation_id,
+         width = excluded.width,
+         height = excluded.height,
+         updated_at = excluded.updated_at`
+    )
+    .bind(
+      animalKey,
+      displayName,
+      normalizedName,
+      prompt,
+      model,
+      mimeType,
+      imageBase64,
+      generation.id,
+      ANIMAL_IMAGE_SIZE,
+      ANIMAL_IMAGE_SIZE,
+      now,
+      now
+    )
+    .run();
+
+  return {
+    animalKey,
+    displayName,
+    normalizedName,
+    selectedGenerationId: generation.id,
+    prompt,
+    model,
+    mimeType,
+    imageBase64,
+    width: ANIMAL_IMAGE_SIZE,
+    height: ANIMAL_IMAGE_SIZE,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+async function loadAnimalImageGenerations(
+  db: D1Database,
+  displayName: string
+): Promise<AnimalImageGenerationRecord[]> {
+  const animalKey = normalizeAnimalImageKey(displayName);
+  const active = await loadAnimalImage(db, displayName);
+  const result = await db
+    .prepare(
+      `SELECT
+         id,
+         animal_key,
+         display_name,
+         normalized_name,
+         prompt,
+         model,
+         mime_type,
+         image_base64,
+         width,
+         height,
+         created_at
+       FROM animal_image_generations
+       WHERE animal_key = ?
+       ORDER BY id DESC`
+    )
+    .bind(animalKey)
+    .all<{
+      id: number;
+      animal_key: string;
+      display_name: string;
+      normalized_name: string;
+      prompt: string;
+      model: string;
+      mime_type: string;
+      image_base64: string;
+      width: number;
+      height: number;
+      created_at: string;
+    }>();
+
+  return (result.results ?? []).map((row) => ({
+    id: row.id,
+    animalKey: row.animal_key,
+    displayName: row.display_name,
+    normalizedName: row.normalized_name,
+    prompt: row.prompt,
+    model: row.model,
+    mimeType: row.mime_type,
+    imageBase64: row.image_base64,
+    width: row.width,
+    height: row.height,
+    createdAt: row.created_at,
+    selected: active?.selectedGenerationId === row.id,
+  }));
+}
+
+async function loadAnimalImageGenerationById(
+  db: D1Database,
+  id: number
+): Promise<AnimalImageGenerationRecord | null> {
+  const row = await db
+    .prepare(
+      `SELECT
+         id,
+         animal_key,
+         display_name,
+         normalized_name,
+         prompt,
+         model,
+         mime_type,
+         image_base64,
+         width,
+         height,
+         created_at
+       FROM animal_image_generations
+       WHERE id = ?`
+    )
+    .bind(id)
+    .first<{
+      id: number;
+      animal_key: string;
+      display_name: string;
+      normalized_name: string;
+      prompt: string;
+      model: string;
+      mime_type: string;
+      image_base64: string;
+      width: number;
+      height: number;
+      created_at: string;
+    }>();
+
+  return row
+    ? {
+        id: row.id,
+        animalKey: row.animal_key,
+        displayName: row.display_name,
+        normalizedName: row.normalized_name,
+        prompt: row.prompt,
+        model: row.model,
+        mimeType: row.mime_type,
+        imageBase64: row.image_base64,
+        width: row.width,
+        height: row.height,
+        createdAt: row.created_at,
+        selected: false,
+      }
+    : null;
+}
+
+async function selectAnimalImageGeneration(
+  db: D1Database,
+  displayName: string,
+  generationId: number
+): Promise<AnimalImageRecord | null> {
+  const animalKey = normalizeAnimalImageKey(displayName);
+  const generation = await loadAnimalImageGenerationById(db, generationId);
+  if (!generation || generation.animalKey !== animalKey) return null;
+
+  const now = new Date().toISOString();
+  await db
+    .prepare(
+      `INSERT INTO animal_images (
+         animal_key,
+         display_name,
+         normalized_name,
+         prompt,
+         model,
+         mime_type,
+         image_base64,
+         selected_generation_id,
+         width,
+         height,
+         created_at,
+         updated_at
+       )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(animal_key) DO UPDATE SET
+         display_name = excluded.display_name,
+         normalized_name = excluded.normalized_name,
+         prompt = excluded.prompt,
+         model = excluded.model,
+         mime_type = excluded.mime_type,
+         image_base64 = excluded.image_base64,
+         selected_generation_id = excluded.selected_generation_id,
+         width = excluded.width,
+         height = excluded.height,
+         updated_at = excluded.updated_at`
+    )
+    .bind(
+      animalKey,
+      generation.displayName,
+      generation.normalizedName,
+      generation.prompt,
+      generation.model,
+      generation.mimeType,
+      generation.imageBase64,
+      generation.id,
+      generation.width,
+      generation.height,
+      now,
+      now
+    )
+    .run();
+
+  return loadAnimalImage(db, displayName);
+}
+
+async function loadAnimalImageGenerationNames(
+  db: D1Database,
+  limit: number,
+  requestedNames: string[] = [],
+  missingOnly = true,
+  missingModel?: string,
+  excludedNames: string[] = []
+): Promise<string[]> {
+  const sourceNames =
+    requestedNames.length > 0
+      ? requestedNames
+      : ((
+          await db
+            .prepare(
+              `SELECT name
+               FROM (
+                 SELECT canonical_name AS name
+                 FROM animals
+                 WHERE canonical_name IS NOT NULL
+                 UNION
+                 SELECT display_name AS name
+                 FROM zoo_animals
+               )
+               ORDER BY name`
+            )
+            .all<{ name: string }>()
+        ).results ?? []).map((row) => row.name);
+
+  const uniqueNames: string[] = [];
+  const seen = new Set<string>();
+  const excludedKeys = new Set(excludedNames.map(normalizeAnimalImageKey));
+  for (const name of sourceNames) {
+    const trimmed = name.trim();
+    if (!trimmed) continue;
+    const key = normalizeAnimalImageKey(trimmed);
+    if (seen.has(key)) continue;
+    if (excludedKeys.has(key)) continue;
+    seen.add(key);
+    uniqueNames.push(trimmed);
+  }
+
+  if (!missingOnly) return uniqueNames.slice(0, limit);
+
+  const existingRows = missingModel
+    ? await db
+        .prepare(
+          `SELECT DISTINCT animal_key
+           FROM animal_image_generations
+           WHERE model = ?`
+        )
+        .bind(missingModel)
+        .all<{ animal_key: string }>()
+    : await db
+        .prepare("SELECT animal_key FROM animal_images")
+        .all<{ animal_key: string }>();
+  const existingKeys = new Set((existingRows.results ?? []).map((row) => row.animal_key));
+  return uniqueNames
+    .filter((name) => !existingKeys.has(normalizeAnimalImageKey(name)))
+    .slice(0, limit);
+}
+
+async function loadAnimalImageManageItems(
+  db: D1Database,
+  query: string | null = null
+): Promise<AnimalImageManageItem[]> {
+  const result = await db
+    .prepare(
+      `SELECT name
+       FROM (
+         SELECT canonical_name AS name
+         FROM animals
+         WHERE canonical_name IS NOT NULL
+         UNION
+         SELECT display_name AS name
+         FROM zoo_animals
+       )
+       ORDER BY name`
+    )
+    .all<{ name: string }>();
+  const selectedRows = await db
+    .prepare(
+      `SELECT animal_key, selected_generation_id, updated_at
+       FROM animal_images`
+    )
+    .all<{ animal_key: string; selected_generation_id: number | null; updated_at: string }>();
+  const generationRows = await db
+    .prepare(
+      `SELECT id, animal_key, model, created_at
+       FROM animal_image_generations
+       ORDER BY animal_key, id DESC`
+    )
+    .all<{ id: number; animal_key: string; model: string; created_at: string }>();
+
+  const selectedByKey = new Map(
+    (selectedRows.results ?? []).map((row) => [
+      row.animal_key,
+      {
+        selectedGenerationId: row.selected_generation_id,
+        updatedAt: row.updated_at,
+      },
+    ])
+  );
+  const generationsByKey = new Map<string, AnimalImageGenerationSummary[]>();
+  for (const row of generationRows.results ?? []) {
+    const selected = selectedByKey.get(row.animal_key);
+    const generations = generationsByKey.get(row.animal_key) ?? [];
+    generations.push({
+      id: row.id,
+      animalKey: row.animal_key,
+      model: row.model,
+      createdAt: row.created_at,
+      selected: selected?.selectedGenerationId === row.id,
+    });
+    generationsByKey.set(row.animal_key, generations);
+  }
+  const normalizedQuery = query ? normalizeAnimalNameForSearch(query) : null;
+  const items: AnimalImageManageItem[] = [];
+  const seen = new Set<string>();
+  for (const row of result.results ?? []) {
+    const displayName = row.name.trim();
+    if (!displayName) continue;
+    const animalKey = normalizeAnimalImageKey(displayName);
+    if (seen.has(animalKey)) continue;
+    if (normalizedQuery && !normalizeAnimalNameForSearch(displayName).includes(normalizedQuery)) continue;
+    seen.add(animalKey);
+    const selected = selectedByKey.get(animalKey);
+    const generations = generationsByKey.get(animalKey) ?? [];
+    items.push({
+      displayName,
+      animalKey,
+      selectedGenerationId: selected?.selectedGenerationId ?? null,
+      generationCount: generations.length,
+      updatedAt: selected?.updatedAt ?? null,
+      generations,
+    });
+  }
+
+  return items;
 }
 
 async function loadZooAnimalDetail(
@@ -934,7 +1591,9 @@ function getTaxonomyRankByDepth(depth: number): TaxonomyRankConfig | undefined {
 }
 
 function buildTaxonomyWhereClause(levels: TaxonomyPathLevel[]): string {
-  return levels.map((level) => `a.${level.rank.column} = ?`).join(" AND ");
+  return levels
+    .map((level) => `COALESCE(a.${level.rank.column}, NULLIF(c.${level.rank.column}, 'null')) = ?`)
+    .join(" AND ");
 }
 
 function parseTaxonomyPath(pathname: string): TaxonomyPathLevel[] | null {
@@ -972,14 +1631,20 @@ async function loadChildTaxonomyValues(
   const result = await db
     .prepare(
       `SELECT
-         a.${childRank.column} AS name,
-         COUNT(DISTINCT a.id) AS animal_count,
+         COALESCE(a.${childRank.column}, NULLIF(c.${childRank.column}, 'null')) AS name,
+         COUNT(DISTINCT COALESCE(a.id, c.display_name)) AS animal_count,
          COUNT(DISTINCT za.zoo_id) AS zoo_count
-       FROM animals a
-       JOIN zoo_animals za ON za.animal_id = a.id
+       FROM zoo_animals za
+       LEFT JOIN animals a ON a.id = za.animal_id
+       LEFT JOIN animal_taxonomy_candidates c
+         ON c.display_name = za.display_name
+        AND za.animal_id IS NULL
+        AND c.status IN ('partial', 'pending')
+        AND c.confidence >= 0.8
        WHERE ${where}
-       GROUP BY a.${childRank.column}
-       ORDER BY a.${childRank.column}`
+         AND COALESCE(a.${childRank.column}, NULLIF(c.${childRank.column}, 'null')) IS NOT NULL
+       GROUP BY COALESCE(a.${childRank.column}, NULLIF(c.${childRank.column}, 'null'))
+       ORDER BY COALESCE(a.${childRank.column}, NULLIF(c.${childRank.column}, 'null'))`
     )
     .bind(...levels.map((level) => level.value), ...(pref ? zooIds : []))
     .all<TaxonomyValueRow>();
@@ -1003,16 +1668,22 @@ async function loadTaxonomyAnimals(
          za.display_name,
          za.zoo_id,
          za.animal_id,
-         a.canonical_name,
-         a.class_name,
-         a.order_name,
-         a.family_name,
-         a.genus_name,
-         a.species_name
-       FROM animals a
-       JOIN zoo_animals za ON za.animal_id = a.id
+         COALESCE(a.canonical_name, NULLIF(c.canonical_name, 'null')) AS canonical_name,
+         COALESCE(a.sort_key, a.canonical_name, za.sort_key, za.display_name) AS name_sort_key,
+         COALESCE(a.class_name, NULLIF(c.class_name, 'null')) AS class_name,
+         COALESCE(a.order_name, NULLIF(c.order_name, 'null')) AS order_name,
+         COALESCE(a.family_name, NULLIF(c.family_name, 'null')) AS family_name,
+         COALESCE(a.genus_name, NULLIF(c.genus_name, 'null')) AS genus_name,
+         COALESCE(a.species_name, NULLIF(c.species_name, 'null')) AS species_name
+       FROM zoo_animals za
+       LEFT JOIN animals a ON a.id = za.animal_id
+       LEFT JOIN animal_taxonomy_candidates c
+         ON c.display_name = za.display_name
+        AND za.animal_id IS NULL
+        AND c.status IN ('partial', 'pending')
+        AND c.confidence >= 0.8
        WHERE ${where}
-       ORDER BY a.normalized_name, za.display_name, za.zoo_id`
+       ORDER BY COALESCE(a.sort_key, a.normalized_name, za.sort_key, za.normalized_display_name), za.display_name, za.zoo_id`
     )
     .bind(...levels.map((level) => level.value), ...(pref ? zooIds : []))
     .all<AnimalListRow>();
@@ -1663,9 +2334,13 @@ async function searchZoos(db: D1Database, pref?: string | null, animal?: string 
     }
     return true;
   });
+  const animalCounts = await loadZooAnimalCounts(
+    db,
+    prefFiltered.map((zoo) => zoo.id)
+  );
 
   if (!normalizedAnimal) {
-    return prefFiltered.map(buildSearchResult);
+    return prefFiltered.map((zoo) => buildSearchResult(zoo, animalCounts.get(zoo.id) ?? 0));
   }
 
   const searchKeyword = normalizedAnimal.toLocaleLowerCase("ja-JP");
@@ -1681,6 +2356,7 @@ async function searchZoos(db: D1Database, pref?: string | null, animal?: string 
       zoo,
       matchedAnimals,
       matchedFeatures: [],
+      animalCount: animalCounts.get(zoo.id) ?? 0,
       animalSearchAvailable: true,
     };
 
@@ -1734,17 +2410,21 @@ function renderZooCard(result: ZooSearchResult, includeMatchSummary: boolean): s
   const zooDomId = `zoo-${zoo.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
   const prefLabel = PREF_LABELS[zoo.prefecture];
   const wikiLink = zoo.wikipediaUrl
-    ? `<a class="wiki-link" href="${escapeHtml(zoo.wikipediaUrl)}" target="_blank" rel="noopener noreferrer">Wikipedia</a>`
+    ? `<a href="${escapeHtml(zoo.wikipediaUrl)}" target="_blank" rel="noopener noreferrer">Wikipedia</a>`
     : "";
   return `
     <tr id="${escapeHtml(zooDomId)}">
       <th scope="row" class="zoo-name">
         <a href="/zoos/${zooId}">${escapeHtml(zoo.name)}</a>
-        ${wikiLink}
         <p class="kana">${escapeHtml(zoo.nameKana)}</p>
+        <p class="zoo-name-links">
+          <a href="${escapeHtml(zoo.website)}" target="_blank" rel="noopener noreferrer">公式サイト</a>
+          ${wikiLink}
+        </p>
       </th>
       <td data-label="都道府県">${prefLabel}</td>
       <td data-label="住所">${escapeHtml(zoo.address)}</td>
+      <td data-label="動物種数">${result.animalCount > 0 ? `${result.animalCount} 種` : "未取得"}</td>
       <td data-label="基本情報">
         <ul class="meta-list">
           <li><b>開園時間:</b> ${escapeHtml(zoo.openingHours)}</li>
@@ -1753,11 +2433,6 @@ function renderZooCard(result: ZooSearchResult, includeMatchSummary: boolean): s
         </ul>
       </td>
       ${includeMatchSummary ? `<td data-label="検索ヒット">${renderMatchSummary(result)}</td>` : ""}
-      <td data-label="リンク">
-        <p class="links">
-          <a href="${escapeHtml(zoo.website)}" target="_blank" rel="noopener noreferrer">公式サイト</a>
-        </p>
-      </td>
     </tr>`;
 }
 
@@ -1796,6 +2471,37 @@ function buildLegacyTaxonomyUrl(rank: TaxonomyRank, value: string): string {
 
 function buildTaxonomyUrl(levels: TaxonomyPathLevel[], value: string): string {
   return buildTaxonomyPathUrl([...levels.map((level) => level.value), value]);
+}
+
+function renderTaxonomyValueLink(value: string, pathValues: string[] | null): string {
+  const label = escapeHtml(value);
+  return pathValues
+    ? `<a href="${buildTaxonomyPathUrl(pathValues)}">${label}</a>`
+    : label;
+}
+
+function buildTaxonomyDisplayParts(values: Array<[string, string | undefined]>): Array<{
+  label: string;
+  value: string;
+  pathValues: string[] | null;
+}> {
+  const parts: Array<{ label: string; value: string; pathValues: string[] | null }> = [];
+  const pathValues: string[] = [];
+  let canBuildPath = true;
+
+  for (const [label, value] of values) {
+    if (!value) {
+      canBuildPath = false;
+      continue;
+    }
+    const currentPath = canBuildPath ? [...pathValues, value] : null;
+    parts.push({ label, value, pathValues: currentPath });
+    if (canBuildPath) {
+      pathValues.push(value);
+    }
+  }
+
+  return parts;
 }
 
 function addPrefectureToInternalUrl(href: string, pref: PrefectureCode | null): string {
@@ -1940,6 +2646,7 @@ function renderGlobalNav(activePath: string): string {
     ["/animals", "動物一覧"],
     ["/taxonomy", "分類から探す"],
     ["/map", "地図で見る"],
+    ["/animal-images", "画像管理"],
   ];
   const links = navItems
     .map(([href, label]) => {
@@ -1952,6 +2659,317 @@ function renderGlobalNav(activePath: string): string {
   </nav>`;
 }
 
+function formatDateTime(value: string | null): string {
+  return value ? new Date(value).toLocaleString("ja-JP") : "-";
+}
+
+function buildAnimalImageManageUrl(displayName: string): string {
+  return `/animal-images/manage/${encodeURIComponent(displayName)}`;
+}
+
+function buildAnimalImageItemId(animalKey: string): string {
+  return `animal-image-${encodeURIComponent(animalKey).replace(/%/g, "")}`;
+}
+
+function renderAnimalImageManageListHtml(
+  items: AnimalImageManageItem[],
+  query: string | null,
+  notice?: string
+): string {
+  const escapedQuery = query ? escapeHtml(query) : "";
+  const modelOptions = GEMINI_IMAGE_MODELS.map(
+    (model) => `<option value="${escapeHtml(model)}">${escapeHtml(model)}</option>`
+  ).join("");
+  const rows = items
+    .map((item) => {
+      const selected = item.selectedGenerationId
+        ? `<span class="status selected">選択済み #${item.selectedGenerationId}</span>`
+        : `<span class="status empty">未選択</span>`;
+      const preview = item.selectedGenerationId
+        ? `<img src="/animal-images/${encodeURIComponent(item.displayName)}?v=${item.selectedGenerationId}" alt="${escapeHtml(item.displayName)}">`
+        : `<div class="image-placeholder">No image</div>`;
+      const generations = item.generations
+        .map((generation) => {
+          const selectedBadge = generation.selected ? `<span class="selected-badge">使用中</span>` : "";
+          const selectButton = generation.selected
+            ? `<button type="submit" disabled>使用中</button>`
+            : `<button type="submit">使う</button>`;
+          return `
+            <article class="generation-thumb">
+              <div class="thumb-image">
+                <img src="/animal-image-generations/${generation.id}" alt="${escapeHtml(item.displayName)} #${generation.id}">
+                ${selectedBadge}
+              </div>
+              <div class="thumb-meta">
+                <b>#${generation.id}</b>
+                <span>${escapeHtml(generation.model)}</span>
+                <span>${escapeHtml(formatDateTime(generation.createdAt))}</span>
+              </div>
+              <form action="/animal-images/select" method="post">
+                <input type="hidden" name="displayName" value="${escapeHtml(item.displayName)}">
+                <input type="hidden" name="generationId" value="${generation.id}">
+                ${selectButton}
+              </form>
+            </article>`;
+        })
+        .join("");
+      return `
+        <article class="image-list-item" id="${escapeHtml(buildAnimalImageItemId(item.animalKey))}">
+          <div class="preview">${preview}</div>
+          <div class="image-list-body">
+            <div class="image-list-heading">
+              <h2>${escapeHtml(item.displayName)}</h2>
+              <form class="inline-generate-form" action="/animal-images/generate" method="post">
+                <input type="hidden" name="displayName" value="${escapeHtml(item.displayName)}">
+                <input type="hidden" name="model" class="model-field">
+                <input type="hidden" name="customModel" class="custom-model-field">
+                <button type="submit">生成</button>
+              </form>
+            </div>
+            <dl>
+              <div><dt>状態</dt><dd>${selected}</dd></div>
+              <div><dt>生成数</dt><dd>${item.generationCount}</dd></div>
+              <div><dt>最終更新</dt><dd>${escapeHtml(formatDateTime(item.updatedAt))}</dd></div>
+            </dl>
+            <div class="generation-strip">
+              ${generations || `<p class="empty-generations">まだ画像がありません。</p>`}
+            </div>
+          </div>
+        </article>`;
+    })
+    .join("");
+  const emptyHtml = `<p class="empty-message">対象の動物名がありません。</p>`;
+  const noticeHtml = notice ? `<p class="notice">${escapeHtml(notice)}</p>` : "";
+  return `<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>動物画像管理 | 近畿動物園情報</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
+    main { max-width: 1040px; padding: 1rem 1.5rem 1.5rem; display: grid; gap: 1rem; }
+    .page-title { font-size: 1.15rem; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; padding-bottom: 0.75rem; border-bottom: 1px solid #ddd; }
+    .toolbar input { min-height: 42px; flex: 1 1 220px; max-width: 360px; border: 1px solid #bbb; padding: 0.5rem 0.65rem; }
+    .toolbar button, .toolbar a { min-height: 42px; display: inline-flex; align-items: center; border: 1px solid #1f5b45; padding: 0.45rem 0.7rem; font-size: 0.86rem; }
+    .toolbar button { background: #1f5b45; color: #fff; cursor: pointer; }
+    .toolbar a { color: #1f5b45; text-decoration: none; background: #fff; }
+    .model-toolbar { display: grid; grid-template-columns: minmax(220px, 320px) minmax(220px, 1fr); gap: 0.75rem; align-items: end; padding: 0.75rem; background: #f7faf8; border: 1px solid #dce7df; }
+    .model-field-group { display: grid; gap: 0.35rem; }
+    .model-field-group label { color: #555; font-size: 0.82rem; font-weight: bold; }
+    .model-field-group select, .model-field-group input { min-height: 42px; border: 1px solid #bbb; background: #fff; padding: 0.5rem 0.65rem; }
+    .notice { border: 1px solid #cfe5d8; background: #f5fbf7; color: #244d37; padding: 0.6rem 0.75rem; font-size: 0.86rem; }
+    .summary { color: #666; font-size: 0.86rem; }
+    .image-list { display: grid; gap: 0.75rem; }
+    .image-list-item { display: grid; grid-template-columns: 108px minmax(0, 1fr); gap: 0.9rem; align-items: start; border-bottom: 1px solid #e2e2e2; padding: 0.9rem 0; scroll-margin-top: 1rem; }
+    .preview { display: block; width: 108px; aspect-ratio: 1; border: 1px solid #ddd; background: #f7f7f7; text-decoration: none; overflow: hidden; }
+    .preview img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .image-placeholder { width: 100%; height: 100%; display: grid; place-items: center; color: #888; font-size: 0.72rem; }
+    .image-list-body { min-width: 0; display: grid; gap: 0.45rem; }
+    .image-list-heading { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: space-between; align-items: center; }
+    .image-list-body h2 { font-size: 1rem; line-height: 1.35; }
+    .image-list-body dl { display: flex; flex-wrap: wrap; gap: 0.45rem 1rem; color: #555; font-size: 0.82rem; }
+    .image-list-body dl div { display: flex; gap: 0.25rem; }
+    .image-list-body dt { color: #777; }
+    .status { display: inline-flex; align-items: center; min-height: 1.5rem; padding: 0.1rem 0.45rem; border-radius: 2px; font-size: 0.78rem; }
+    .status.selected { background: #e8f5ee; border: 1px solid #b6ddc8; color: #1f5b45; }
+    .status.empty { background: #f7f7f7; border: 1px solid #e1e1e1; color: #777; }
+    .inline-generate-form button { min-height: 38px; border: 1px solid #1f5b45; background: #1f5b45; color: #fff; padding: 0.4rem 0.75rem; cursor: pointer; font-size: 0.84rem; }
+    .generation-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 0.65rem; margin-top: 0.35rem; }
+    .generation-thumb { display: grid; gap: 0.35rem; min-width: 0; }
+    .thumb-image { position: relative; aspect-ratio: 1; border: 1px solid #ddd; background: #f7f7f7; overflow: hidden; }
+    .thumb-image img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .selected-badge { position: absolute; top: 0.3rem; left: 0.3rem; background: #1f5b45; color: #fff; font-size: 0.68rem; padding: 0.12rem 0.35rem; }
+    .thumb-meta { display: grid; gap: 0.12rem; color: #555; font-size: 0.72rem; line-height: 1.35; }
+    .thumb-meta span { overflow-wrap: anywhere; }
+    .generation-thumb button { width: 100%; min-height: 36px; border: 1px solid #1f5b45; background: #fff; color: #1f5b45; cursor: pointer; font-size: 0.8rem; }
+    .generation-thumb button:disabled { border-color: #ccc; color: #777; background: #f7f7f7; cursor: default; }
+    .empty-generations { color: #777; font-size: 0.82rem; }
+    .empty-message { color: #777; padding: 1rem 0; }
+    @media (max-width: 640px) {
+      main { padding: 0.85rem 0.75rem 1.25rem; }
+      .toolbar { display: grid; grid-template-columns: 1fr auto; }
+      .toolbar input { max-width: none; min-width: 0; grid-column: 1 / -1; }
+      .model-toolbar { grid-template-columns: 1fr; padding: 0.65rem; }
+      .image-list-item { grid-template-columns: 72px minmax(0, 1fr); align-items: start; }
+      .preview { width: 72px; }
+      .image-list-heading { display: grid; gap: 0.45rem; }
+      .inline-generate-form button { min-height: 44px; }
+      .image-list-body dl { display: grid; gap: 0.3rem; }
+      .generation-strip { grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+  </style>
+</head>
+<body>
+${renderSiteHeader()}
+${renderGlobalNav("/animal-images")}
+  <main>
+    <h1 class="page-title">動物画像管理</h1>
+    ${noticeHtml}
+    <section class="model-toolbar" aria-label="画像生成モデル">
+      <div class="model-field-group">
+        <label for="shared-image-model">生成モデル</label>
+        <select id="shared-image-model">${modelOptions}</select>
+      </div>
+      <div class="model-field-group">
+        <label for="shared-custom-model">任意のモデル名</label>
+        <input id="shared-custom-model" placeholder="例: gemini-2.5-flash-image">
+      </div>
+    </section>
+    <form class="toolbar" action="/animal-images" method="get">
+      <input type="search" name="q" value="${escapedQuery}" placeholder="動物名で検索" aria-label="動物名で検索">
+      <button type="submit">検索</button>
+      ${query ? `<a href="/animal-images">クリア</a>` : ""}
+    </form>
+    <p class="summary">${items.length} 件</p>
+    <section class="image-list">
+      ${rows || emptyHtml}
+    </section>
+  </main>
+  <script>
+    var modelSelect = document.getElementById('shared-image-model');
+    var customModel = document.getElementById('shared-custom-model');
+    document.querySelectorAll('.inline-generate-form').forEach(function(form) {
+      form.addEventListener('submit', function() {
+        var modelField = form.querySelector('.model-field');
+        var customModelField = form.querySelector('.custom-model-field');
+        if (modelField && modelSelect) modelField.value = modelSelect.value;
+        if (customModelField && customModel) customModelField.value = customModel.value;
+      });
+    });
+  </script>
+</body>
+</html>`;
+}
+
+function renderAnimalImageManageDetailHtml(
+  displayName: string,
+  activeImage: AnimalImageRecord | null,
+  generations: AnimalImageGenerationRecord[],
+  notice?: string
+): string {
+  const escapedName = escapeHtml(displayName);
+  const modelOptions = GEMINI_IMAGE_MODELS.map(
+    (model) => `<option value="${escapeHtml(model)}">${escapeHtml(model)}</option>`
+  ).join("");
+  const activePreview = activeImage
+    ? `<img src="/animal-images/${encodeURIComponent(displayName)}?v=${activeImage.selectedGenerationId}" alt="${escapedName}">`
+    : `<div class="image-placeholder">No image</div>`;
+  const gallery = generations
+    .map((generation) => {
+      const selectedBadge = generation.selected ? `<span class="selected-badge">使用中</span>` : "";
+      const selectButton = generation.selected
+        ? `<button type="submit" disabled>使用中</button>`
+        : `<button type="submit">この画像を使う</button>`;
+      return `
+        <article class="generation-card">
+          <div class="generation-image">
+            <img src="/animal-image-generations/${generation.id}" alt="${escapedName} #${generation.id}">
+            ${selectedBadge}
+          </div>
+          <div class="generation-meta">
+            <h3>#${generation.id}</h3>
+            <p>${escapeHtml(generation.model)}</p>
+            <p>${escapeHtml(formatDateTime(generation.createdAt))}</p>
+          </div>
+          <form action="${buildAnimalImageManageUrl(displayName)}/select" method="post">
+            <input type="hidden" name="generationId" value="${generation.id}">
+            ${selectButton}
+          </form>
+        </article>`;
+    })
+    .join("");
+  const noticeHtml = notice ? `<p class="notice">${escapeHtml(notice)}</p>` : "";
+
+  return `<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapedName} 画像管理 | 近畿動物園情報</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
+    main { max-width: 1080px; padding: 1rem 1.5rem 1.5rem; display: grid; gap: 1rem; }
+    .breadcrumb { display: flex; flex-wrap: wrap; gap: 0.45rem; color: #777; font-size: 0.86rem; }
+    .breadcrumb a { color: #1f5b45; text-decoration: none; }
+    .page-title { font-size: 1.2rem; line-height: 1.35; }
+    .notice { border: 1px solid #cfe5d8; background: #f5fbf7; color: #244d37; padding: 0.6rem 0.75rem; font-size: 0.86rem; }
+    .detail-layout { display: grid; grid-template-columns: minmax(220px, 320px) minmax(0, 1fr); gap: 1.2rem; align-items: start; }
+    .active-panel, .generate-panel { border-top: 1px solid #ddd; padding-top: 1rem; }
+    .active-panel h2, .generate-panel h2, .gallery-section h2 { font-size: 1rem; margin-bottom: 0.75rem; }
+    .active-image { width: 100%; aspect-ratio: 1; border: 1px solid #ddd; background: #f7f7f7; overflow: hidden; }
+    .active-image img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .image-placeholder { width: 100%; height: 100%; display: grid; place-items: center; color: #888; font-size: 0.82rem; }
+    .generate-form { display: grid; gap: 0.75rem; max-width: 520px; }
+    .field { display: grid; gap: 0.35rem; }
+    .field label { color: #555; font-size: 0.82rem; font-weight: bold; }
+    .field select, .field input { min-height: 42px; border: 1px solid #bbb; padding: 0.5rem 0.65rem; }
+    .generate-form button { justify-self: start; border: 1px solid #1f5b45; background: #1f5b45; color: #fff; padding: 0.55rem 0.85rem; cursor: pointer; }
+    .hint { color: #666; font-size: 0.82rem; line-height: 1.5; }
+    .gallery-section { border-top: 1px solid #ddd; padding-top: 1rem; }
+    .generation-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.9rem; }
+    .generation-card { display: grid; gap: 0.55rem; min-width: 0; }
+    .generation-image { position: relative; aspect-ratio: 1; border: 1px solid #ddd; background: #f7f7f7; overflow: hidden; }
+    .generation-image img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .selected-badge { position: absolute; top: 0.45rem; left: 0.45rem; background: #1f5b45; color: #fff; font-size: 0.76rem; padding: 0.18rem 0.45rem; }
+    .generation-meta { display: grid; gap: 0.2rem; font-size: 0.8rem; color: #555; }
+    .generation-meta h3 { font-size: 0.9rem; color: #222; }
+    .generation-card button { width: 100%; min-height: 40px; border: 1px solid #1f5b45; background: #fff; color: #1f5b45; cursor: pointer; }
+    .generation-card button:disabled { border-color: #ccc; color: #777; background: #f7f7f7; cursor: default; }
+    .empty-message { color: #777; padding: 0.75rem 0; }
+    @media (max-width: 720px) {
+      main { padding: 0.85rem 0.75rem 1.25rem; }
+      .detail-layout { grid-template-columns: 1fr; }
+      .active-image { max-width: 320px; }
+      .generate-form button { width: 100%; min-height: 44px; }
+      .generation-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; }
+    }
+  </style>
+</head>
+<body>
+${renderSiteHeader()}
+${renderGlobalNav("/animal-images")}
+  <main>
+    <nav class="breadcrumb" aria-label="パンくず">
+      <a href="/animal-images">画像管理</a><span>/</span><span aria-current="page">${escapedName}</span>
+    </nav>
+    <h1 class="page-title">${escapedName}</h1>
+    ${noticeHtml}
+    <div class="detail-layout">
+      <section class="active-panel">
+        <h2>使用中の画像</h2>
+        <div class="active-image">${activePreview}</div>
+      </section>
+      <section class="generate-panel">
+        <h2>Geminiで生成</h2>
+        <form class="generate-form" action="${buildAnimalImageManageUrl(displayName)}/generate" method="post">
+          <div class="field">
+            <label for="model">モデル</label>
+            <select id="model" name="model">${modelOptions}</select>
+          </div>
+          <div class="field">
+            <label for="custom-model">任意のモデル名</label>
+            <input id="custom-model" name="customModel" placeholder="例: gemini-2.5-flash-image">
+          </div>
+          <p class="hint">任意のモデル名を入力すると、上の選択より優先します。生成した画像は履歴に残り、新しい画像が使用中になります。</p>
+          <button type="submit">画像生成</button>
+        </form>
+      </section>
+    </div>
+    <section class="gallery-section">
+      <h2>生成履歴</h2>
+      <div class="generation-grid">
+        ${gallery || `<p class="empty-message">まだ画像がありません。</p>`}
+      </div>
+    </section>
+  </main>
+</body>
+</html>`;
+}
+
 function renderHtml(
   results: ZooSearchResult[],
   activePref: PrefectureCode | null,
@@ -1962,9 +2980,10 @@ function renderHtml(
   const escapedAnimal = animal ? escapeHtml(animal) : "";
 
   const count = results.length;
+  const matchCount = results.reduce((sum, result) => sum + result.matchedAnimals.length, 0);
   const prefLabel = activePref && isPrefectureCode(activePref) ? PREF_LABELS[activePref] : "近畿一円";
   const summary = animal
-    ? `${prefLabel} で「${escapedAnimal}」を探せる動物園・施設: ${count} 件`
+    ? `${prefLabel} で「${escapedAnimal}」を探せる動物園・施設: ${count} 件 / 検索ヒット: ${matchCount} 件`
     : `${prefLabel} の動物園・施設: ${count} 件`;
   const emptyMessage = animal
     ? `「${escapedAnimal}」に該当する施設が見つかりませんでした。`
@@ -1977,9 +2996,9 @@ function renderHtml(
         <th scope="col">施設名</th>
         <th scope="col">都道府県</th>
         <th scope="col">住所</th>
+        <th scope="col">動物種数</th>
         <th scope="col">基本情報</th>
         ${includeMatchSummary ? `<th scope="col">検索ヒット</th>` : ""}
-        <th scope="col">リンク</th>
       </tr>
     </thead>
     <tbody>
@@ -2009,14 +3028,11 @@ function renderHtml(
     .zoo-table thead th { background: #f7f7f7; color: #555; }
     .zoo-name a { color: #2d6a4f; text-decoration: none; font-size: 1rem; }
     .zoo-name a:hover { text-decoration: underline; }
-    .wiki-link { font-size: 0.8rem; font-weight: normal; margin-left: 0.5rem; color: #666; text-decoration: none; }
-    .wiki-link:hover { text-decoration: underline; }
+    .zoo-name-links { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.45rem; font-size: 0.8rem; }
+    .zoo-name-links a { font-size: 0.8rem; font-weight: normal; }
     .kana { font-size: 0.8rem; color: #888; margin-top: 0.25rem; }
     .meta-list { list-style: none; display: grid; gap: 0.25rem; }
     .meta-list li { color: #444; }
-    .links { display: flex; flex-wrap: wrap; gap: 0.75rem; font-size: 0.85rem; margin-bottom: 0.5rem; }
-    .links a { color: #2d6a4f; text-decoration: none; }
-    .links a:hover { text-decoration: underline; }
     .match-box { padding: 0.55rem; border: 1px solid #d7eadc; border-radius: 6px; background: #f3fbf5; display: grid; gap: 0.45rem; }
     .match-row { display: grid; gap: 0.35rem; }
     .match-label { color: #456052; font-size: 0.75rem; font-weight: bold; }
@@ -2041,7 +3057,6 @@ function renderHtml(
       .zoo-table tr > :last-child { border-bottom: 0; }
       .zoo-table td::before { content: attr(data-label); display: block; margin-bottom: 0.35rem; color: #6a746d; font-size: 0.7rem; font-weight: bold; }
       .zoo-name { background: #f7faf8; }
-      .links { margin-bottom: 0.7rem; }
       .empty { padding: 1.5rem 0.75rem; }
       footer { padding: 1rem 0.75rem; line-height: 1.5; }
     }
@@ -2069,9 +3084,10 @@ function buildAnimalsUrl(filter: AnimalListFilter): string {
 function renderAnimalsHtml(
   animals: AnimalListItem[],
   filter: AnimalListFilter,
-  activePref: PrefectureCode | null
+  activePref: PrefectureCode | null,
+  imageKeys: Set<string> = new Set()
 ): string {
-  const items = renderAnimalCards(animals);
+  const items = renderAnimalCards(animals, imageKeys);
   const prefLabel = activePref ? PREF_LABELS[activePref] : "近畿一円";
   const summary =
     filter === "unclassified"
@@ -2086,13 +3102,12 @@ function renderAnimalsHtml(
       : "";
   let animalListHtml = emptyMessage;
   if (animals.length > 0) {
-    animalListHtml = `<div class="animal-list"><table class="animal-table">
+    animalListHtml = `<div class="animal-list"><table class="animal-table" id="animal-table">
     <thead>
       <tr>
-        <th scope="col">動物名</th>
-        <th scope="col">分類</th>
-        <th scope="col">公式表示名</th>
-        <th scope="col">施設数</th>
+        <th scope="col"><button data-col="name" data-dir="asc">動物名</button></th>
+        <th scope="col"><button data-col="class">分類</button></th>
+        <th scope="col"><button data-col="count">施設数</button></th>
         <th scope="col">施設一覧</th>
       </tr>
     </thead>
@@ -2117,17 +3132,22 @@ function renderAnimalsHtml(
     .tab:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .summary { padding: 0.75rem 1.5rem; font-size: 0.9rem; color: #666; }
     .animal-list { padding: 1rem 1.5rem; overflow-x: auto; }
-    .animal-table { width: 100%; min-width: 900px; border-collapse: collapse; border: 1px solid #ddd; }
-    .animal-table th, .animal-table td { border: 1px solid #ddd; padding: 0.65rem; vertical-align: top; text-align: left; font-size: 0.84rem; }
-    .animal-table thead th { background: #f7f7f7; color: #555; }
-    .animal-name a { color: #1f5b45; text-decoration: none; font-size: 0.98rem; }
+    .animal-table { width: 100%; min-width: 860px; border-collapse: collapse; }
+    .animal-table th, .animal-table td { border: none; border-bottom: 1px solid #e8e8e8; padding: 0.45rem 0.65rem; vertical-align: top; text-align: left; font-size: 0.84rem; }
+    .animal-table thead th { background: #f7f7f7; color: #555; padding: 0.5rem 0.65rem; border-bottom: 2px solid #ddd; }
+    .animal-table tbody tr:hover { background: #f5fbf8; }
+    .animal-table thead th button { background: none; border: none; cursor: pointer; font: inherit; color: inherit; width: 100%; text-align: left; padding: 0; display: flex; align-items: center; gap: 0.3em; white-space: nowrap; }
+    .animal-table thead th button::after { content: "⇅"; color: #ccc; font-size: 0.8em; }
+    .animal-table thead th button[data-dir="asc"]::after { content: "▲"; color: #444; }
+    .animal-table thead th button[data-dir="desc"]::after { content: "▼"; color: #444; }
+    .animal-name { display: flex; align-items: center; gap: 0.55rem; }
+    .animal-thumb { width: 36px; height: 36px; object-fit: cover; flex-shrink: 0; border-radius: 2px; background: #f0f0f0; }
+    .animal-name a { color: #1f5b45; text-decoration: none; font-size: 0.95rem; }
     .animal-name a:hover { text-decoration: underline; }
     .taxonomy { color: #444; line-height: 1.5; }
+    .taxonomy a { color: #1f5b45; text-decoration: none; }
+    .taxonomy a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .unclassified { color: #777; }
-    .display-names { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; color: #666; font-size: 0.75rem; }
-    .display-names b { color: #555; margin-right: 0.1rem; }
-    .display-names a { background: #f7f7f7; border: 1px solid #e1e1e1; color: #1f5b45; padding: 0.12rem 0.35rem; text-decoration: none; }
-    .display-names a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .facility-count { color: #666; font-size: 0.85rem; }
     .zoo-links { display: flex; flex-wrap: wrap; gap: 0.4rem; }
     .zoo-links a { color: #2d6a4f; border: 1px solid #d3e4d8; background: #f7fbf8; padding: 0.2rem 0.45rem; font-size: 0.78rem; text-decoration: none; }
@@ -2162,11 +3182,41 @@ ${renderGlobalNav("/animals")}
   <p class="summary">${summary}</p>
   ${animalListHtml}
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
+<script>
+(function () {
+  const table = document.getElementById('animal-table');
+  if (!table) return;
+  const tbody = table.querySelector('tbody');
+  const buttons = table.querySelectorAll('thead th button[data-col]');
+
+  function sortTable(col, dir) {
+    const rows = [...tbody.querySelectorAll('tr')];
+    rows.sort((a, b) => {
+      const av = a.dataset[col] ?? '';
+      const bv = b.dataset[col] ?? '';
+      if (col === 'count') return (Number(av) - Number(bv)) * dir;
+      return av.localeCompare(bv, 'ja') * dir;
+    });
+    rows.forEach(r => tbody.appendChild(r));
+  }
+
+  buttons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const col = btn.dataset.col;
+      const prev = btn.dataset.dir;
+      const dir = prev === 'asc' ? -1 : 1;
+      buttons.forEach(b => delete b.dataset.dir);
+      btn.dataset.dir = dir === 1 ? 'asc' : 'desc';
+      sortTable(col, dir);
+    });
+  });
+})();
+</script>
 </body>
 </html>`;
 }
 
-function renderAnimalCards(animals: AnimalListItem[]): string {
+function renderAnimalCards(animals: AnimalListItem[], imageKeys: Set<string> = new Set()): string {
   return animals
     .map((item) => {
       const zooLinks = item.zoos
@@ -2178,57 +3228,57 @@ function renderAnimalCards(animals: AnimalListItem[]): string {
         ? escapeHtml(item.canonicalName)
         : escapeHtml(primaryDisplayName);
       const titleHref = primaryDisplayName ? buildZooAnimalUrl(primaryDisplayName) : buildAnimalSearchUrl(searchName);
-      const taxonomyDetails = [
+      const imageDisplayName = item.displayNames.find((n) => imageKeys.has(normalizeAnimalImageKey(n)));
+      const thumbHtml = imageDisplayName
+        ? `<img src="/animal-images/${encodeURIComponent(imageDisplayName)}" alt="" class="animal-thumb" loading="lazy" width="36" height="36">`
+        : "";
+      const taxonomyDetails = buildTaxonomyDisplayParts([
         ["類", item.className],
         ["目", item.orderName],
         ["科", item.familyName],
         ["属", item.genusName],
         ["種", item.speciesName],
-      ]
-        .filter((detail): detail is [string, string] => Boolean(detail[1]))
-        .map(([label, value]) => `${escapeHtml(label)}: ${escapeHtml(value)}`)
+      ])
+        .map(({ label, value, pathValues }) =>
+          renderTaxonomyValueLink(value, pathValues)
+        )
         .join(" / ");
       const taxonomyRow = taxonomyDetails
         ? `<p class="taxonomy">${taxonomyDetails}</p>`
         : `<p class="unclassified">分類未設定</p>`;
-      const displayNames = item.displayNames
-        .map((displayName) => `<a href="${escapeHtml(buildZooAnimalUrl(displayName))}">${escapeHtml(displayName)}</a>`)
-        .join("");
-      const displayNamesRow =
-        item.canonicalName && displayNames
-          ? `<div class="display-names"><b>公式表示</b>${displayNames}</div>`
-          : "-";
-
+      const sortName = escapeHtml(item.nameSortKey ?? item.canonicalName ?? primaryDisplayName);
+      const sortClass = escapeHtml(
+        [item.className, item.orderName, item.familyName].filter(Boolean).join("|") || "\u{FFFF}"
+      );
+      const sortZoo = escapeHtml(item.zoos[0]?.name ?? "\u{FFFF}");
       return `
-        <tr>
-          <th scope="row" class="animal-name"><a href="${escapeHtml(titleHref)}">${title}</a></th>
+        <tr data-name="${sortName}" data-class="${sortClass}" data-count="${item.zoos.length}" data-zoo="${sortZoo}">
+          <th scope="row" class="animal-name">${thumbHtml}<a href="${escapeHtml(titleHref)}">${title}</a></th>
           <td data-label="分類">${taxonomyRow}</td>
-          <td data-label="公式表示名">${displayNamesRow}</td>
-          <td data-label="施設数"><span class="facility-count">${item.zoos.length} 施設</span></td>
+          <td data-label="施設数"><span class="facility-count">${item.zoos.length}</span></td>
           <td data-label="施設一覧"><div class="zoo-links">${zooLinks}</div></td>
         </tr>`;
     })
     .join("\n");
 }
 
-function renderZooAnimalDetailHtml(detail: ZooAnimalDetail, notice?: string): string {
+function renderZooAnimalDetailHtml(detail: ZooAnimalDetail, notice?: string, image?: AnimalImageRecord): string {
   const escapedDisplayName = escapeHtml(detail.displayName);
   const title = detail.canonicalName && detail.canonicalName !== detail.displayName
     ? `${escapeHtml(detail.canonicalName)} | ${escapedDisplayName}`
     : escapedDisplayName;
-  const taxonomyDetails = [
+  const taxonomyDetails = buildTaxonomyDisplayParts([
     ["類", detail.className],
     ["目", detail.orderName],
     ["科", detail.familyName],
     ["属", detail.genusName],
     ["種", detail.speciesName],
-  ]
-    .filter((item): item is [string, string] => Boolean(item[1]))
+  ])
     .map(
-      ([label, value]) => `
+      ({ label, value, pathValues }) => `
         <div>
           <dt>${escapeHtml(label)}</dt>
-          <dd>${escapeHtml(value)}</dd>
+          <dd>${renderTaxonomyValueLink(value, pathValues)}</dd>
         </div>`
     )
     .join("");
@@ -2278,6 +3328,10 @@ function renderZooAnimalDetailHtml(detail: ZooAnimalDetail, notice?: string): st
     )
     .join("");
 
+  const imageHtml = image
+    ? `<img src="/animal-images/${encodeURIComponent(detail.displayName)}" alt="${escapedDisplayName}" class="animal-image" width="240" height="240">`
+    : `<div class="animal-image animal-image-empty"></div>`;
+
   return `<!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -2287,72 +3341,87 @@ function renderZooAnimalDetailHtml(detail: ZooAnimalDetail, notice?: string): st
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
-    main { display: grid; gap: 1rem; padding: 1rem 1.5rem 1.5rem; max-width: 880px; }
-    .page-title { font-size: 1.1rem; font-weight: bold; overflow-wrap: anywhere; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; color: #333; }
-    section { border-top: 1px solid #ddd; padding-top: 1rem; }
-    section:first-child { border-top: 0; padding-top: 0; }
-    h2 { font-size: 1.05rem; margin-bottom: 0.75rem; }
-    .canonical { color: #555; font-size: 0.9rem; margin-bottom: 0.75rem; }
+    main { display: grid; gap: 0; max-width: 880px; }
+    .hero { display: grid; grid-template-columns: 240px 1fr; gap: 1.5rem; align-items: start; padding: 1.25rem 1.5rem; }
+    .animal-image { display: block; width: 240px; height: 240px; object-fit: contain; background: #f7f7f7; border: 1px solid #e1e1e1; flex-shrink: 0; }
+    .animal-image-empty { display: none; }
+    .hero-info { display: grid; gap: 0.75rem; }
+    .hero-name { font-size: 1.5rem; font-weight: bold; overflow-wrap: anywhere; line-height: 1.3; }
+    .canonical { color: #777; font-size: 0.88rem; }
+    .notice { border: 1px solid #cfe5d8; background: #f5fbf7; color: #244d37; padding: 0.6rem 0.75rem; font-size: 0.86rem; }
+    .classification-status { display: inline-block; font-size: 0.75rem; padding: 0.18rem 0.5rem; border-radius: 2px; }
+    .status-registered { background: #e8f5ee; border: 1px solid #b6ddc8; color: #1f5b45; }
+    .status-llm-candidate { background: #fef9e7; border: 1px solid #f0d98a; color: #7a5c00; }
+    .status-unclassified { background: #f7f7f7; border: 1px solid #e1e1e1; color: #777; }
+    .status-rejected { background: #fef0ec; border: 1px solid #f0c0b0; color: #8b3a20; }
     .taxonomy-details { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border: 1px solid #e1e1e1; }
     .taxonomy-details div { min-width: 0; border-right: 1px solid #e1e1e1; }
     .taxonomy-details div:last-child { border-right: 0; }
     .taxonomy-details dt { background: #f6f8f7; color: #666; font-size: 0.72rem; padding: 0.32rem 0.4rem; border-bottom: 1px solid #e1e1e1; }
     .taxonomy-details dd { color: #222; font-size: 0.86rem; padding: 0.45rem 0.4rem; min-height: 2.35rem; overflow-wrap: anywhere; }
+    .taxonomy-details dd a { color: #1f5b45; text-decoration: none; }
+    .taxonomy-details dd a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .unclassified { color: #777; background: #f7f7f7; border: 1px solid #e1e1e1; padding: 0.55rem 0.65rem; font-size: 0.85rem; }
-    .notice { border: 1px solid #cfe5d8; background: #f5fbf7; color: #244d37; padding: 0.6rem 0.75rem; font-size: 0.86rem; }
-    .classification-status { display: inline-block; font-size: 0.78rem; padding: 0.2rem 0.55rem; border-radius: 2px; margin-bottom: 0.75rem; }
-    .status-registered { background: #e8f5ee; border: 1px solid #b6ddc8; color: #1f5b45; }
-    .status-llm-candidate { background: #fef9e7; border: 1px solid #f0d98a; color: #7a5c00; }
-    .status-unclassified { background: #f7f7f7; border: 1px solid #e1e1e1; color: #777; }
-    .status-rejected { background: #fef0ec; border: 1px solid #f0c0b0; color: #8b3a20; }
-    .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
-    .actions a { color: #1f5b45; border: 1px solid #d3e4d8; background: #f7fbf8; padding: 0.35rem 0.6rem; font-size: 0.82rem; text-decoration: none; }
-    .actions a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
-    .classify-form { margin-top: 0.75rem; }
-    .classify-form button { border: 1px solid #1f5b45; background: #1f5b45; color: #fff; padding: 0.48rem 0.8rem; font-size: 0.86rem; cursor: pointer; }
-    .classify-form button:hover { background: #174533; }
+    .hero-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+    .hero-actions a { color: #1f5b45; border: 1px solid #d3e4d8; background: #f7fbf8; padding: 0.3rem 0.55rem; font-size: 0.8rem; text-decoration: none; }
+    .hero-actions a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    section { border-top: 1px solid #ddd; padding: 1rem 1.5rem; }
+    h2 { font-size: 1rem; margin-bottom: 0.75rem; color: #444; }
     .zoo-list { display: grid; gap: 0.45rem; list-style: none; }
     .zoo-list li { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: baseline; border: 1px solid #e1e1e1; padding: 0.65rem 0.75rem; }
     .zoo-list a { color: #1f5b45; font-weight: bold; text-decoration: none; }
     .zoo-list a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .zoo-list span { color: #777; font-size: 0.8rem; }
-    footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; }
+    .admin-section { border-top: 1px solid #ddd; padding: 1rem 1.5rem; }
+    .admin-section h2 { font-size: 0.85rem; color: #999; margin-bottom: 0.6rem; }
+    .admin-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+    .admin-actions a { color: #999; border: 1px solid #ddd; padding: 0.3rem 0.55rem; font-size: 0.8rem; text-decoration: none; }
+    .admin-actions a:hover { color: #555; }
+    .classify-form button { border: 1px solid #bbb; background: #fff; color: #777; padding: 0.3rem 0.55rem; font-size: 0.8rem; cursor: pointer; }
+    .classify-form button:hover { border-color: #888; color: #444; }
+    footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; border-top: 1px solid #eee; }
     @media (max-width: 640px) {
-      .page-title { padding: 0.7rem 0.75rem; }
-      main { padding: 0.75rem; }
-      .taxonomy-details { grid-template-columns: 1fr; }
-      .taxonomy-details div { border-right: 0; border-bottom: 1px solid #e1e1e1; }
-      .taxonomy-details div:last-child { border-bottom: 0; }
+      .hero { grid-template-columns: 1fr; justify-items: center; padding: 1rem 0.75rem; gap: 1rem; }
+      .animal-image { width: 180px; height: 180px; }
+      .hero-info { width: 100%; }
+      .hero-name { font-size: 1.3rem; }
+      section, .admin-section { padding: 0.9rem 0.75rem; }
+      .taxonomy-details { grid-template-columns: repeat(3, 1fr); }
+      .taxonomy-details div:nth-child(3) { border-right: 0; }
+      .taxonomy-details div:nth-child(4), .taxonomy-details div:nth-child(5) { border-top: 1px solid #e1e1e1; }
+      .taxonomy-details div:nth-child(5) { border-right: 0; }
       .taxonomy-details dd { min-height: 0; }
-      .actions a, .classify-form button { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
-      .classify-form button { width: 100%; }
       .zoo-list li { align-items: center; }
       footer { padding: 1rem 0.75rem; line-height: 1.5; }
-    }
-    @media (max-width: 560px) {
-      .taxonomy-details { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
 ${renderSiteHeader()}
 ${renderGlobalNav("/animals")}
-  <p class="page-title">${escapedDisplayName}</p>
   <main>
-    ${noticeHtml}
-    <section>
-      <h2>分類</h2>
-      ${statusBadgeHtml}
-      ${canonicalHtml}
-      ${taxonomyHtml}
-      ${taxonomyLink ? `<div class="actions">${taxonomyLink}</div>` : ""}
-      ${classifyForm}
-      <div class="actions"><a href="${buildAnimalSearchUrl(detail.displayName)}">この名前で検索</a></div>
-    </section>
+    ${noticeHtml ? `<div style="padding:0.6rem 1.5rem">${noticeHtml}</div>` : ""}
+    <div class="hero">
+      ${imageHtml}
+      <div class="hero-info">
+        <h1 class="hero-name">${escapedDisplayName}</h1>
+        ${canonicalHtml}
+        <div>${statusBadgeHtml}</div>
+        ${taxonomyHtml}
+        ${taxonomyLink ? `<div class="hero-actions">${taxonomyLink}</div>` : ""}
+      </div>
+    </div>
     <section>
       <h2>見られる施設</h2>
       <ul class="zoo-list">${zooLinks}</ul>
     </section>
+    <div class="admin-section">
+      <h2>管理</h2>
+      <div class="admin-actions">
+        ${classifyForm}
+        <a href="${buildAnimalSearchUrl(detail.displayName)}">この名前で検索</a>
+      </div>
+    </div>
   </main>
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
 </body>
@@ -2511,12 +3580,13 @@ ${renderGlobalNav("/taxonomy")}
 function renderTaxonomyDetailHtml(
   levels: TaxonomyPathLevel[],
   childSection: TaxonomyOverviewSection | null,
-  animals: AnimalListItem[]
+  animals: AnimalListItem[],
+  imageKeys: Set<string> = new Set()
 ): string {
   const current = levels[levels.length - 1];
   const { rank, value } = current;
   const escapedValue = escapeHtml(value);
-  const items = renderAnimalCards(animals);
+  const items = renderAnimalCards(animals, imageKeys);
   const breadcrumb = renderTaxonomyBreadcrumb(levels);
   const childLinks =
     childSection && childSection.values.length > 0
@@ -2561,16 +3631,17 @@ function renderTaxonomyDetailHtml(
     .taxonomy-link span { font-weight: bold; overflow-wrap: anywhere; }
     .taxonomy-link small { color: #617469; font-size: 0.75rem; }
     .animal-list { padding: 1rem 1.5rem; overflow-x: auto; }
-    .animal-table { width: 100%; min-width: 900px; border-collapse: collapse; border: 1px solid #ddd; }
-    .animal-table th, .animal-table td { border: 1px solid #ddd; padding: 0.65rem; vertical-align: top; text-align: left; font-size: 0.84rem; }
-    .animal-table thead th { background: #f7f7f7; color: #555; }
+    .animal-table { width: 100%; min-width: 900px; border-collapse: collapse; }
+    .animal-table th, .animal-table td { border: none; border-bottom: 1px solid #e8e8e8; padding: 0.65rem; vertical-align: top; text-align: left; font-size: 0.84rem; }
+    .animal-table thead th { background: #f7f7f7; color: #555; border-bottom: 2px solid #ddd; }
+    .animal-name { display: flex; align-items: center; gap: 0.5rem; }
+    .animal-thumb { width: 40px; height: 40px; object-fit: cover; flex-shrink: 0; border-radius: 2px; background: #f0f0f0; }
     .animal-name a { color: #1f5b45; text-decoration: none; font-size: 0.98rem; }
     .animal-name a:hover { text-decoration: underline; }
     .taxonomy { color: #444; line-height: 1.5; }
+    .taxonomy a { color: #1f5b45; text-decoration: none; }
+    .taxonomy a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .unclassified { color: #777; }
-    .display-names { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; color: #666; font-size: 0.75rem; }
-    .display-names b { color: #555; margin-right: 0.1rem; }
-    .display-names a { background: #f7f7f7; border: 1px solid #e1e1e1; color: #1f5b45; padding: 0.12rem 0.35rem; text-decoration: none; }
     .facility-count { color: #666; font-size: 0.85rem; }
     .zoo-links { display: flex; flex-wrap: wrap; gap: 0.4rem; }
     .zoo-links a { color: #2d6a4f; border: 1px solid #d3e4d8; background: #f7fbf8; padding: 0.2rem 0.45rem; font-size: 0.78rem; text-decoration: none; }
@@ -2606,7 +3677,6 @@ ${renderGlobalNav("/taxonomy")}
       <tr>
         <th scope="col">動物名</th>
         <th scope="col">分類</th>
-        <th scope="col">公式表示名</th>
         <th scope="col">施設数</th>
         <th scope="col">施設一覧</th>
       </tr>
@@ -2739,18 +3809,26 @@ ${renderGlobalNav("/")}
 </html>`;
 }
 
-function renderMapHtml(filteredZoos: Zoo[], activePref: PrefectureCode | null, animal: string | null): string {
+function renderMapHtml(results: ZooSearchResult[], activePref: PrefectureCode | null, animal: string | null): string {
   const escapedAnimal = animal ? escapeHtml(animal) : "";
 
   // Embed only the data needed for map markers; safe to embed as JSON in <script>
   const mapData = JSON.stringify(
-    filteredZoos.map((z) => ({ id: z.id, name: z.name, lat: z.lat, lon: z.lon }))
+    results.map((result) => ({
+      id: result.zoo.id,
+      name: result.zoo.name,
+      lat: result.zoo.lat,
+      lon: result.zoo.lon,
+      animalCount: result.animalCount,
+      matchCount: result.matchedAnimals.length,
+    }))
   ).replace(/<\//g, "<\\/");
 
-  const count = filteredZoos.length;
+  const count = results.length;
+  const matchCount = results.reduce((sum, result) => sum + result.matchedAnimals.length, 0);
   const prefLabel = activePref && isPrefectureCode(activePref) ? PREF_LABELS[activePref] : "近畿一円";
   const summary = animal
-    ? `${prefLabel} で「${escapedAnimal}」を探せる動物園・施設: ${count} 件`
+    ? `${prefLabel} で「${escapedAnimal}」を探せる動物園・施設: ${count} 件 / 検索ヒット: ${matchCount} 件`
     : `${prefLabel} の動物園・施設: ${count} 件`;
 
   return `<!DOCTYPE html>
@@ -2811,8 +3889,10 @@ ${renderGlobalNav("/map")}
       return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
     zoos.forEach(function(zoo) {
+      var matchLine = ${animal ? "true" : "false"} ? '<br><span>検索ヒット: ' + zoo.matchCount + ' 件</span>' : '';
+      var animalCountLine = '<br><span>動物種数: ' + (zoo.animalCount > 0 ? zoo.animalCount + ' 種' : '未取得') + '</span>';
       L.marker([zoo.lat, zoo.lon])
-        .bindPopup('<b><a href="/zoos/' + esc(zoo.id) + '${activePref ? `?pref=${activePref}` : ""}">' + esc(zoo.name) + '</a></b>')
+        .bindPopup('<b><a href="/zoos/' + esc(zoo.id) + '${activePref ? `?pref=${activePref}` : ""}">' + esc(zoo.name) + '</a></b>' + matchLine + animalCountLine)
         .addTo(map);
     });
     if (zoos.length > 0) {
@@ -2954,12 +4034,246 @@ export default {
       return jsonResponse({ candidates });
     }
 
+    // HTML: /animal-images
+    if (pathname === "/animal-images") {
+      const query = normalizeSearchTerm(url.searchParams.get("q"));
+      const imageStatus = url.searchParams.get("image");
+      const imageError = normalizeOptionalText(url.searchParams.get("message"));
+      const notice =
+        imageStatus === "generated"
+          ? "画像を生成して使用中にしました。"
+          : imageStatus === "selected"
+            ? "使用する画像を変更しました。"
+            : imageStatus === "missing-key"
+              ? "GEMINI_API_KEY が設定されていないため、画像生成を実行できません。"
+              : imageStatus === "select-error"
+                ? "指定した画像を選択できませんでした。"
+                : imageStatus === "error"
+                  ? `画像生成でエラーが発生しました。${imageError ? ` ${imageError}` : ""}`
+                  : undefined;
+      const items = await loadAnimalImageManageItems(env.DB, query);
+      const html = renderAnimalImageManageListHtml(items, query, notice);
+      return htmlResponse(html, url, activePref);
+    }
+
+    // HTML form: generate image for one animal from the list
+    if (pathname === "/animal-images/generate") {
+      if (request.method !== "POST") {
+        return jsonResponse({ error: "POST を使用してください" }, 405);
+      }
+      const formData = await request.formData();
+      const displayName = normalizeOptionalText(formData.get("displayName"));
+      const redirectTo = (status: string, name: string | null = displayName, message?: string) => {
+        const destination = new URL("/animal-images", url.origin);
+        if (name) {
+          destination.searchParams.set("q", name);
+          destination.hash = buildAnimalImageItemId(normalizeAnimalImageKey(name));
+        }
+        destination.searchParams.set("image", status);
+        if (message) {
+          destination.searchParams.set("message", message.slice(0, 180));
+        }
+        const href = `${destination.pathname}${destination.search}${destination.hash}`;
+        return Response.redirect(
+          `${url.origin}${addPrefectureToInternalUrl(href, activePref)}`,
+          303
+        );
+      };
+      if (!displayName) return redirectTo("error", null);
+      if (!env.GEMINI_API_KEY) return redirectTo("missing-key");
+      try {
+        const customModel = normalizeOptionalText(formData.get("customModel"));
+        const selectedModel = normalizeOptionalText(formData.get("model"));
+        const model = customModel ?? selectedModel ?? GEMINI_IMAGE_MODEL;
+        const generated = await generateAnimalImageWithGemini(env.GEMINI_API_KEY, displayName, model);
+        const saved = await saveAnimalImage(
+          env.DB,
+          displayName,
+          generated.prompt,
+          model,
+          generated.mimeType,
+          generated.imageBase64
+        );
+        await env.IMAGES.put(saved.animalKey, base64ToUint8Array(saved.imageBase64), {
+          httpMetadata: { contentType: saved.mimeType },
+        });
+        return redirectTo("generated");
+      } catch (error) {
+        console.error(error);
+        const message = error instanceof Error ? error.message : String(error);
+        return redirectTo("error", displayName, message);
+      }
+    }
+
+    // HTML form: select an existing generated image from the list
+    if (pathname === "/animal-images/select") {
+      if (request.method !== "POST") {
+        return jsonResponse({ error: "POST を使用してください" }, 405);
+      }
+      const formData = await request.formData();
+      const displayName = normalizeOptionalText(formData.get("displayName"));
+      const generationId = Number(formData.get("generationId"));
+      const selected = displayName && Number.isFinite(generationId)
+        ? await selectAnimalImageGeneration(env.DB, displayName, Math.floor(generationId))
+        : null;
+      if (selected) {
+        await env.IMAGES.put(selected.animalKey, base64ToUint8Array(selected.imageBase64), {
+          httpMetadata: { contentType: selected.mimeType },
+        });
+      }
+      const status = selected ? "selected" : "select-error";
+      const destination = new URL("/animal-images", url.origin);
+      if (displayName) {
+        destination.searchParams.set("q", displayName);
+        destination.hash = buildAnimalImageItemId(normalizeAnimalImageKey(displayName));
+      }
+      destination.searchParams.set("image", status);
+      const href = `${destination.pathname}${destination.search}${destination.hash}`;
+      return Response.redirect(`${url.origin}${addPrefectureToInternalUrl(href, activePref)}`, 303);
+    }
+
+    // HTML: /animal-images/manage/:displayName
+    const animalImageManageMatch = pathname.match(/^\/animal-images\/manage\/(.+)$/);
+    if (animalImageManageMatch) {
+      const displayName = decodeURIComponent(animalImageManageMatch[1]);
+      const destination = new URL("/animal-images", url.origin);
+      destination.searchParams.set("q", displayName);
+      destination.hash = buildAnimalImageItemId(normalizeAnimalImageKey(displayName));
+      return Response.redirect(destination.toString(), 301);
+    }
+
+    // Image: generated image history
+    const animalImageGenerationMatch = pathname.match(/^\/animal-image-generations\/(\d+)$/);
+    if (animalImageGenerationMatch) {
+      const generation = await loadAnimalImageGenerationById(env.DB, Number(animalImageGenerationMatch[1]));
+      if (!generation) return notFound(`生成画像 '${animalImageGenerationMatch[1]}' が見つかりません`);
+      return new Response(base64ToUint8Array(generation.imageBase64), {
+        headers: {
+          "Content-Type": generation.mimeType,
+          "Cache-Control": "public, max-age=86400",
+          "X-Animal-Image-Key": generation.animalKey,
+        },
+      });
+    }
+
+    // Image: /animal-images/:displayName
+    const animalImageMatch = pathname.match(/^\/animal-images\/(.+)$/);
+    if (animalImageMatch) {
+      const displayName = decodeURIComponent(animalImageMatch[1]);
+      const image = await loadAnimalImage(env.DB, displayName);
+      if (!image) return notFound(`動物画像 '${displayName}' が見つかりません`);
+      const r2Object = await env.IMAGES.get(image.animalKey);
+      if (r2Object) {
+        return new Response(r2Object.body, {
+          headers: {
+            "Content-Type": r2Object.httpMetadata?.contentType ?? image.mimeType,
+            "Cache-Control": "public, max-age=86400",
+            "X-Animal-Image-Key": image.animalKey,
+          },
+        });
+      }
+      return new Response(base64ToUint8Array(image.imageBase64), {
+        headers: {
+          "Content-Type": image.mimeType,
+          "Cache-Control": "public, max-age=86400",
+          "X-Animal-Image-Key": image.animalKey,
+        },
+      });
+    }
+
+    // JSON API: generate shared animal images
+    if (pathname === "/api/animal-images/generate") {
+      if (request.method !== "POST") {
+        return jsonResponse({ error: "POST を使用してください" }, 405);
+      }
+      if (!env.GEMINI_API_KEY) {
+        return jsonResponse({ error: "GEMINI_API_KEY が設定されていません" }, 500);
+      }
+
+      const body = (await request.json().catch(() => ({}))) as {
+        names?: unknown;
+        limit?: unknown;
+        missingOnly?: unknown;
+        missingModelOnly?: unknown;
+        excludeNames?: unknown;
+        model?: unknown;
+      };
+      const requestedNames = Array.isArray(body.names)
+        ? body.names.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+        : [];
+      const excludedNames = Array.isArray(body.excludeNames)
+        ? body.excludeNames.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+        : [];
+      const limit =
+        typeof body.limit === "number" && Number.isFinite(body.limit)
+          ? Math.max(1, Math.min(10, Math.floor(body.limit)))
+          : 5;
+      const missingOnly = body.missingOnly !== false;
+      const model = typeof body.model === "string" && body.model.trim() ? body.model.trim() : GEMINI_IMAGE_MODEL;
+      const missingModel = body.missingModelOnly === true ? model : undefined;
+      const displayNames = await loadAnimalImageGenerationNames(
+        env.DB,
+        limit,
+        [...new Set(requestedNames.map((name) => name.trim()))],
+        missingOnly,
+        missingModel,
+        [...new Set(excludedNames.map((name) => name.trim()))]
+      );
+
+      const images: Array<{
+        displayName: string;
+        animalKey: string;
+        generationId?: number;
+        imageUrl: string;
+        mimeType: string;
+      }> = [];
+      const errors: Array<{ displayName: string; error: string }> = [];
+      for (const displayName of displayNames) {
+        try {
+          const generated = await generateAnimalImageWithGemini(env.GEMINI_API_KEY, displayName, model);
+          const saved = await saveAnimalImage(
+            env.DB,
+            displayName,
+            generated.prompt,
+            model,
+            generated.mimeType,
+            generated.imageBase64
+          );
+          await env.IMAGES.put(saved.animalKey, base64ToUint8Array(saved.imageBase64), {
+            httpMetadata: { contentType: saved.mimeType },
+          });
+          images.push({
+            displayName: saved.displayName,
+            animalKey: saved.animalKey,
+            generationId: saved.selectedGenerationId,
+            imageUrl: `/animal-images/${encodeURIComponent(saved.displayName)}`,
+            mimeType: saved.mimeType,
+          });
+        } catch (error) {
+          errors.push({
+            displayName,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      return jsonResponse({
+        requested: displayNames.length,
+        generated: images.length,
+        images,
+        errors,
+      });
+    }
+
     // HTML: /animals
     if (pathname === "/animals") {
       const filter: AnimalListFilter =
         url.searchParams.get("filter") === "unclassified" ? "unclassified" : "all";
-      const animals = await loadAnimalList(env.DB, filter, activePref);
-      const html = renderAnimalsHtml(animals, filter, activePref);
+      const [animals, imageKeys] = await Promise.all([
+        loadAnimalList(env.DB, filter, activePref),
+        loadAnimalImageKeys(env.DB),
+      ]);
+      const html = renderAnimalsHtml(animals, filter, activePref, imageKeys);
       return htmlResponse(html, url, activePref);
     }
 
@@ -3001,7 +4315,10 @@ export default {
 
     if (pathname.startsWith("/animal/")) {
       const displayName = decodeURIComponent(pathname.slice("/animal/".length));
-      const detail = await loadZooAnimalDetail(env.DB, displayName, activePref);
+      const [detail, image] = await Promise.all([
+        loadZooAnimalDetail(env.DB, displayName, activePref),
+        loadAnimalImage(env.DB, displayName),
+      ]);
       if (!detail) return notFound(`動物 '${displayName}' が見つかりません`);
       const llmStatus = url.searchParams.get("llm");
       const notice =
@@ -3018,7 +4335,7 @@ export default {
                 : llmStatus === "error"
                   ? "LLM分類でエラーが発生しました。"
                   : undefined;
-      const html = renderZooAnimalDetailHtml(detail, notice);
+      const html = renderZooAnimalDetailHtml(detail, notice, image ?? undefined);
       return htmlResponse(html, url, activePref);
     }
 
@@ -3050,12 +4367,15 @@ export default {
     if (pathname.startsWith("/taxonomy/")) {
       const levels = parseTaxonomyPath(pathname);
       if (!levels) return notFound("分類 URL が無効です");
-      const childSection = await loadChildTaxonomyValues(env.DB, levels, activePref);
-      const animals = await loadTaxonomyAnimals(env.DB, levels, activePref);
+      const [childSection, animals, imageKeys] = await Promise.all([
+        loadChildTaxonomyValues(env.DB, levels, activePref),
+        loadTaxonomyAnimals(env.DB, levels, activePref),
+        loadAnimalImageKeys(env.DB),
+      ]);
       if (animals.length === 0) {
         return notFound(`分類 '${levels.at(-1)?.value ?? ""}' に該当する動物が見つかりません`);
       }
-      const html = renderTaxonomyDetailHtml(levels, childSection, animals);
+      const html = renderTaxonomyDetailHtml(levels, childSection, animals, imageKeys);
       return htmlResponse(html, url, activePref);
     }
 
@@ -3111,8 +4431,8 @@ export default {
     // HTML: /map
     if (pathname === "/map") {
       const animal = normalizeSearchTerm(url.searchParams.get("animal"));
-      const filtered = (await searchZoos(env.DB, activePref, animal)).map((result) => result.zoo);
-      const html = renderMapHtml(filtered, activePref, animal);
+      const results = await searchZoos(env.DB, activePref, animal);
+      const html = renderMapHtml(results, activePref, animal);
       return htmlResponse(html, url, activePref);
     }
 

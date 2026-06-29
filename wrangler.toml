@@ -8,5 +8,9 @@ database_name = "kinki-zoo-animals"
 database_id = "7d9c4176-c896-4b7b-a50d-c7e46967ccea"
 migrations_dir = "migrations"
 
+[[r2_buckets]]
+binding = "IMAGES"
+bucket_name = "kinki-zoo-images"
+
 [triggers]
 crons = ["0 18 * * *"]

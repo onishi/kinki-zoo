@@ -2783,9 +2783,9 @@ function renderAnimalTaxonomyAdminHtml(animals: AnimalTaxonomyRow[], notice?: st
     const group = a.animal_id !== null ? "applied" : a.candidate_status !== null ? "partial" : "none";
     const statusText = a.candidate_status ? (statusLabel[a.candidate_status] ?? a.candidate_status) : "未取得";
     const taxonomyText = [a.class_name, a.order_name, a.family_name].filter(Boolean).join(" / ") || "—";
-    const classifyBtn = group !== "applied"
-      ? `<button class="classify-btn" data-name="${escapeHtml(a.display_name)}">分類</button>`
-      : `<span style="color:#aaa;font-size:0.75rem">—</span>`;
+    const classifyBtn = group === "applied"
+      ? `<button class="classify-btn classify-btn--rerun" data-name="${escapeHtml(a.display_name)}">再分類</button>`
+      : `<button class="classify-btn" data-name="${escapeHtml(a.display_name)}">分類</button>`;
     return `<tr data-group="${group}">
       <td class="name-cell"><a href="/animal/${encodeURIComponent(a.display_name)}">${escapeHtml(a.display_name)}</a>${a.canonical_name && a.canonical_name !== a.display_name ? `<br><small>${escapeHtml(a.canonical_name)}</small>` : ""}</td>
       <td><span class="status-badge status-${escapeHtml(a.candidate_status ?? "none")}">${statusText}</span></td>
@@ -2836,7 +2836,9 @@ ${ADMIN_BREADCRUMB_CSS}
     .status-rejected { background: #fef0ec; border: 1px solid #f0c0b0; color: #8b3a20; }
     .status-none { background: #f7f7f7; border: 1px solid #e1e1e1; color: #888; }
     .classify-btn { border: 1px solid #1f5b45; background: #fff; color: #1f5b45; padding: 0.25rem 0.65rem; font-size: 0.78rem; cursor: pointer; white-space: nowrap; }
-    .classify-btn:disabled { border-color: #ccc; color: #999; cursor: default; }
+    .classify-btn--rerun { border-color: #aaa; color: #999; }
+    .classify-btn--rerun:hover:not(:disabled) { border-color: #1f5b45; color: #1f5b45; }
+    .classify-btn:disabled { border-color: #ccc; color: #ccc; cursor: default; }
     .classify-btn.done { border-color: #aaa; color: #aaa; }
     @media (max-width: 640px) {
       main { padding: 0.75rem; }

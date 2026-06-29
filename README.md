@@ -21,6 +21,7 @@
 | `GET /taxonomy/:rank/:value` | 指定した分類値に属する動物一覧 HTML |
 | `GET /taxonomy/:class/:order/:family/:genus/:species` | 分類階層を URL にした動物一覧 HTML（途中階層まででも可） |
 | `GET /map` | 動物園位置を地図で表示 HTML（都道府県・動物名での絞り込み可） |
+| `GET /animal-images` | 動物名ごとの画像生成・選択管理 HTML。一覧上で共通モデルを選び、生成履歴から使用画像を選択する |
 | `GET /zoos/:id` | 動物園ごとの詳細 HTML ページ（地図付き） |
 | `GET /api/zoos` | 全動物園を JSON で返す |
 | `GET /api/zoos?pref=osaka` | 都道府県コードで絞り込んだ動物園を返す |
@@ -31,6 +32,9 @@
 | `POST /api/animals/classify` | 保存済みの公式表示名を分類マスタに投入し、`zoo_animals.animal_id` を紐づける |
 | `POST /api/animals/suggest-taxonomy` | 未分類の公式表示名を Gemini + Google Search grounding で分類候補化する |
 | `GET /api/animals/taxonomy-candidates` | Gemini が作成した分類候補を JSON で返す |
+| `GET /animal-images/:name` | 動物名キーで保存した正方形画像を返す |
+| `POST /api/animal-images/generate` | Gemini で動物画像を生成し、動物名キーで D1 に保存する |
+| `GET /animal-image-generations/:id` | 生成履歴に残した個別画像を返す |
 
 ### 都道府県コード
 
@@ -135,6 +139,8 @@ npm run typecheck
 |----------|------|
 | `zoo_animals` | 施設公式の表示名を `display_name` として保存。`animal_id` は分類マスタへの任意リンク |
 | `animals` | 種マスタ。代表名、類・目・科・属・種を保持し、属・種の組み合わせをユニークにする |
+| `animal_images` | `animals` と `zoo_animals` で共通利用する選択中の正方形画像。正規化した動物名をキーに保存 |
+| `animal_image_generations` | Gemini で生成した画像履歴。生成した全画像を残し、`animal_images.selected_generation_id` で使用画像を選ぶ |
 | `animal_scrape_results` | 施設ごとのスクレイピング日時とエラー情報 |
 | `animal_scrape_diffs` | 前回取得との差分（追加・削除・表記変更らしきペア）を履歴として保存 |
 
@@ -151,6 +157,11 @@ npm run d1:migrate:remote   # リモート D1 にマイグレーション適用
 curl -X POST http://localhost:8001/api/animals/refresh
 curl -X POST http://localhost:8001/api/animals/classify
 curl -X POST http://localhost:8001/api/animals/suggest-taxonomy
+curl -X POST http://localhost:8001/api/animal-images/generate
+npm run generate:animal-images -- --limit 10
+npm run generate:animal-images -- --name アオサギ --include-existing
+npm run generate:animal-images -- --name アオサギ --model gemini-2.5-flash-image --include-existing
+npm run generate:all-animal-images -- --batch-size 5
 npm run classify:unclassified -- --base-url http://localhost:8001 --zoo kobe-animal-kingdom
 ```
 
@@ -158,6 +169,11 @@ npm run classify:unclassified -- --base-url http://localhost:8001 --zoo kobe-ani
 Gemini候補の生成と適用を未処理データがなくなるまで繰り返します。
 
 Gemini による分類候補生成には `GEMINI_API_KEY` が必要です。ローカルでは `.dev.vars` に設定します。
+動物画像生成も同じ `GEMINI_API_KEY` を使用します。`/api/animal-images/generate` は `animals.canonical_name` と
+`zoo_animals.display_name` を動物名として集め、正規化した名前が同じものは同じ `animal_images.animal_key` に保存します。
+任意の名前だけ生成する場合は `{"names":["アオサギ"],"missingOnly":false}` のように POST します。
+ブラウザでは `/animal-images` の一覧上でモデルを一度選び、各動物の画像生成と使用画像の選択ができます。
+全件バッチ `generate:all-animal-images` は当面 `gemini-2.5-flash-image` のみを対象にします。
 
 ```bash
 echo 'GEMINI_API_KEY=your_api_key' > .dev.vars

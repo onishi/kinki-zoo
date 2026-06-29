@@ -1271,6 +1271,37 @@ async function loadAnimalImageGenerationNames(
     .slice(0, limit);
 }
 
+interface AnimalTaxonomyRow {
+  display_name: string;
+  animal_id: number | null;
+  candidate_status: string | null;
+  confidence: number | null;
+  class_name: string | null;
+  order_name: string | null;
+  family_name: string | null;
+  canonical_name: string | null;
+}
+
+async function loadAnimalsForTaxonomy(db: D1Database): Promise<AnimalTaxonomyRow[]> {
+  const result = await db
+    .prepare(
+      `SELECT DISTINCT
+         za.display_name,
+         za.animal_id,
+         c.status AS candidate_status,
+         c.confidence,
+         c.class_name,
+         c.order_name,
+         c.family_name,
+         c.canonical_name
+       FROM zoo_animals za
+       LEFT JOIN animal_taxonomy_candidates c ON c.display_name = za.display_name
+       ORDER BY za.display_name`
+    )
+    .all<AnimalTaxonomyRow>();
+  return result.results ?? [];
+}
+
 async function loadAnimalImageManageItems(
   db: D1Database,
   query: string | null = null
@@ -2647,7 +2678,7 @@ function renderGlobalNav(activePath: string): string {
     ["/animals", "動物一覧"],
     ["/taxonomy", "分類から探す"],
     ["/map", "地図で見る"],
-    ["/animal-images", "動物管理"],
+    ["/admin", "動物管理"],
   ];
   const links = navItems
     .map(([href, label], i) => {
@@ -2666,11 +2697,252 @@ function formatDateTime(value: string | null): string {
 }
 
 function buildAnimalImageManageUrl(displayName: string): string {
-  return `/animal-images/manage/${encodeURIComponent(displayName)}`;
+  return `/admin/animal-images/manage/${encodeURIComponent(displayName)}`;
 }
 
 function buildAnimalImageItemId(animalKey: string): string {
   return `animal-image-${encodeURIComponent(animalKey).replace(/%/g, "")}`;
+}
+
+const ADMIN_BREADCRUMB_CSS = `
+    .admin-breadcrumb { display: flex; align-items: center; flex-wrap: wrap; gap: 0.2rem; font-size: 0.8rem; color: #aaa; }
+    .admin-breadcrumb a { color: #1f5b45; text-decoration: none; }
+    .admin-breadcrumb a:hover { text-decoration: underline; }
+    .admin-breadcrumb .sep { margin: 0 0.15rem; }
+    .admin-breadcrumb [aria-current] { color: #555; }`;
+
+function renderAdminBreadcrumb(crumbs: { href?: string; label: string }[]): string {
+  const all = [{ href: "/admin" as string | undefined, label: "動物管理" }, ...crumbs];
+  const parts = all.map((c, i) => {
+    const isLast = i === all.length - 1;
+    const el = isLast
+      ? `<span aria-current="page">${escapeHtml(c.label)}</span>`
+      : `<a href="${c.href}">${escapeHtml(c.label)}</a>`;
+    return i < all.length - 1 ? `${el}<span class="sep">/</span>` : el;
+  });
+  return `<nav class="admin-breadcrumb" aria-label="管理パンくず">${parts.join("")}</nav>`;
+}
+
+function renderAdminTopHtml(): string {
+  return `<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>動物管理 | 近畿動物園情報</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
+    main { max-width: 640px; margin: 0 auto; padding: 1.25rem 1.5rem 2rem; display: grid; gap: 1rem; }
+    h1 { font-size: 1.2rem; }
+    .admin-nav { display: grid; gap: 0.65rem; list-style: none; }
+    .admin-nav a { display: block; border: 1px solid #dce7df; background: #f8fbf9; color: #1f5b45; padding: 0.85rem 1rem; text-decoration: none; font-size: 0.95rem; }
+    .admin-nav a:hover { background: #f1f8f3; border-color: #9bc4ab; }
+    .admin-nav small { display: block; color: #666; font-size: 0.78rem; margin-top: 0.2rem; }${ADMIN_BREADCRUMB_CSS}
+  </style>
+</head>
+<body>
+${renderSiteHeader()}
+${renderGlobalNav("/admin")}
+  <main>
+    ${renderAdminBreadcrumb([])}
+    <h1>動物管理</h1>
+    <ul class="admin-nav">
+      <li>
+        <a href="/admin/animal-taxonomy">
+          分類管理
+          <small>未分類・部分分類の動物を LLM で分類する</small>
+        </a>
+      </li>
+      <li>
+        <a href="/admin/animal-images">
+          画像管理
+          <small>動物画像の生成・選択を管理する</small>
+        </a>
+      </li>
+    </ul>
+  </main>
+</body>
+</html>`;
+}
+
+function renderAnimalTaxonomyAdminHtml(animals: AnimalTaxonomyRow[], notice?: string): string {
+  const noticeHtml = notice ? `<p class="notice">${escapeHtml(notice)}</p>` : "";
+  const statusLabel: Record<string, string> = {
+    pending: "候補あり",
+    partial: "部分分類",
+    applied: "適用済み",
+    rejected: "却下",
+  };
+
+  const countApplied = animals.filter((a) => a.animal_id !== null).length;
+  const countPartial = animals.filter((a) => a.animal_id === null && a.candidate_status !== null).length;
+  const countNone = animals.filter((a) => a.animal_id === null && a.candidate_status === null).length;
+
+  const rows = animals.map((a) => {
+    const group = a.animal_id !== null ? "applied" : a.candidate_status !== null ? "partial" : "none";
+    const statusText = a.candidate_status ? (statusLabel[a.candidate_status] ?? a.candidate_status) : "未取得";
+    const taxonomyText = [a.class_name, a.order_name, a.family_name].filter(Boolean).join(" / ") || "—";
+    const classifyBtn = group !== "applied"
+      ? `<button class="classify-btn" data-name="${escapeHtml(a.display_name)}">分類</button>`
+      : `<span style="color:#aaa;font-size:0.75rem">—</span>`;
+    return `<tr data-group="${group}">
+      <td class="name-cell"><a href="/animal/${encodeURIComponent(a.display_name)}">${escapeHtml(a.display_name)}</a>${a.canonical_name && a.canonical_name !== a.display_name ? `<br><small>${escapeHtml(a.canonical_name)}</small>` : ""}</td>
+      <td><span class="status-badge status-${escapeHtml(a.candidate_status ?? "none")}">${statusText}</span></td>
+      <td class="taxonomy-cell">${escapeHtml(taxonomyText)}</td>
+      <td>${a.confidence != null ? `${Math.round(a.confidence * 100)}%` : "—"}</td>
+      <td>${classifyBtn}</td>
+    </tr>`;
+  }).join("\n");
+
+  return `<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>分類管理 | 近畿動物園情報</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
+    main { max-width: 1040px; margin: 0 auto; padding: 1rem 1.5rem 2rem; display: grid; gap: 1rem; }
+    h1 { font-size: 1.15rem; }
+${ADMIN_BREADCRUMB_CSS}
+    .notice { border: 1px solid #cfe5d8; background: #f5fbf7; color: #244d37; padding: 0.6rem 0.75rem; font-size: 0.86rem; }
+    .filter-tabs { display: flex; gap: 0; border-bottom: 2px solid #ddd; }
+    .filter-tab { border: none; border-bottom: 2px solid transparent; background: none; padding: 0.5rem 1rem; font-size: 0.84rem; cursor: pointer; color: #555; margin-bottom: -2px; white-space: nowrap; }
+    .filter-tab:hover { color: #1f5b45; }
+    .filter-tab.active { border-bottom-color: #1f5b45; color: #1f5b45; font-weight: bold; }
+    .filter-tab .count { font-size: 0.75rem; color: #888; margin-left: 0.3rem; }
+    .filter-tab.active .count { color: #1f5b45; }
+    .bulk-classify { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; padding: 0.65rem 0.75rem; background: #f8fbf9; border: 1px solid #dce7df; }
+    .bulk-classify-btn { min-height: 34px; border: 1px solid #1f5b45; background: #1f5b45; color: #fff; padding: 0.3rem 0.8rem; cursor: pointer; font-size: 0.82rem; }
+    .bulk-classify-btn:disabled { border-color: #aaa; background: #aaa; cursor: default; }
+    .bulk-status { font-size: 0.82rem; color: #555; }
+    .visible-count { font-size: 0.82rem; color: #888; }
+    .animal-table { width: 100%; border-collapse: collapse; }
+    .animal-table th, .animal-table td { border: none; border-bottom: 1px solid #e8e8e8; padding: 0.5rem 0.65rem; text-align: left; font-size: 0.84rem; vertical-align: middle; }
+    .animal-table thead th { background: #f7f7f7; color: #555; border-bottom: 2px solid #ddd; font-size: 0.8rem; }
+    .animal-table tbody tr:hover { background: #f5fbf8; }
+    .animal-table tr.classifying { opacity: 0.5; }
+    .animal-table tr.done td { background: #f0fbf4; }
+    .name-cell a { color: #1f5b45; text-decoration: none; font-weight: bold; }
+    .name-cell a:hover { text-decoration: underline; }
+    .name-cell small { color: #888; }
+    .taxonomy-cell { color: #555; font-size: 0.78rem; }
+    .status-badge { display: inline-block; font-size: 0.72rem; padding: 0.15rem 0.45rem; border-radius: 2px; white-space: nowrap; }
+    .status-pending { background: #fef9e7; border: 1px solid #f0d98a; color: #7a5c00; }
+    .status-partial { background: #fff3e0; border: 1px solid #f0c878; color: #7a4a00; }
+    .status-applied { background: #e8f5ee; border: 1px solid #b6ddc8; color: #1f5b45; }
+    .status-rejected { background: #fef0ec; border: 1px solid #f0c0b0; color: #8b3a20; }
+    .status-none { background: #f7f7f7; border: 1px solid #e1e1e1; color: #888; }
+    .classify-btn { border: 1px solid #1f5b45; background: #fff; color: #1f5b45; padding: 0.25rem 0.65rem; font-size: 0.78rem; cursor: pointer; white-space: nowrap; }
+    .classify-btn:disabled { border-color: #ccc; color: #999; cursor: default; }
+    .classify-btn.done { border-color: #aaa; color: #aaa; }
+    @media (max-width: 640px) {
+      main { padding: 0.75rem; }
+      .filter-tab { padding: 0.4rem 0.6rem; font-size: 0.8rem; }
+    }
+  </style>
+</head>
+<body>
+${renderSiteHeader()}
+${renderGlobalNav("/admin")}
+  <main>
+    ${renderAdminBreadcrumb([{ href: "/admin/animal-taxonomy", label: "分類管理" }])}
+    <h1>分類管理</h1>
+    ${noticeHtml}
+    <div class="filter-tabs" role="tablist">
+      <button class="filter-tab active" data-filter="all" role="tab">全て<span class="count">${animals.length}</span></button>
+      <button class="filter-tab" data-filter="applied" role="tab">分類済<span class="count">${countApplied}</span></button>
+      <button class="filter-tab" data-filter="partial" role="tab">一部分類<span class="count">${countPartial}</span></button>
+      <button class="filter-tab" data-filter="none" role="tab">未分類<span class="count">${countNone}</span></button>
+    </div>
+    <div class="bulk-classify">
+      <button id="bulk-classify-btn" class="bulk-classify-btn">表示中をまとめて分類</button>
+      <span id="bulk-status" class="bulk-status"></span>
+      <span id="visible-count" class="visible-count"></span>
+    </div>
+    <table class="animal-table">
+      <thead>
+        <tr>
+          <th>動物名</th>
+          <th>ステータス</th>
+          <th>分類</th>
+          <th>確度</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="taxonomy-tbody">
+        ${rows}
+      </tbody>
+    </table>
+  </main>
+  <script>
+    var currentFilter = 'all';
+
+    function applyFilter(filter) {
+      currentFilter = filter;
+      var rows = document.querySelectorAll('#taxonomy-tbody tr');
+      var visible = 0;
+      rows.forEach(function(row) {
+        var show = filter === 'all' || row.dataset.group === filter;
+        row.style.display = show ? '' : 'none';
+        if (show) visible++;
+      });
+      document.querySelectorAll('.filter-tab').forEach(function(tab) {
+        tab.classList.toggle('active', tab.dataset.filter === filter);
+      });
+      document.getElementById('visible-count').textContent = filter === 'all' ? '' : visible + ' 件表示中';
+    }
+
+    document.querySelectorAll('.filter-tab').forEach(function(tab) {
+      tab.addEventListener('click', function() { applyFilter(tab.dataset.filter); });
+    });
+
+    async function classifyAnimal(name, btn) {
+      btn.disabled = true;
+      btn.textContent = '分類中…';
+      var row = btn.closest('tr');
+      row.classList.add('classifying');
+      try {
+        var res = await fetch('/animal/' + encodeURIComponent(name) + '/classify', {method: 'POST'});
+        var finalUrl = new URL(res.url);
+        var status = finalUrl.searchParams.get('llm') || 'done';
+        row.classList.remove('classifying');
+        row.classList.add('done');
+        btn.textContent = status;
+        btn.classList.add('done');
+      } catch(e) {
+        row.classList.remove('classifying');
+        btn.disabled = false;
+        btn.textContent = 'エラー';
+      }
+    }
+
+    document.querySelectorAll('.classify-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() { classifyAnimal(btn.dataset.name, btn); });
+    });
+
+    var bulkBtn = document.getElementById('bulk-classify-btn');
+    var bulkStatus = document.getElementById('bulk-status');
+    if (bulkBtn) {
+      bulkBtn.addEventListener('click', async function() {
+        var pending = Array.from(document.querySelectorAll('#taxonomy-tbody tr:not([style*="display: none"]) .classify-btn:not(.done):not([disabled])'));
+        if (!pending.length) { bulkStatus.textContent = '対象なし'; return; }
+        bulkBtn.disabled = true;
+        bulkStatus.textContent = '0 / ' + pending.length + ' 件';
+        var done = 0;
+        for (var btn of pending) {
+          await classifyAnimal(btn.dataset.name, btn);
+          done++;
+          bulkStatus.textContent = done + ' / ' + pending.length + ' 件完了';
+        }
+        bulkBtn.disabled = false;
+      });
+    }
+  </script>
+</body>
+</html>`;
 }
 
 function renderAnimalImageManageListHtml(
@@ -2699,7 +2971,7 @@ function renderAnimalImageManageListHtml(
           return `
             <article class="generation-thumb">
               <div class="thumb-image">
-                <img src="/animal-image-generations/${generation.id}" alt="${escapeHtml(item.displayName)} #${generation.id}">
+                <img src="/admin/animal-image-generations/${generation.id}" alt="${escapeHtml(item.displayName)} #${generation.id}">
                 ${selectedBadge}
               </div>
               <div class="thumb-meta">
@@ -2707,7 +2979,7 @@ function renderAnimalImageManageListHtml(
                 <span>${escapeHtml(generation.model)}</span>
                 <span>${escapeHtml(formatDateTime(generation.createdAt))}</span>
               </div>
-              <form action="/animal-images/select" method="post">
+              <form action="/admin/animal-images/select" method="post">
                 <input type="hidden" name="displayName" value="${escapeHtml(item.displayName)}">
                 <input type="hidden" name="generationId" value="${generation.id}">
                 ${selectButton}
@@ -2721,7 +2993,7 @@ function renderAnimalImageManageListHtml(
           <div class="image-list-body">
             <div class="image-list-heading">
               <h2>${escapeHtml(item.displayName)}</h2>
-              <form class="inline-generate-form" action="/animal-images/generate" method="post">
+              <form class="inline-generate-form" action="/admin/animal-images/generate" method="post">
                 <input type="hidden" name="displayName" value="${escapeHtml(item.displayName)}">
                 <input type="hidden" name="model" class="model-field">
                 <input type="hidden" name="customModel" class="custom-model-field">
@@ -2751,7 +3023,7 @@ function renderAnimalImageManageListHtml(
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
-    main { max-width: 1040px; padding: 1rem 1.5rem 1.5rem; display: grid; gap: 1rem; }
+    main { max-width: 1040px; margin: 0 auto; padding: 1rem 1.5rem 1.5rem; display: grid; gap: 1rem; }
     .page-title { font-size: 1.15rem; }
     .toolbar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; padding-bottom: 0.75rem; border-bottom: 1px solid #ddd; }
     .toolbar input { min-height: 42px; flex: 1 1 220px; max-width: 360px; border: 1px solid #bbb; padding: 0.5rem 0.65rem; }
@@ -2789,15 +3061,7 @@ function renderAnimalImageManageListHtml(
     .generation-thumb button { width: 100%; min-height: 36px; border: 1px solid #1f5b45; background: #fff; color: #1f5b45; cursor: pointer; font-size: 0.8rem; }
     .generation-thumb button:disabled { border-color: #ccc; color: #777; background: #f7f7f7; cursor: default; }
     .empty-generations { color: #777; font-size: 0.82rem; }
-    .empty-message { color: #777; padding: 1rem 0; }
-    .admin-classify { border: 1px solid #dce7df; background: #f8fbf9; padding: 0.85rem 1rem; display: grid; gap: 0.55rem; }
-    .admin-section-title { font-size: 0.88rem; color: #444; }
-    .admin-section-desc { font-size: 0.82rem; color: #666; }
-    .classify-controls { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
-    .classify-run-btn { min-height: 38px; border: 1px solid #1f5b45; background: #1f5b45; color: #fff; padding: 0.4rem 0.9rem; cursor: pointer; font-size: 0.84rem; }
-    .classify-run-btn:disabled { border-color: #aaa; background: #aaa; cursor: default; }
-    .classify-status { font-size: 0.82rem; color: #555; }
-    .classify-result { font-size: 0.78rem; color: #333; background: #fff; border: 1px solid #ddd; padding: 0.65rem 0.75rem; overflow-x: auto; white-space: pre-wrap; margin-top: 0.35rem; }
+    .empty-message { color: #777; padding: 1rem 0; }${ADMIN_BREADCRUMB_CSS}
     @media (max-width: 640px) {
       main { padding: 0.85rem 0.75rem 1.25rem; }
       .toolbar { display: grid; grid-template-columns: 1fr auto; }
@@ -2814,19 +3078,11 @@ function renderAnimalImageManageListHtml(
 </head>
 <body>
 ${renderSiteHeader()}
-${renderGlobalNav("/animal-images")}
+${renderGlobalNav("/admin")}
   <main>
-    <h1 class="page-title">動物管理</h1>
+    ${renderAdminBreadcrumb([{ href: "/admin/animal-images", label: "画像管理" }])}
+    <h1 class="page-title">画像管理</h1>
     ${noticeHtml}
-    <section class="admin-classify">
-      <h2 class="admin-section-title">LLM分類</h2>
-      <p class="admin-section-desc">未分類・部分分類の動物を Gemini で一括分類します。</p>
-      <div class="classify-controls">
-        <button id="classify-btn" class="classify-run-btn">一括分類を実行</button>
-        <span id="classify-status" class="classify-status"></span>
-      </div>
-      <pre id="classify-result" class="classify-result" hidden></pre>
-    </section>
     <section class="model-toolbar" aria-label="画像生成モデル">
       <div class="model-field-group">
         <label for="shared-image-model">生成モデル</label>
@@ -2837,10 +3093,10 @@ ${renderGlobalNav("/animal-images")}
         <input id="shared-custom-model" placeholder="例: gemini-2.5-flash-image">
       </div>
     </section>
-    <form class="toolbar" action="/animal-images" method="get">
+    <form class="toolbar" action="/admin/animal-images" method="get">
       <input type="search" name="q" value="${escapedQuery}" placeholder="動物名で検索" aria-label="動物名で検索">
       <button type="submit">検索</button>
-      ${query ? `<a href="/animal-images">クリア</a>` : ""}
+      ${query ? `<a href="/admin/animal-images">クリア</a>` : ""}
     </form>
     <p class="summary">${items.length} 件</p>
     <section class="image-list">
@@ -2858,27 +3114,6 @@ ${renderGlobalNav("/animal-images")}
         if (customModelField && customModel) customModelField.value = customModel.value;
       });
     });
-    var classifyBtn = document.getElementById('classify-btn');
-    var classifyStatus = document.getElementById('classify-status');
-    var classifyResult = document.getElementById('classify-result');
-    if (classifyBtn) {
-      classifyBtn.addEventListener('click', async function() {
-        classifyBtn.disabled = true;
-        classifyStatus.textContent = '実行中…';
-        classifyResult.hidden = true;
-        try {
-          var res = await fetch('/api/animals/classify', { method: 'POST' });
-          var data = await res.json();
-          classifyStatus.textContent = '完了';
-          classifyResult.textContent = JSON.stringify(data, null, 2);
-          classifyResult.hidden = false;
-        } catch (e) {
-          classifyStatus.textContent = 'エラー: ' + e.message;
-        } finally {
-          classifyBtn.disabled = false;
-        }
-      });
-    }
   </script>
 </body>
 </html>`;
@@ -2906,7 +3141,7 @@ function renderAnimalImageManageDetailHtml(
       return `
         <article class="generation-card">
           <div class="generation-image">
-            <img src="/animal-image-generations/${generation.id}" alt="${escapedName} #${generation.id}">
+            <img src="/admin/animal-image-generations/${generation.id}" alt="${escapedName} #${generation.id}">
             ${selectedBadge}
           </div>
           <div class="generation-meta">
@@ -2932,9 +3167,8 @@ function renderAnimalImageManageDetailHtml(
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
-    main { max-width: 1080px; padding: 1rem 1.5rem 1.5rem; display: grid; gap: 1rem; }
-    .breadcrumb { display: flex; flex-wrap: wrap; gap: 0.45rem; color: #777; font-size: 0.86rem; }
-    .breadcrumb a { color: #1f5b45; text-decoration: none; }
+    main { max-width: 1040px; margin: 0 auto; padding: 1rem 1.5rem 1.5rem; display: grid; gap: 1rem; }
+${ADMIN_BREADCRUMB_CSS}
     .page-title { font-size: 1.2rem; line-height: 1.35; }
     .notice { border: 1px solid #cfe5d8; background: #f5fbf7; color: #244d37; padding: 0.6rem 0.75rem; font-size: 0.86rem; }
     .detail-layout { display: grid; grid-template-columns: minmax(220px, 320px) minmax(0, 1fr); gap: 1.2rem; align-items: start; }
@@ -2971,11 +3205,9 @@ function renderAnimalImageManageDetailHtml(
 </head>
 <body>
 ${renderSiteHeader()}
-${renderGlobalNav("/animal-images")}
+${renderGlobalNav("/admin")}
   <main>
-    <nav class="breadcrumb" aria-label="パンくず">
-      <a href="/animal-images">画像管理</a><span>/</span><span aria-current="page">${escapedName}</span>
-    </nav>
+    ${renderAdminBreadcrumb([{ href: "/admin/animal-images", label: "画像管理" }, { label: displayName }])}
     <h1 class="page-title">${escapedName}</h1>
     ${noticeHtml}
     <div class="detail-layout">
@@ -3909,11 +4141,7 @@ ${renderGlobalNav("/map")}
 
 function isAdminPath(pathname: string): boolean {
   return (
-    pathname === "/animal-images" ||
-    pathname === "/animal-images/generate" ||
-    pathname === "/animal-images/select" ||
-    pathname.startsWith("/animal-images/manage/") ||
-    pathname.startsWith("/animal-image-generations/") ||
+    pathname.startsWith("/admin") ||
     pathname === "/api/animal-images/generate" ||
     pathname === "/api/animals/refresh" ||
     pathname === "/api/animals/classify" ||
@@ -4071,8 +4299,8 @@ export default {
       return jsonResponse({ candidates });
     }
 
-    // HTML: /animal-images
-    if (pathname === "/animal-images") {
+    // HTML: /admin/animal-images
+    if (pathname === "/admin/animal-images") {
       const query = normalizeSearchTerm(url.searchParams.get("q"));
       const imageStatus = url.searchParams.get("image");
       const imageError = normalizeOptionalText(url.searchParams.get("message"));
@@ -4094,14 +4322,14 @@ export default {
     }
 
     // HTML form: generate image for one animal from the list
-    if (pathname === "/animal-images/generate") {
+    if (pathname === "/admin/animal-images/generate") {
       if (request.method !== "POST") {
         return jsonResponse({ error: "POST を使用してください" }, 405);
       }
       const formData = await request.formData();
       const displayName = normalizeOptionalText(formData.get("displayName"));
       const redirectTo = (status: string, name: string | null = displayName, message?: string) => {
-        const destination = new URL("/animal-images", url.origin);
+        const destination = new URL("/admin/animal-images", url.origin);
         if (name) {
           destination.searchParams.set("q", name);
           destination.hash = buildAnimalImageItemId(normalizeAnimalImageKey(name));
@@ -4143,7 +4371,7 @@ export default {
     }
 
     // HTML form: select an existing generated image from the list
-    if (pathname === "/animal-images/select") {
+    if (pathname === "/admin/animal-images/select") {
       if (request.method !== "POST") {
         return jsonResponse({ error: "POST を使用してください" }, 405);
       }
@@ -4159,7 +4387,7 @@ export default {
         });
       }
       const status = selected ? "selected" : "select-error";
-      const destination = new URL("/animal-images", url.origin);
+      const destination = new URL("/admin/animal-images", url.origin);
       if (displayName) {
         destination.searchParams.set("q", displayName);
         destination.hash = buildAnimalImageItemId(normalizeAnimalImageKey(displayName));
@@ -4169,18 +4397,18 @@ export default {
       return Response.redirect(`${url.origin}${addPrefectureToInternalUrl(href, activePref)}`, 303);
     }
 
-    // HTML: /animal-images/manage/:displayName
-    const animalImageManageMatch = pathname.match(/^\/animal-images\/manage\/(.+)$/);
+    // HTML: /admin/animal-images/manage/:displayName
+    const animalImageManageMatch = pathname.match(/^\/admin\/animal-images\/manage\/(.+)$/);
     if (animalImageManageMatch) {
       const displayName = decodeURIComponent(animalImageManageMatch[1]);
-      const destination = new URL("/animal-images", url.origin);
+      const destination = new URL("/admin/animal-images", url.origin);
       destination.searchParams.set("q", displayName);
       destination.hash = buildAnimalImageItemId(normalizeAnimalImageKey(displayName));
       return Response.redirect(destination.toString(), 301);
     }
 
     // Image: generated image history
-    const animalImageGenerationMatch = pathname.match(/^\/animal-image-generations\/(\d+)$/);
+    const animalImageGenerationMatch = pathname.match(/^\/admin\/animal-image-generations\/(\d+)$/);
     if (animalImageGenerationMatch) {
       const generation = await loadAnimalImageGenerationById(env.DB, Number(animalImageGenerationMatch[1]));
       if (!generation) return notFound(`生成画像 '${animalImageGenerationMatch[1]}' が見つかりません`);
@@ -4300,6 +4528,18 @@ export default {
         images,
         errors,
       });
+    }
+
+    // HTML: /admin
+    if (pathname === "/admin") {
+      return htmlResponse(renderAdminTopHtml(), url, activePref);
+    }
+
+    // HTML: /admin/animal-taxonomy
+    if (pathname === "/admin/animal-taxonomy") {
+      const animals = await loadAnimalsForTaxonomy(env.DB);
+      const html = renderAnimalTaxonomyAdminHtml(animals);
+      return htmlResponse(html, url, activePref);
     }
 
     // HTML: /animals

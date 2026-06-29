@@ -2613,6 +2613,7 @@ const COMMON_STYLES = `
     .global-nav a { color: #1f5b45; text-decoration: none; font-size: 0.9rem; }
     .global-nav a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .global-nav a[aria-current="page"] { font-weight: bold; text-decoration: underline; text-underline-offset: 0.2em; }
+    .global-nav .nav-admin { margin-left: auto; color: #888; font-size: 0.82rem; }
     .page-nav { margin-bottom: 1rem; display: flex; gap: 1rem; flex-wrap: wrap; }
     .page-nav a { color: #2d6a4f; text-decoration: none; }
     @media (max-width: 640px) {
@@ -2649,9 +2650,10 @@ function renderGlobalNav(activePath: string): string {
     ["/animal-images", "動物管理"],
   ];
   const links = navItems
-    .map(([href, label]) => {
+    .map(([href, label], i) => {
       const isActive = href === "/" ? activePath === "/" : activePath === href || activePath.startsWith(`${href}/`);
-      return `<a href="${href}"${isActive ? ' aria-current="page"' : ""}>${label}</a>`;
+      const cls = i === navItems.length - 1 ? ' class="nav-admin"' : "";
+      return `<a href="${href}"${cls}${isActive ? ' aria-current="page"' : ""}>${label}</a>`;
     })
     .join("\n    ");
   return `  <nav class="global-nav" aria-label="サイトナビゲーション">

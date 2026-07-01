@@ -1478,6 +1478,50 @@ async function loadZooAnimalDetail(
   };
 }
 
+async function loadRelatedAnimals(
+  db: D1Database,
+  detail: ZooAnimalDetail,
+  limit = 30
+): Promise<AnimalListItem[]> {
+  const filterField = detail.orderName ? "order_name" : detail.className ? "class_name" : null;
+  const filterValue = detail.orderName ?? detail.className ?? null;
+  if (!filterField || !filterValue) return [];
+
+  const col =
+    filterField === "order_name"
+      ? "COALESCE(a.order_name, NULLIF(c.order_name, 'null'))"
+      : "COALESCE(a.class_name, NULLIF(c.class_name, 'null'))";
+
+  const result = await db
+    .prepare(
+      `SELECT
+         za.display_name,
+         za.zoo_id,
+         za.animal_id,
+         COALESCE(a.canonical_name, NULLIF(c.canonical_name, 'null')) AS canonical_name,
+         COALESCE(a.sort_key, a.canonical_name, za.sort_key, za.display_name) AS name_sort_key,
+         COALESCE(a.class_name, NULLIF(c.class_name, 'null')) AS class_name,
+         COALESCE(a.order_name, NULLIF(c.order_name, 'null')) AS order_name,
+         COALESCE(a.family_name, NULLIF(c.family_name, 'null')) AS family_name,
+         COALESCE(a.genus_name, NULLIF(c.genus_name, 'null')) AS genus_name,
+         COALESCE(a.species_name, NULLIF(c.species_name, 'null')) AS species_name
+       FROM zoo_animals za
+       LEFT JOIN animals a ON a.id = za.animal_id
+       LEFT JOIN animal_taxonomy_candidates c
+         ON c.display_name = za.display_name
+        AND za.animal_id IS NULL
+        AND c.status IN ('partial', 'pending')
+        AND c.confidence >= 0.8
+       WHERE ${col} = ?
+         AND za.display_name != ?
+       ORDER BY COALESCE(a.sort_key, a.normalized_name, za.sort_key, za.normalized_display_name), za.display_name, za.zoo_id`
+    )
+    .bind(filterValue, detail.displayName)
+    .all<AnimalListRow>();
+
+  return buildAnimalListItems(result.results ?? []).slice(0, limit);
+}
+
 async function loadTaxonomyOverview(
   db: D1Database,
   pref: PrefectureCode | null = null
@@ -3537,7 +3581,13 @@ function renderAnimalCards(animals: AnimalListItem[], imageKeys: Set<string> = n
     .join("\n");
 }
 
-function renderZooAnimalDetailHtml(detail: ZooAnimalDetail, notice?: string, image?: AnimalImageRecord): string {
+function renderZooAnimalDetailHtml(
+  detail: ZooAnimalDetail,
+  notice?: string,
+  image?: AnimalImageRecord,
+  relatedAnimals: AnimalListItem[] = [],
+  imageKeys: Set<string> = new Set()
+): string {
   const escapedDisplayName = escapeHtml(detail.displayName);
   const title = detail.canonicalName && detail.canonicalName !== detail.displayName
     ? `${escapeHtml(detail.canonicalName)} | ${escapedDisplayName}`
@@ -3589,7 +3639,29 @@ function renderZooAnimalDetailHtml(detail: ZooAnimalDetail, notice?: string, ima
 
   const imageHtml = image
     ? `<img src="/animal-images/${encodeURIComponent(detail.displayName)}" alt="${escapedDisplayName}" class="animal-image" width="240" height="240">`
-    : `<div class="animal-image animal-image-empty"></div>`;
+    : "";
+
+  const relatedLabel = detail.orderName
+    ? `同じ目の動物（${escapeHtml(detail.orderName)}）`
+    : detail.className
+      ? `同じ類の動物（${escapeHtml(detail.className)}）`
+      : "";
+
+  const relatedCards = relatedAnimals.map((item) => {
+    const name = item.displayNames[0] ?? item.canonicalName ?? "";
+    const displayKey = item.displayNames.find((n) => imageKeys.has(normalizeAnimalImageKey(n)));
+    const thumb = displayKey
+      ? `<img src="/animal-images/${encodeURIComponent(displayKey)}" alt="" class="related-thumb" loading="lazy" width="72" height="72">`
+      : `<div class="related-thumb related-thumb--empty"></div>`;
+    const label = item.canonicalName ?? name;
+    return `<a href="/animal/${encodeURIComponent(name)}" class="related-card">${thumb}<span class="related-name">${escapeHtml(label)}</span></a>`;
+  }).join("");
+
+  const relatedSection = relatedAnimals.length > 0 ? `
+    <section>
+      <h2>${relatedLabel}</h2>
+      <div class="related-grid">${relatedCards}</div>
+    </section>` : "";
 
   return `<!DOCTYPE html>
 <html lang="ja">
@@ -3601,14 +3673,13 @@ function renderZooAnimalDetailHtml(detail: ZooAnimalDetail, notice?: string, ima
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
     main { display: grid; gap: 0; max-width: 880px; }
-    .hero { display: grid; grid-template-columns: 240px 1fr; gap: 1.5rem; align-items: start; padding: 1.25rem 1.5rem; }
-    .animal-image { display: block; width: 240px; height: 240px; object-fit: contain; background: #f7f7f7; border: 1px solid #e1e1e1; flex-shrink: 0; }
-    .animal-image-empty { display: none; }
+    .hero { display: grid; grid-template-columns: ${image ? "200px 1fr" : "1fr"}; gap: 1.5rem; align-items: start; padding: 1.25rem 1.5rem; }
+    .animal-image { display: block; width: 200px; height: 200px; object-fit: contain; background: #f7f7f7; border: 1px solid #e1e1e1; flex-shrink: 0; }
     .hero-info { display: grid; gap: 0.75rem; }
     .hero-name { font-size: 1.5rem; font-weight: bold; overflow-wrap: anywhere; line-height: 1.3; }
     .canonical { color: #777; font-size: 0.88rem; }
     .notice { border: 1px solid #cfe5d8; background: #f5fbf7; color: #244d37; padding: 0.6rem 0.75rem; font-size: 0.86rem; }
-.taxonomy-details { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border: 1px solid #e1e1e1; }
+    .taxonomy-details { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border: 1px solid #e1e1e1; }
     .taxonomy-details div { min-width: 0; border-right: 1px solid #e1e1e1; }
     .taxonomy-details div:last-child { border-right: 0; }
     .taxonomy-details dt { background: #f6f8f7; color: #666; font-size: 0.72rem; padding: 0.32rem 0.4rem; border-bottom: 1px solid #e1e1e1; }
@@ -3616,18 +3687,23 @@ function renderZooAnimalDetailHtml(detail: ZooAnimalDetail, notice?: string, ima
     .taxonomy-details dd a { color: #1f5b45; text-decoration: none; }
     .taxonomy-details dd a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .unclassified { color: #777; background: #f7f7f7; border: 1px solid #e1e1e1; padding: 0.55rem 0.65rem; font-size: 0.85rem; }
-section { border-top: 1px solid #ddd; padding: 1rem 1.5rem; }
+    section { border-top: 1px solid #ddd; padding: 1rem 1.5rem; }
     h2 { font-size: 1rem; margin-bottom: 0.75rem; color: #444; }
     .zoo-list { display: grid; gap: 0.45rem; list-style: none; }
     .zoo-list li { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: baseline; border: 1px solid #e1e1e1; padding: 0.65rem 0.75rem; }
     .zoo-list a { color: #1f5b45; font-weight: bold; text-decoration: none; }
     .zoo-list a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .zoo-list span { color: #777; font-size: 0.8rem; }
-footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; border-top: 1px solid #eee; }
+    .related-grid { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+    .related-card { display: flex; flex-direction: column; align-items: center; gap: 0.35rem; text-decoration: none; color: #1f5b45; border: 1px solid #e1e1e1; padding: 0.5rem 0.4rem; width: 88px; background: #fff; }
+    .related-card:hover { background: #f5fbf8; border-color: #1f5b45; }
+    .related-thumb { display: block; width: 72px; height: 72px; object-fit: contain; background: #f7f7f7; }
+    .related-thumb--empty { background: #f0f0f0; }
+    .related-name { font-size: 0.72rem; text-align: center; line-height: 1.3; overflow-wrap: anywhere; }
+    footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; border-top: 1px solid #eee; }
     @media (max-width: 640px) {
-      .hero { grid-template-columns: 1fr; justify-items: center; padding: 1rem 0.75rem; gap: 1rem; }
-      .animal-image { width: 180px; height: 180px; }
-      .hero-info { width: 100%; }
+      .hero { grid-template-columns: ${image ? "160px 1fr" : "1fr"}; padding: 1rem 0.75rem; gap: 1rem; }
+      .animal-image { width: 160px; height: 160px; }
       .hero-name { font-size: 1.3rem; }
       section { padding: 0.9rem 0.75rem; }
       .taxonomy-details { grid-template-columns: repeat(3, 1fr); }
@@ -3657,6 +3733,7 @@ ${renderGlobalNav("/animals")}
       <h2>見られる施設</h2>
       <ul class="zoo-list">${zooLinks}</ul>
     </section>
+    ${relatedSection}
   </main>
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
 </body>
@@ -5098,6 +5175,10 @@ export default {
         loadAnimalImage(env.DB, displayName),
       ]);
       if (!detail) return notFound(`動物 '${displayName}' が見つかりません`);
+      const [relatedAnimals, imageKeys] = await Promise.all([
+        loadRelatedAnimals(env.DB, detail),
+        loadAnimalImageKeys(env.DB),
+      ]);
       const llmStatus = url.searchParams.get("llm");
       const notice =
         llmStatus === "applied"
@@ -5113,7 +5194,7 @@ export default {
                 : llmStatus === "error"
                   ? "LLM分類でエラーが発生しました。"
                   : undefined;
-      const html = renderZooAnimalDetailHtml(detail, notice, image ?? undefined);
+      const html = renderZooAnimalDetailHtml(detail, notice, image ?? undefined, relatedAnimals, imageKeys);
       return htmlResponse(html, url, activePref);
     }
 

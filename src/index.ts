@@ -2443,6 +2443,52 @@ async function searchZoos(db: D1Database, pref?: string | null, animal?: string 
   });
 }
 
+async function searchZoosByTaxonomyClass(
+  db: D1Database,
+  pref: PrefectureCode | null,
+  className: string
+): Promise<ZooSearchResult[]> {
+  const prefFiltered = zoos.filter((zoo) => !pref || zoo.prefecture === pref);
+  const zooIds = prefFiltered.map((z) => z.id);
+  if (zooIds.length === 0) return [];
+
+  const [animalCounts, result] = await Promise.all([
+    loadZooAnimalCounts(db, zooIds),
+    db
+      .prepare(
+        `SELECT za.zoo_id, za.display_name
+         FROM zoo_animals za
+         LEFT JOIN animals a ON a.id = za.animal_id
+         LEFT JOIN animal_taxonomy_candidates c
+           ON c.display_name = za.display_name
+          AND za.animal_id IS NULL
+          AND c.status IN ('partial', 'pending')
+          AND c.confidence >= 0.8
+         WHERE COALESCE(a.class_name, NULLIF(c.class_name, 'null')) = ?
+           AND za.zoo_id IN (${buildPlaceholders(zooIds)})
+         ORDER BY za.zoo_id, za.display_name`
+      )
+      .bind(className, ...zooIds)
+      .all<{ zoo_id: string; display_name: string }>(),
+  ]);
+
+  const byZoo = new Map<string, string[]>();
+  for (const row of result.results ?? []) {
+    if (!byZoo.has(row.zoo_id)) byZoo.set(row.zoo_id, []);
+    byZoo.get(row.zoo_id)!.push(row.display_name);
+  }
+
+  return prefFiltered
+    .filter((zoo) => byZoo.has(zoo.id))
+    .map((zoo) => ({
+      zoo,
+      matchedAnimals: byZoo.get(zoo.id) ?? [],
+      matchedFeatures: [],
+      animalCount: animalCounts.get(zoo.id) ?? 0,
+      animalSearchAvailable: true,
+    }));
+}
+
 function toApiZoo(result: ZooSearchResult, includeMatches: boolean): Zoo & {
   matchedAnimals?: string[];
   matchedFeatures?: string[];
@@ -2519,10 +2565,11 @@ function buildBrowseUrl(pref: PrefectureCode | null, animal: string | null): str
   return query ? `/?${query}` : "/";
 }
 
-function buildMapUrl(pref: PrefectureCode | null, animal: string | null): string {
+function buildMapUrl(pref: PrefectureCode | null, animal: string | null, taxClass?: string | null): string {
   const params = new URLSearchParams();
   if (pref) params.set("pref", pref);
   if (animal) params.set("animal", animal);
+  if (taxClass) params.set("cls", taxClass);
   const query = params.toString();
   return query ? `/map?${query}` : "/map";
 }
@@ -4566,7 +4613,14 @@ ${renderGlobalNav("/compare")}
 </html>`;
 }
 
-function renderMapHtml(results: ZooSearchResult[], activePref: PrefectureCode | null, animal: string | null): string {
+const MAP_CLASS_FILTERS = ["哺乳類", "鳥類", "爬虫類", "両生類", "魚類", "軟骨魚類", "無脊椎動物"];
+
+function renderMapHtml(
+  results: ZooSearchResult[],
+  activePref: PrefectureCode | null,
+  animal: string | null,
+  taxClass: string | null = null
+): string {
   const escapedAnimal = animal ? escapeHtml(animal) : "";
 
   // Embed only the data needed for map markers; safe to embed as JSON in <script>
@@ -4584,22 +4638,32 @@ function renderMapHtml(results: ZooSearchResult[], activePref: PrefectureCode | 
   const count = results.length;
   const matchCount = results.reduce((sum, result) => sum + result.matchedAnimals.length, 0);
   const prefLabel = activePref && isPrefectureCode(activePref) ? PREF_LABELS[activePref] : "近畿一円";
-  const summary = animal
-    ? `${prefLabel} で「${escapedAnimal}」を探せる動物園・施設: ${count} 件 / 検索ヒット: ${matchCount} 件`
-    : `${prefLabel} の動物園・施設: ${count} 件`;
+  const summary = taxClass
+    ? `${prefLabel} で${escapeHtml(taxClass)}を見られる動物園・施設: ${count} 件 / ${matchCount} 種`
+    : animal
+      ? `${prefLabel} で「${escapedAnimal}」を探せる動物園・施設: ${count} 件 / 検索ヒット: ${matchCount} 件`
+      : `${prefLabel} の動物園・施設: ${count} 件`;
 
-  const resultListHtml = animal && results.length > 0
+  const showPanel = (animal || taxClass) && results.length > 0;
+
+  const resultListHtml = showPanel
     ? results.map((r) => {
-        const matched = r.matchedAnimals.map((a) => escapeHtml(a)).join("、");
-        const matchCount = r.matchedAnimals.length;
+        const matched = r.matchedAnimals.map((a) => `<a href="/animal/${encodeURIComponent(a)}">${escapeHtml(a)}</a>`).join("、");
+        const cnt = r.matchedAnimals.length;
         return `<li class="result-item" data-zoo-id="${escapeHtml(r.zoo.id)}">
           <a class="result-link" href="/zoos/${encodeURIComponent(r.zoo.id)}${activePref ? `?pref=${activePref}` : ""}">
-            <span class="result-name">${escapeHtml(r.zoo.name)}<span class="result-count">${matchCount}件</span></span>
-            <span class="result-animals">${matched}</span>
+            <span class="result-name">${escapeHtml(r.zoo.name)}<span class="result-count">${cnt}種</span></span>
           </a>
+          <p class="result-animals">${matched}</p>
         </li>`;
       }).join("\n")
     : "";
+
+  const classChips = MAP_CLASS_FILTERS.map((cls) => {
+    const active = cls === taxClass;
+    const href = active ? buildMapUrl(activePref, null) : buildMapUrl(activePref, null, cls);
+    return `<a href="${escapeHtml(href)}" class="cls-chip${active ? " cls-chip--active" : ""}">${escapeHtml(cls)}</a>`;
+  }).join("");
 
   return `<!DOCTYPE html>
 <html lang="ja">
@@ -4621,18 +4685,24 @@ function renderMapHtml(results: ZooSearchResult[], activePref: PrefectureCode | 
     .search-form button, .search-form a { font-size: 0.875rem; }
     .search-form button { border: 1px solid #1f5b45; background: #1f5b45; color: #fff; padding: 0.5rem 0.9rem; cursor: pointer; }
     .search-form a { padding: 0.5rem 0.7rem; color: #1f5b45; text-decoration: none; border: 1px solid #1f5b45; }
+    .cls-filter { display: flex; flex-wrap: wrap; gap: 0.35rem; padding: 0.5rem 1.5rem; border-bottom: 1px solid #ddd; flex-shrink: 0; }
+    .cls-chip { font-size: 0.78rem; padding: 0.25rem 0.65rem; border: 1px solid #bbb; color: #555; text-decoration: none; background: #fff; white-space: nowrap; }
+    .cls-chip:hover { border-color: #1f5b45; color: #1f5b45; }
+    .cls-chip--active { background: #1f5b45; color: #fff; border-color: #1f5b45; }
     .summary { padding: 0.4rem 1.5rem; font-size: 0.9rem; color: #666; flex-shrink: 0; }
     .map-body { flex: 1; min-height: 0; display: flex; }
     #map { flex: 1; min-height: 0; min-width: 0; }
-    .result-list-panel { width: 280px; flex-shrink: 0; border-left: 1px solid #ddd; overflow-y: auto; display: ${animal && results.length > 0 ? "block" : "none"}; }
+    .result-list-panel { width: 300px; flex-shrink: 0; border-left: 1px solid #ddd; overflow-y: auto; display: ${showPanel ? "block" : "none"}; }
     .result-list { list-style: none; }
     .result-item { border-bottom: 1px solid #eee; }
     .result-item.is-focused { background: #f0fbf4; }
-    .result-link { display: block; padding: 0.65rem 0.85rem; text-decoration: none; color: inherit; }
+    .result-link { display: block; padding: 0.55rem 0.85rem 0.3rem; text-decoration: none; color: inherit; }
     .result-link:hover { background: #f5fbf8; }
     .result-name { display: flex; align-items: baseline; gap: 0.4rem; font-size: 0.9rem; font-weight: bold; color: #1f5b45; }
     .result-count { font-size: 0.72rem; font-weight: normal; color: #888; white-space: nowrap; }
-    .result-animals { display: block; font-size: 0.75rem; color: #666; margin-top: 0.2rem; line-height: 1.45; }
+    .result-animals { font-size: 0.72rem; color: #666; line-height: 1.6; padding: 0 0.85rem 0.5rem; overflow-wrap: anywhere; }
+    .result-animals a { color: #1f5b45; text-decoration: none; }
+    .result-animals a:hover { text-decoration: underline; }
     .marker-active { filter: hue-rotate(160deg) saturate(2) brightness(1.1); }
     @media (max-width: 640px) {
       .map-toolbar { justify-content: stretch; padding: 0 0.75rem; }
@@ -4658,6 +4728,7 @@ ${renderGlobalNav("/map")}
     <button type="submit">検索</button>
     ${animal ? `<a href="${buildMapUrl(activePref, null)}">クリア</a>` : ""}
   </form>
+  <div class="cls-filter">${classChips}</div>
   <p class="summary">${summary}</p>
   <div class="map-body">
     <div id="map"></div>
@@ -5313,8 +5384,11 @@ export default {
 
     if (pathname === "/map") {
       const animal = normalizeSearchTerm(url.searchParams.get("animal"));
-      const results = await searchZoos(env.DB, activePref, animal);
-      const html = renderMapHtml(results, activePref, animal);
+      const taxClass = url.searchParams.get("cls") ?? null;
+      const results = taxClass && !animal
+        ? await searchZoosByTaxonomyClass(env.DB, activePref, taxClass)
+        : await searchZoos(env.DB, activePref, animal);
+      const html = renderMapHtml(results, activePref, animal, animal ? null : taxClass);
       return htmlResponse(html, url, activePref);
     }
 

@@ -29,11 +29,9 @@ const SCRAPER_CONFIGS: Record<string, ZooScraperConfig> = {
   "tennoji-zoo": {
     animalsUrls: [
       "https://www.tennojizoo.jp/picturebook/savanna/",
-      "https://www.tennojizoo.jp/picturebook/forest/",
+      "https://www.tennojizoo.jp/picturebook/asia/",
+      "https://www.tennojizoo.jp/picturebook/fureai/",
       "https://www.tennojizoo.jp/picturebook/bird/",
-      "https://www.tennojizoo.jp/picturebook/japan/",
-      "https://www.tennojizoo.jp/picturebook/nocturnal/",
-      "https://www.tennojizoo.jp/picturebook/hureai/",
     ],
     nameSelector: ".l-picbook-category-item .anc",
     minLength: 2,

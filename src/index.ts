@@ -167,6 +167,7 @@ interface AnimalImageGenerationSummary {
 
 type TaxonomyRank = "class" | "order" | "family" | "genus" | "species";
 type AnimalListFilter = "all" | "unclassified";
+type AnimalImageVersionIndex = Map<string, number | null>;
 
 interface TaxonomyRankConfig {
   key: TaxonomyRank;
@@ -220,6 +221,8 @@ const GEMINI_IMAGE_MODELS = [
   "gemini-3-pro-image",
 ];
 const ANIMAL_IMAGE_SIZE = 512;
+const VERSIONED_IMAGE_CACHE_CONTROL = "public, max-age=31536000, immutable";
+const UNVERSIONED_IMAGE_CACHE_CONTROL = "public, max-age=86400";
 const APPLICABLE_CLASS_NAMES = new Set(["哺乳類", "鳥類", "爬虫類", "両生類", "魚類", "昆虫類", "節足動物", "軟体動物"]);
 const ORDER_NAME_ALIASES: Record<string, string> = {
   インコ目: "オウム目",
@@ -627,6 +630,34 @@ function base64ToUint8Array(value: string): Uint8Array {
   return bytes;
 }
 
+function isVersionedImageRequest(url: URL): boolean {
+  return Boolean(url.searchParams.get("v"));
+}
+
+function animalImageCacheControl(url: URL): string {
+  return isVersionedImageRequest(url) ? VERSIONED_IMAGE_CACHE_CONTROL : UNVERSIONED_IMAGE_CACHE_CONTROL;
+}
+
+function buildAnimalImageResponse(
+  body: BodyInit | null,
+  headers: HeadersInit,
+  url: URL
+): Response {
+  const responseHeaders = new Headers(headers);
+  responseHeaders.set("Cache-Control", animalImageCacheControl(url));
+  return new Response(body, { headers: responseHeaders });
+}
+
+async function cacheResponse(
+  request: Request,
+  response: Response,
+  ctx: ExecutionContext
+): Promise<Response> {
+  if (request.method !== "GET" || response.status !== 200) return response;
+  ctx.waitUntil(caches.default.put(request, response.clone()));
+  return response;
+}
+
 function parseSourcesJson(value: string | null): Array<{ title?: string; url: string }> {
   if (!value) return [];
   try {
@@ -868,9 +899,11 @@ async function loadAnimalList(
   return buildAnimalListItems(result.results ?? []);
 }
 
-async function loadAnimalImageKeys(db: D1Database): Promise<Set<string>> {
-  const result = await db.prepare("SELECT animal_key FROM animal_images").all<{ animal_key: string }>();
-  return new Set(result.results?.map((r) => r.animal_key) ?? []);
+async function loadAnimalImageKeys(db: D1Database): Promise<AnimalImageVersionIndex> {
+  const result = await db
+    .prepare("SELECT animal_key, selected_generation_id FROM animal_images")
+    .all<{ animal_key: string; selected_generation_id: number | null }>();
+  return new Map((result.results ?? []).map((r) => [r.animal_key, r.selected_generation_id]));
 }
 
 async function loadAnimalImage(db: D1Database, displayName: string): Promise<AnimalImageRecord | null> {
@@ -2796,6 +2829,11 @@ function buildAnimalImageItemId(animalKey: string): string {
   return `animal-image-${encodeURIComponent(animalKey).replace(/%/g, "")}`;
 }
 
+function buildAnimalImageUrl(displayName: string, version?: number | null): string {
+  const url = `/animal-images/${encodeURIComponent(displayName)}`;
+  return version ? `${url}?v=${encodeURIComponent(String(version))}` : url;
+}
+
 const ADMIN_BREADCRUMB_CSS = `
     .admin-breadcrumb { display: flex; align-items: center; flex-wrap: wrap; gap: 0.2rem; font-size: 0.8rem; color: #aaa; }
     .admin-breadcrumb a { color: #1f5b45; text-decoration: none; }
@@ -3451,7 +3489,7 @@ function renderAnimalsHtml(
   animals: AnimalListItem[],
   filter: AnimalListFilter,
   activePref: PrefectureCode | null,
-  imageKeys: Set<string> = new Set()
+  imageKeys: AnimalImageVersionIndex = new Map()
 ): string {
   const items = renderAnimalCards(animals, imageKeys);
   const prefLabel = activePref ? PREF_LABELS[activePref] : "近畿一円";
@@ -3582,7 +3620,7 @@ ${renderGlobalNav("/animals")}
 </html>`;
 }
 
-function renderAnimalCards(animals: AnimalListItem[], imageKeys: Set<string> = new Set()): string {
+function renderAnimalCards(animals: AnimalListItem[], imageKeys: AnimalImageVersionIndex = new Map()): string {
   return animals
     .map((item) => {
       const zooLinks = item.zoos
@@ -3595,8 +3633,9 @@ function renderAnimalCards(animals: AnimalListItem[], imageKeys: Set<string> = n
         : escapeHtml(primaryDisplayName);
       const titleHref = primaryDisplayName ? buildZooAnimalUrl(primaryDisplayName) : buildAnimalSearchUrl(searchName);
       const imageDisplayName = item.displayNames.find((n) => imageKeys.has(normalizeAnimalImageKey(n)));
+      const imageVersion = imageDisplayName ? imageKeys.get(normalizeAnimalImageKey(imageDisplayName)) : null;
       const thumbHtml = imageDisplayName
-        ? `<img src="/animal-images/${encodeURIComponent(imageDisplayName)}" alt="" class="animal-thumb" loading="lazy" width="36" height="36">`
+        ? `<img src="${buildAnimalImageUrl(imageDisplayName, imageVersion)}" alt="" class="animal-thumb" loading="lazy" width="36" height="36">`
         : "";
       const taxonomyDetails = buildTaxonomyDisplayParts([
         ["類", item.className],
@@ -3633,7 +3672,7 @@ function renderZooAnimalDetailHtml(
   notice?: string,
   image?: AnimalImageRecord,
   relatedAnimals: AnimalListItem[] = [],
-  imageKeys: Set<string> = new Set()
+  imageKeys: AnimalImageVersionIndex = new Map()
 ): string {
   const escapedDisplayName = escapeHtml(detail.displayName);
   const title = detail.canonicalName && detail.canonicalName !== detail.displayName
@@ -3685,7 +3724,7 @@ function renderZooAnimalDetailHtml(
     .join("");
 
   const imageHtml = image
-    ? `<img src="/animal-images/${encodeURIComponent(detail.displayName)}" alt="${escapedDisplayName}" class="animal-image" width="240" height="240">`
+    ? `<img src="${buildAnimalImageUrl(detail.displayName, image.selectedGenerationId)}" alt="${escapedDisplayName}" class="animal-image" width="240" height="240">`
     : "";
 
   const relatedLabel = detail.orderName
@@ -3697,8 +3736,9 @@ function renderZooAnimalDetailHtml(
   const relatedCards = relatedAnimals.map((item) => {
     const name = item.displayNames[0] ?? item.canonicalName ?? "";
     const displayKey = item.displayNames.find((n) => imageKeys.has(normalizeAnimalImageKey(n)));
+    const imageVersion = displayKey ? imageKeys.get(normalizeAnimalImageKey(displayKey)) : null;
     const thumb = displayKey
-      ? `<img src="/animal-images/${encodeURIComponent(displayKey)}" alt="" class="related-thumb" loading="lazy" width="72" height="72">`
+      ? `<img src="${buildAnimalImageUrl(displayKey, imageVersion)}" alt="" class="related-thumb" loading="lazy" width="72" height="72">`
       : `<div class="related-thumb related-thumb--empty"></div>`;
     const label = item.canonicalName ?? name;
     return `<a href="/animal/${encodeURIComponent(name)}" class="related-card">${thumb}<span class="related-name">${escapeHtml(label)}</span></a>`;
@@ -3940,7 +3980,7 @@ function renderTaxonomyDetailHtml(
   levels: TaxonomyPathLevel[],
   childSection: TaxonomyOverviewSection | null,
   animals: AnimalListItem[],
-  imageKeys: Set<string> = new Set()
+  imageKeys: AnimalImageVersionIndex = new Map()
 ): string {
   const current = levels[levels.length - 1];
   const { rank, value } = current;
@@ -4049,12 +4089,13 @@ ${renderGlobalNav("/taxonomy")}
 </html>`;
 }
 
-function renderZooDetailHtml(zoo: Zoo, scraped: ScrapeResult, coverage: ZooCoverageStats, imageKeys: Set<string> = new Set()): string {
+function renderZooDetailHtml(zoo: Zoo, scraped: ScrapeResult, coverage: ZooCoverageStats, imageKeys: AnimalImageVersionIndex = new Map()): string {
   const prefLabel = PREF_LABELS[zoo.prefecture];
   const animalLinks = scraped.animals
     .map((animal) => {
-      const thumb = imageKeys.has(normalizeAnimalImageKey(animal))
-        ? `<img src="/animal-images/${encodeURIComponent(animal)}" alt="" class="animal-thumb" loading="lazy" width="36" height="36">`
+      const animalKey = normalizeAnimalImageKey(animal);
+      const thumb = imageKeys.has(animalKey)
+        ? `<img src="${buildAnimalImageUrl(animal, imageKeys.get(animalKey))}" alt="" class="animal-thumb" loading="lazy" width="36" height="36">`
         : `<span class="animal-thumb"></span>`;
       return `<li><a href="${buildZooAnimalUrl(animal)}">${thumb}<span>${escapeHtml(animal)}</span></a></li>`;
     })
@@ -4810,7 +4851,7 @@ function checkAdminAuth(request: Request, adminPassword: string): boolean {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const pathname = url.pathname;
     const prefParam = url.searchParams.get("pref");
@@ -5073,26 +5114,39 @@ export default {
     // Image: /animal-images/:displayName
     const animalImageMatch = pathname.match(/^\/animal-images\/(.+)$/);
     if (animalImageMatch) {
+      const cached = await caches.default.match(request);
+      if (cached) return cached;
+
       const displayName = decodeURIComponent(animalImageMatch[1]);
       const image = await loadAnimalImage(env.DB, displayName);
       if (!image) return notFound(`動物画像 '${displayName}' が見つかりません`);
       const r2Object = await env.IMAGES.get(image.animalKey);
       if (r2Object) {
-        return new Response(r2Object.body, {
-          headers: {
-            "Content-Type": r2Object.httpMetadata?.contentType ?? image.mimeType,
-            "Cache-Control": "public, max-age=86400",
+        return cacheResponse(
+          request,
+          buildAnimalImageResponse(
+            r2Object.body,
+            {
+              "Content-Type": r2Object.httpMetadata?.contentType ?? image.mimeType,
+              "X-Animal-Image-Key": image.animalKey,
+            },
+            url
+          ),
+          ctx
+        );
+      }
+      return cacheResponse(
+        request,
+        buildAnimalImageResponse(
+          base64ToUint8Array(image.imageBase64),
+          {
+            "Content-Type": image.mimeType,
             "X-Animal-Image-Key": image.animalKey,
           },
-        });
-      }
-      return new Response(base64ToUint8Array(image.imageBase64), {
-        headers: {
-          "Content-Type": image.mimeType,
-          "Cache-Control": "public, max-age=86400",
-          "X-Animal-Image-Key": image.animalKey,
-        },
-      });
+          url
+        ),
+        ctx
+      );
     }
 
     // JSON API: generate shared animal images

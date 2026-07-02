@@ -22,6 +22,7 @@
 | `GET /taxonomy/:class/:order/:family/:genus/:species` | 分類階層を URL にした動物一覧 HTML（途中階層まででも可） |
 | `GET /map` | 動物園位置を地図で表示 HTML（都道府県・動物名での絞り込み可） |
 | `GET /animal-images` | 動物名ごとの画像生成・選択管理 HTML。一覧上で共通モデルを選び、生成履歴から使用画像を選択する |
+| `GET /admin/scrape-health` | スクレイピングの取得件数・エラー・警告を確認する管理 HTML |
 | `GET /zoos/:id` | 動物園ごとの詳細 HTML ページ（地図付き） |
 | `GET /api/zoos` | 全動物園を JSON で返す |
 | `GET /api/zoos?pref=osaka` | 都道府県コードで絞り込んだ動物園を返す |
@@ -143,6 +144,7 @@ npm run typecheck
 | `animal_image_generations` | Gemini で生成した画像履歴。生成した全画像を残し、`animal_images.selected_generation_id` で使用画像を選ぶ |
 | `animal_scrape_results` | 施設ごとのスクレイピング日時とエラー情報 |
 | `animal_scrape_diffs` | 前回取得との差分（追加・削除・表記変更らしきペア）を履歴として保存 |
+| `animal_scrape_warnings` | スクレイピング結果の 0 件、期待最小件数割れ、前回比大幅減、削除差分過多、取得エラーを履歴として保存 |
 
 分類マスタは `src/animal-taxonomy.ts` のゆるい分類ルールから投入します。`animals` は種まで特定できるものだけを保持し、属・種まで判断できない公式表示名は `zoo_animals.animal_id` を `NULL` のまま保持します。例えば `ユキヒョウ` は `ヒョウ属 + ユキヒョウ`、`アムールヒョウ` は `ヒョウ属 + ヒョウ` として別の種に紐づけます。
 

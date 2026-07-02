@@ -83,11 +83,29 @@ interface ZooCoverageStats {
 }
 
 type ScrapeDiffType = "added" | "removed" | "renamed";
+type ScrapeWarningType = "scrape_error" | "empty_result" | "below_minimum" | "sharp_drop" | "high_removal_count";
 
 interface ScrapeDiffRecord {
   type: ScrapeDiffType;
   previousDisplayName: string | null;
   currentDisplayName: string | null;
+}
+
+interface ScrapeWarningRecord {
+  type: ScrapeWarningType;
+  message: string;
+  previousCount: number | null;
+  currentCount: number;
+  thresholdCount: number | null;
+}
+
+interface ScrapeHealthItem {
+  zoo: Zoo;
+  scrapedAt: string | null;
+  error: string | null;
+  animalCount: number;
+  warningCount: number;
+  warningMessages: string[];
 }
 
 interface ClassifyResult {
@@ -223,6 +241,11 @@ const GEMINI_IMAGE_MODELS = [
 const ANIMAL_IMAGE_SIZE = 512;
 const VERSIONED_IMAGE_CACHE_CONTROL = "public, max-age=31536000, immutable";
 const UNVERSIONED_IMAGE_CACHE_CONTROL = "public, max-age=86400";
+const SCRAPE_DROP_RATIO_WARNING = 0.2;
+const SCRAPE_REMOVAL_COUNT_WARNING = 10;
+const SCRAPE_MIN_COUNTS: Partial<Record<string, number>> = {
+  "tennoji-zoo": 80,
+};
 const APPLICABLE_CLASS_NAMES = new Set(["哺乳類", "鳥類", "爬虫類", "両生類", "魚類", "昆虫類", "節足動物", "軟体動物"]);
 const ORDER_NAME_ALIASES: Record<string, string> = {
   インコ目: "オウム目",
@@ -355,6 +378,74 @@ function buildScrapeDiffs(previousAnimals: string[], currentAnimals: string[]): 
     }));
 
   return [...addedDiffs, ...removedDiffs, ...renamed];
+}
+
+function buildScrapeWarnings(
+  zooId: string,
+  result: ScrapeResult,
+  previousAnimals: string[],
+  diffs: ScrapeDiffRecord[]
+): ScrapeWarningRecord[] {
+  const previousCount = uniqueDisplayNames(previousAnimals).length;
+  const currentCount = uniqueDisplayNames(result.animals).length;
+  const warnings: ScrapeWarningRecord[] = [];
+
+  if (result.error) {
+    warnings.push({
+      type: "scrape_error",
+      message: `スクレイプエラー: ${result.error}`,
+      previousCount,
+      currentCount,
+      thresholdCount: null,
+    });
+  }
+
+  if (currentCount === 0) {
+    warnings.push({
+      type: "empty_result",
+      message: "取得結果が 0 件です",
+      previousCount,
+      currentCount,
+      thresholdCount: 1,
+    });
+  }
+
+  const minimumCount = SCRAPE_MIN_COUNTS[zooId];
+  if (minimumCount !== undefined && currentCount < minimumCount) {
+    warnings.push({
+      type: "below_minimum",
+      message: `取得件数 ${currentCount} 件が期待最小 ${minimumCount} 件を下回っています`,
+      previousCount,
+      currentCount,
+      thresholdCount: minimumCount,
+    });
+  }
+
+  if (previousCount > 0) {
+    const dropThreshold = Math.floor(previousCount * (1 - SCRAPE_DROP_RATIO_WARNING));
+    if (currentCount < dropThreshold) {
+      warnings.push({
+        type: "sharp_drop",
+        message: `前回 ${previousCount} 件から ${currentCount} 件へ大幅に減少しています`,
+        previousCount,
+        currentCount,
+        thresholdCount: dropThreshold,
+      });
+    }
+  }
+
+  const removedCount = diffs.filter((diff) => diff.type === "removed").length;
+  if (removedCount >= SCRAPE_REMOVAL_COUNT_WARNING) {
+    warnings.push({
+      type: "high_removal_count",
+      message: `削除差分が ${removedCount} 件あります`,
+      previousCount,
+      currentCount,
+      thresholdCount: SCRAPE_REMOVAL_COUNT_WARNING,
+    });
+  }
+
+  return warnings;
 }
 
 function uniqueTaxonomies(taxonomies: AnimalTaxonomy[]): AnimalTaxonomy[] {
@@ -817,6 +908,57 @@ async function loadZooCoverage(db: D1Database, zooId: string): Promise<ZooCovera
     partial: row?.partial ?? 0,
     unclassified: row?.unclassified ?? 0,
   };
+}
+
+async function loadScrapeHealth(db: D1Database): Promise<ScrapeHealthItem[]> {
+  const zooIds = zoos.map((zoo) => zoo.id);
+  const [scrapeRows, countRows, warningRows] = await Promise.all([
+    db
+      .prepare(
+        `SELECT zoo_id, scraped_at, error
+         FROM animal_scrape_results`
+      )
+      .all<{ zoo_id: string; scraped_at: string; error: string | null }>(),
+    db
+      .prepare(
+        `SELECT zoo_id, COUNT(DISTINCT display_name) AS animal_count
+         FROM zoo_animals
+         GROUP BY zoo_id`
+      )
+      .all<{ zoo_id: string; animal_count: number }>(),
+    db
+      .prepare(
+        `SELECT
+           w.zoo_id,
+           COUNT(*) AS warning_count,
+           GROUP_CONCAT(w.message, '\n') AS warning_messages
+         FROM animal_scrape_warnings w
+         JOIN animal_scrape_results r
+           ON r.zoo_id = w.zoo_id
+          AND r.scraped_at = w.scraped_at
+         WHERE w.zoo_id IN (${buildPlaceholders(zooIds)})
+         GROUP BY w.zoo_id`
+      )
+      .bind(...zooIds)
+      .all<{ zoo_id: string; warning_count: number; warning_messages: string | null }>(),
+  ]);
+
+  const scrapeByZoo = new Map((scrapeRows.results ?? []).map((row) => [row.zoo_id, row]));
+  const countsByZoo = new Map((countRows.results ?? []).map((row) => [row.zoo_id, row.animal_count]));
+  const warningsByZoo = new Map((warningRows.results ?? []).map((row) => [row.zoo_id, row]));
+
+  return zoos.map((zoo) => {
+    const scrape = scrapeByZoo.get(zoo.id);
+    const warnings = warningsByZoo.get(zoo.id);
+    return {
+      zoo,
+      scrapedAt: scrape?.scraped_at ?? null,
+      error: scrape?.error ?? null,
+      animalCount: countsByZoo.get(zoo.id) ?? 0,
+      warningCount: warnings?.warning_count ?? 0,
+      warningMessages: warnings?.warning_messages?.split("\n").filter(Boolean) ?? [],
+    };
+  });
 }
 
 function buildAnimalListItems(rows: AnimalListRow[]): AnimalListItem[] {
@@ -2267,6 +2409,7 @@ async function saveScrapeResult(db: D1Database, result: ScrapeResult): Promise<v
     .all<{ display_name: string }>();
   const previousAnimals = (previousRows.results ?? []).map((row) => row.display_name);
   const diffs = buildScrapeDiffs(previousAnimals, result.animals);
+  const warnings = buildScrapeWarnings(result.zooId, result, previousAnimals, diffs);
   const taxonomies = result.animals.flatMap((animal) => {
     const taxonomy = findAnimalTaxonomy(animal);
     return taxonomy ? [taxonomy] : [];
@@ -2316,6 +2459,30 @@ async function saveScrapeResult(db: D1Database, result: ScrapeResult): Promise<v
           diff.type,
           diff.previousDisplayName,
           diff.currentDisplayName
+        )
+    ),
+    ...warnings.map((warning) =>
+      db
+        .prepare(
+          `INSERT INTO animal_scrape_warnings (
+            zoo_id,
+            scraped_at,
+            warning_type,
+            message,
+            previous_count,
+            current_count,
+            threshold_count
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          result.zooId,
+          result.scrapedAt,
+          warning.type,
+          warning.message,
+          warning.previousCount,
+          warning.currentCount,
+          warning.thresholdCount
         )
     ),
     db
@@ -2890,7 +3057,90 @@ ${renderGlobalNav("/admin")}
           <small>動物画像の生成・選択を管理する</small>
         </a>
       </li>
+      <li>
+        <a href="/admin/scrape-health">
+          スクレイプ監視
+          <small>取得件数の急減・エラー・期待件数割れを確認する</small>
+        </a>
+      </li>
     </ul>
+  </main>
+</body>
+</html>`;
+}
+
+function renderScrapeHealthAdminHtml(items: ScrapeHealthItem[]): string {
+  const rows = items
+    .map((item) => {
+      const statusClass = item.error ? "error" : item.warningCount > 0 ? "warning" : "ok";
+      const statusLabel = item.error ? "エラー" : item.warningCount > 0 ? "警告" : "正常";
+      const warnings = item.warningMessages.length > 0
+        ? `<ul>${item.warningMessages.map((message) => `<li>${escapeHtml(message)}</li>`).join("")}</ul>`
+        : "-";
+      const refreshed = item.scrapedAt ? formatDateTime(item.scrapedAt) : "-";
+      return `
+        <tr class="${statusClass}">
+          <th scope="row"><a href="/zoos/${encodeURIComponent(item.zoo.id)}">${escapeHtml(item.zoo.name)}</a></th>
+          <td><span class="status">${statusLabel}</span></td>
+          <td>${item.animalCount}</td>
+          <td>${refreshed}</td>
+          <td>${item.error ? escapeHtml(item.error) : warnings}</td>
+          <td><a href="/api/zoos/${encodeURIComponent(item.zoo.id)}/animals?refresh=1">再取得</a></td>
+        </tr>`;
+    })
+    .join("");
+  const warningCount = items.filter((item) => item.error || item.warningCount > 0).length;
+
+  return `<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>スクレイプ監視 | 近畿動物園情報</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
+    main { max-width: 1120px; margin: 0 auto; padding: 1.25rem 1.5rem 2rem; display: grid; gap: 1rem; }
+    h1 { font-size: 1.2rem; }
+    .summary { color: #555; font-size: 0.9rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+    th, td { border-bottom: 1px solid #e5e5e5; padding: 0.65rem 0.5rem; text-align: left; vertical-align: top; }
+    thead th { color: #666; font-size: 0.78rem; background: #f7faf8; }
+    tbody th { font-weight: normal; }
+    tbody tr.warning { background: #fff9e8; }
+    tbody tr.error { background: #fff0f0; }
+    .status { display: inline-block; min-width: 3.4rem; border-radius: 999px; padding: 0.16rem 0.5rem; text-align: center; font-size: 0.78rem; background: #edf7ef; color: #1f5b45; }
+    tr.warning .status { background: #fff1bf; color: #765000; }
+    tr.error .status { background: #ffd6d6; color: #8a1f1f; }
+    td ul { padding-left: 1.1rem; }
+    td a, th a { color: #1f5b45; }
+    @media (max-width: 720px) {
+      main { padding: 1rem 0.75rem; }
+      table { font-size: 0.8rem; }
+      th, td { padding: 0.5rem 0.35rem; }
+    }${ADMIN_BREADCRUMB_CSS}
+  </style>
+</head>
+<body>
+${renderSiteHeader()}
+${renderGlobalNav("/admin")}
+  <main>
+    ${renderAdminBreadcrumb([{ label: "スクレイプ監視" }])}
+    <h1>スクレイプ監視</h1>
+    <p class="summary">警告あり: ${warningCount} / ${items.length} 施設</p>
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">施設</th>
+          <th scope="col">状態</th>
+          <th scope="col">件数</th>
+          <th scope="col">最終取得</th>
+          <th scope="col">警告・エラー</th>
+          <th scope="col">操作</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
   </main>
 </body>
 </html>`;
@@ -5236,6 +5486,12 @@ export default {
     // HTML: /admin
     if (pathname === "/admin") {
       return htmlResponse(renderAdminTopHtml(), url, activePref);
+    }
+
+    // HTML: /admin/scrape-health
+    if (pathname === "/admin/scrape-health") {
+      const items = await loadScrapeHealth(env.DB);
+      return htmlResponse(renderScrapeHealthAdminHtml(items), url, activePref);
     }
 
     // HTML: /admin/animal-taxonomy

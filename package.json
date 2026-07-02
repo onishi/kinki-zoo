@@ -17,8 +17,7 @@
     "typecheck": "npx tsc --noEmit"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20240529.0",
     "typescript": "^5.7.0",
-    "wrangler": "^3.0.0"
+    "wrangler": "^4.105.0"
   }
 }

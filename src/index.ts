@@ -4890,6 +4890,7 @@ function renderZooDetailHtml(
     })
     .join("\n");
   const updatedAt = new Date(scraped.scrapedAt).toLocaleString("ja-JP");
+  const shortUpdatedAt = new Date(scraped.scrapedAt).toLocaleDateString("ja-JP");
   const animalListHtml =
     scraped.animals.length > 0
       ? `${classFilterHtml}<ul class="animal-links" id="zoo-animal-list">${animalLinks}</ul>`
@@ -4902,6 +4903,20 @@ function renderZooDetailHtml(
         <div><dt>未分類</dt><dd>${coverage.unclassified}</dd></div>
       </dl>`
     : "";
+  const quickFacts = [
+    ["動物種数", scraped.animals.length > 0 ? `${scraped.animals.length} 種` : "未取得"],
+    ["地域", prefLabel],
+    ["開園時間", zoo.openingHours],
+    ["入園料", zoo.admission],
+    ["最終取得", scraped.scrapedAt ? shortUpdatedAt : "未取得"],
+  ];
+  const quickFactsHtml = `<dl class="quick-facts">
+    ${quickFacts
+      .map(
+        ([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`
+      )
+      .join("")}
+  </dl>`;
 
   return `<!DOCTYPE html>
 <html lang="ja">
@@ -4925,6 +4940,10 @@ function renderZooDetailHtml(
     .hero-actions a { display: inline-flex; min-height: 40px; align-items: center; border: 1px solid #1f5b45; padding: 0.45rem 0.8rem; text-decoration: none; font-size: 0.86rem; }
     .primary-link { background: #1f5b45; color: #fff; }
     .secondary-link { background: #fff; color: #1f5b45; }
+    .quick-facts { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.5rem; margin-bottom: 0.85rem; }
+    .quick-facts div { min-width: 0; border: 1px solid #e0e8e3; background: #f8fbf9; padding: 0.55rem 0.65rem; }
+    .quick-facts dt { color: #66756b; font-size: 0.72rem; margin-bottom: 0.18rem; }
+    .quick-facts dd { color: #222; font-size: 0.86rem; font-weight: bold; line-height: 1.35; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
     .info-table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }
     .info-table th, .info-table td { border: 1px solid #ddd; padding: 0.45rem 0.55rem; text-align: left; vertical-align: top; font-size: 0.86rem; }
     .info-table th { width: 8em; background: #f7f7f7; color: #666; font-weight: bold; }
@@ -4964,6 +4983,7 @@ function renderZooDetailHtml(
       .section { padding: 0.75rem; }
       .zoo-title-row { display: grid; gap: 0.75rem; }
       .hero-actions { justify-content: flex-start; }
+      .quick-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .info-table, .info-table tbody, .info-table tr, .info-table th, .info-table td { display: block; width: 100%; }
       .info-table tr { border: 1px solid #ddd; border-bottom: 0; }
       .info-table tr:last-child { border-bottom: 1px solid #ddd; }
@@ -4996,6 +5016,7 @@ ${renderGlobalNav("/")}
           <a class="secondary-link" href="${buildMapUrl(zoo.prefecture, null)}#zoo-${escapeHtml(zoo.id)}">地図で見る</a>
         </div>
       </div>
+      ${quickFactsHtml}
       <table class="info-table">
         <tbody>
           <tr><th scope="row">都道府県</th><td>${prefLabel}</td></tr>

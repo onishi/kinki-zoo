@@ -23,6 +23,7 @@
 | `GET /map` | 動物園位置を地図で表示 HTML（都道府県・動物名での絞り込み可） |
 | `GET /animal-images` | 動物名ごとの画像生成・選択管理 HTML。一覧上で共通モデルを選び、生成履歴から使用画像を選択する |
 | `GET /admin/scrape-health` | スクレイピングの取得件数・エラー・警告を確認する管理 HTML |
+| `GET /admin/scrape-history` | スクレイピングごとの追加・削除・名称変更候補・警告を確認する管理 HTML |
 | `GET /zoos/:id` | 動物園ごとの詳細 HTML ページ（地図付き） |
 | `GET /api/zoos` | 全動物園を JSON で返す |
 | `GET /api/zoos?pref=osaka` | 都道府県コードで絞り込んだ動物園を返す |

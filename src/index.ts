@@ -111,6 +111,25 @@ interface ScrapeHealthItem {
   animalCount: number;
   warningCount: number;
   warningMessages: string[];
+  addedCount: number;
+  removedCount: number;
+  renamedCount: number;
+}
+
+interface ScrapeHistoryItem {
+  zooId: string;
+  zooName: string;
+  scrapedAt: string;
+  error: string | null;
+  animalCount: number;
+  addedCount: number;
+  removedCount: number;
+  renamedCount: number;
+  warningCount: number;
+  warningMessages: string[];
+  addedNames: string[];
+  removedNames: string[];
+  renamedPairs: Array<{ previous: string; current: string }>;
 }
 
 interface ClassifyResult {
@@ -942,7 +961,7 @@ async function loadZooAnimalTaxonomyIndex(db: D1Database, zooId: string): Promis
 
 async function loadScrapeHealth(db: D1Database): Promise<ScrapeHealthItem[]> {
   const zooIds = zoos.map((zoo) => zoo.id);
-  const [scrapeRows, countRows, warningRows] = await Promise.all([
+  const [scrapeRows, countRows, warningRows, diffRows] = await Promise.all([
     db
       .prepare(
         `SELECT zoo_id, scraped_at, error
@@ -971,15 +990,33 @@ async function loadScrapeHealth(db: D1Database): Promise<ScrapeHealthItem[]> {
       )
       .bind(...zooIds)
       .all<{ zoo_id: string; warning_count: number; warning_messages: string | null }>(),
+    db
+      .prepare(
+        `SELECT
+           d.zoo_id,
+           SUM(CASE WHEN d.diff_type = 'added' THEN 1 ELSE 0 END) AS added_count,
+           SUM(CASE WHEN d.diff_type = 'removed' THEN 1 ELSE 0 END) AS removed_count,
+           SUM(CASE WHEN d.diff_type = 'renamed' THEN 1 ELSE 0 END) AS renamed_count
+         FROM animal_scrape_diffs d
+         JOIN animal_scrape_results r
+           ON r.zoo_id = d.zoo_id
+          AND r.scraped_at = d.scraped_at
+         WHERE d.zoo_id IN (${buildPlaceholders(zooIds)})
+         GROUP BY d.zoo_id`
+      )
+      .bind(...zooIds)
+      .all<{ zoo_id: string; added_count: number; removed_count: number; renamed_count: number }>(),
   ]);
 
   const scrapeByZoo = new Map((scrapeRows.results ?? []).map((row) => [row.zoo_id, row]));
   const countsByZoo = new Map((countRows.results ?? []).map((row) => [row.zoo_id, row.animal_count]));
   const warningsByZoo = new Map((warningRows.results ?? []).map((row) => [row.zoo_id, row]));
+  const diffsByZoo = new Map((diffRows.results ?? []).map((row) => [row.zoo_id, row]));
 
   return zoos.map((zoo) => {
     const scrape = scrapeByZoo.get(zoo.id);
     const warnings = warningsByZoo.get(zoo.id);
+    const diffs = diffsByZoo.get(zoo.id);
     return {
       zoo,
       scrapedAt: scrape?.scraped_at ?? null,
@@ -987,6 +1024,137 @@ async function loadScrapeHealth(db: D1Database): Promise<ScrapeHealthItem[]> {
       animalCount: countsByZoo.get(zoo.id) ?? 0,
       warningCount: warnings?.warning_count ?? 0,
       warningMessages: warnings?.warning_messages?.split("\n").filter(Boolean) ?? [],
+      addedCount: diffs?.added_count ?? 0,
+      removedCount: diffs?.removed_count ?? 0,
+      renamedCount: diffs?.renamed_count ?? 0,
+    };
+  });
+}
+
+async function loadScrapeHistory(db: D1Database, limit: number): Promise<ScrapeHistoryItem[]> {
+  const safeLimit = Math.max(1, Math.min(limit, 100));
+  const [scrapeRows, diffRows, warningRows] = await Promise.all([
+    db
+      .prepare(
+        `WITH runs AS (
+           SELECT zoo_id, scraped_at FROM animal_scrape_results
+           UNION
+           SELECT zoo_id, scraped_at FROM animal_scrape_diffs
+           UNION
+           SELECT zoo_id, scraped_at FROM animal_scrape_warnings
+         )
+         SELECT
+           runs.zoo_id,
+           runs.scraped_at,
+           r.error,
+           COUNT(DISTINCT za.display_name) AS animal_count
+         FROM runs
+         LEFT JOIN animal_scrape_results r
+           ON r.zoo_id = runs.zoo_id
+          AND r.scraped_at = runs.scraped_at
+         LEFT JOIN zoo_animals za
+           ON za.zoo_id = runs.zoo_id
+          AND r.scraped_at = runs.scraped_at
+         GROUP BY runs.zoo_id, runs.scraped_at, r.error
+         ORDER BY runs.scraped_at DESC
+         LIMIT ?`
+      )
+      .bind(safeLimit)
+      .all<{ zoo_id: string; scraped_at: string; error: string | null; animal_count: number }>(),
+    db
+      .prepare(
+        `SELECT zoo_id, scraped_at, diff_type, previous_display_name, current_display_name
+         FROM animal_scrape_diffs
+         WHERE scraped_at IN (
+           SELECT scraped_at
+           FROM (
+             SELECT scraped_at FROM animal_scrape_results
+             UNION
+             SELECT scraped_at FROM animal_scrape_diffs
+             UNION
+             SELECT scraped_at FROM animal_scrape_warnings
+           )
+           ORDER BY scraped_at DESC
+           LIMIT ?
+         )
+         ORDER BY id`
+      )
+      .bind(safeLimit)
+      .all<{
+        zoo_id: string;
+        scraped_at: string;
+        diff_type: ScrapeDiffType;
+        previous_display_name: string | null;
+        current_display_name: string | null;
+      }>(),
+    db
+      .prepare(
+        `SELECT zoo_id, scraped_at, message, current_count
+         FROM animal_scrape_warnings
+         WHERE scraped_at IN (
+           SELECT scraped_at
+           FROM (
+             SELECT scraped_at FROM animal_scrape_results
+             UNION
+             SELECT scraped_at FROM animal_scrape_diffs
+             UNION
+             SELECT scraped_at FROM animal_scrape_warnings
+           )
+           ORDER BY scraped_at DESC
+           LIMIT ?
+         )
+         ORDER BY id`
+      )
+      .bind(safeLimit)
+      .all<{ zoo_id: string; scraped_at: string; message: string; current_count: number }>(),
+  ]);
+
+  const zooById = new Map(zoos.map((zoo) => [zoo.id, zoo]));
+  const keyFor = (zooId: string, scrapedAt: string) => `${zooId}\n${scrapedAt}`;
+  const diffsByRun = new Map<string, NonNullable<typeof diffRows.results>>();
+  for (const row of diffRows.results ?? []) {
+    const key = keyFor(row.zoo_id, row.scraped_at);
+    const rows = diffsByRun.get(key) ?? [];
+    rows.push(row);
+    diffsByRun.set(key, rows);
+  }
+
+  const warningsByRun = new Map<string, string[]>();
+  const warningCountsByRun = new Map<string, number>();
+  for (const row of warningRows.results ?? []) {
+    const key = keyFor(row.zoo_id, row.scraped_at);
+    const messages = warningsByRun.get(key) ?? [];
+    messages.push(row.message);
+    warningsByRun.set(key, messages);
+    warningCountsByRun.set(key, Math.max(warningCountsByRun.get(key) ?? 0, row.current_count));
+  }
+
+  return (scrapeRows.results ?? []).map((row) => {
+    const key = keyFor(row.zoo_id, row.scraped_at);
+    const diffs = diffsByRun.get(key) ?? [];
+    return {
+      zooId: row.zoo_id,
+      zooName: zooById.get(row.zoo_id)?.name ?? row.zoo_id,
+      scrapedAt: row.scraped_at,
+      error: row.error,
+      animalCount: row.animal_count || warningCountsByRun.get(key) || 0,
+      addedCount: diffs.filter((diff) => diff.diff_type === "added").length,
+      removedCount: diffs.filter((diff) => diff.diff_type === "removed").length,
+      renamedCount: diffs.filter((diff) => diff.diff_type === "renamed").length,
+      warningCount: warningsByRun.get(key)?.length ?? 0,
+      warningMessages: warningsByRun.get(key) ?? [],
+      addedNames: diffs
+        .filter((diff) => diff.diff_type === "added" && diff.current_display_name)
+        .map((diff) => diff.current_display_name as string),
+      removedNames: diffs
+        .filter((diff) => diff.diff_type === "removed" && diff.previous_display_name)
+        .map((diff) => diff.previous_display_name as string),
+      renamedPairs: diffs
+        .filter((diff) => diff.diff_type === "renamed" && diff.previous_display_name && diff.current_display_name)
+        .map((diff) => ({
+          previous: diff.previous_display_name as string,
+          current: diff.current_display_name as string,
+        })),
     };
   });
 }
@@ -3143,6 +3311,12 @@ ${renderGlobalNav("/admin")}
           <small>取得件数の急減・エラー・期待件数割れを確認する</small>
         </a>
       </li>
+      <li>
+        <a href="/admin/scrape-history">
+          データ更新履歴
+          <small>スクレイピングごとの追加・削除・警告を確認する</small>
+        </a>
+      </li>
     </ul>
   </main>
 </body>
@@ -3163,6 +3337,11 @@ function renderScrapeHealthAdminHtml(items: ScrapeHealthItem[]): string {
           <th scope="row"><a href="/zoos/${encodeURIComponent(item.zoo.id)}">${escapeHtml(item.zoo.name)}</a></th>
           <td><span class="status">${statusLabel}</span></td>
           <td>${item.animalCount}</td>
+          <td class="diff-counts">
+            <span class="diff-added">+${item.addedCount}</span>
+            <span class="diff-removed">-${item.removedCount}</span>
+            <span class="diff-renamed">名 ${item.renamedCount}</span>
+          </td>
           <td>${refreshed}</td>
           <td>${item.error ? escapeHtml(item.error) : warnings}</td>
           <td><a href="/api/zoos/${encodeURIComponent(item.zoo.id)}/animals?refresh=1">再取得</a></td>
@@ -3170,6 +3349,10 @@ function renderScrapeHealthAdminHtml(items: ScrapeHealthItem[]): string {
     })
     .join("");
   const warningCount = items.filter((item) => item.error || item.warningCount > 0).length;
+  const staleCount = items.filter((item) => !item.scrapedAt).length;
+  const totalAdded = items.reduce((sum, item) => sum + item.addedCount, 0);
+  const totalRemoved = items.reduce((sum, item) => sum + item.removedCount, 0);
+  const totalRenamed = items.reduce((sum, item) => sum + item.renamedCount, 0);
 
   return `<!DOCTYPE html>
 <html lang="ja">
@@ -3183,6 +3366,12 @@ function renderScrapeHealthAdminHtml(items: ScrapeHealthItem[]): string {
     main { max-width: 1120px; margin: 0 auto; padding: 1.25rem 1.5rem 2rem; display: grid; gap: 1rem; }
     h1 { font-size: 1.2rem; }
     .summary { color: #555; font-size: 0.9rem; }
+    .summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.65rem; }
+    .summary-card { border: 1px solid #dce7df; background: #f8fbf9; padding: 0.75rem; }
+    .summary-card dt { color: #666; font-size: 0.76rem; margin-bottom: 0.2rem; }
+    .summary-card dd { color: #222; font-size: 1.25rem; font-weight: bold; }
+    .admin-links { display: flex; flex-wrap: wrap; gap: 0.75rem; font-size: 0.86rem; }
+    .admin-links a { color: #1f5b45; }
     table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
     th, td { border-bottom: 1px solid #e5e5e5; padding: 0.65rem 0.5rem; text-align: left; vertical-align: top; }
     thead th { color: #666; font-size: 0.78rem; background: #f7faf8; }
@@ -3192,10 +3381,16 @@ function renderScrapeHealthAdminHtml(items: ScrapeHealthItem[]): string {
     .status { display: inline-block; min-width: 3.4rem; border-radius: 999px; padding: 0.16rem 0.5rem; text-align: center; font-size: 0.78rem; background: #edf7ef; color: #1f5b45; }
     tr.warning .status { background: #fff1bf; color: #765000; }
     tr.error .status { background: #ffd6d6; color: #8a1f1f; }
+    .diff-counts { white-space: nowrap; }
+    .diff-counts span { display: inline-block; margin-right: 0.45rem; font-size: 0.82rem; }
+    .diff-added { color: #1f6f3d; }
+    .diff-removed { color: #a12b2b; }
+    .diff-renamed { color: #765000; }
     td ul { padding-left: 1.1rem; }
     td a, th a { color: #1f5b45; }
     @media (max-width: 720px) {
       main { padding: 1rem 0.75rem; }
+      .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       table { font-size: 0.8rem; }
       th, td { padding: 0.5rem 0.35rem; }
     }${ADMIN_BREADCRUMB_CSS}
@@ -3207,13 +3402,21 @@ ${renderGlobalNav("/admin")}
   <main>
     ${renderAdminBreadcrumb([{ label: "スクレイプ監視" }])}
     <h1>スクレイプ監視</h1>
-    <p class="summary">警告あり: ${warningCount} / ${items.length} 施設</p>
+    <dl class="summary-grid">
+      <div class="summary-card"><dt>警告・エラー</dt><dd>${warningCount}</dd></div>
+      <div class="summary-card"><dt>未取得</dt><dd>${staleCount}</dd></div>
+      <div class="summary-card"><dt>追加 / 削除</dt><dd>+${totalAdded} / -${totalRemoved}</dd></div>
+      <div class="summary-card"><dt>名称変更候補</dt><dd>${totalRenamed}</dd></div>
+    </dl>
+    <p class="summary">最新取得に紐づく警告と差分を施設ごとに表示しています。</p>
+    <p class="admin-links"><a href="/admin/scrape-history">更新履歴を見る</a></p>
     <table>
       <thead>
         <tr>
           <th scope="col">施設</th>
           <th scope="col">状態</th>
           <th scope="col">件数</th>
+          <th scope="col">最新差分</th>
           <th scope="col">最終取得</th>
           <th scope="col">警告・エラー</th>
           <th scope="col">操作</th>
@@ -3221,6 +3424,122 @@ ${renderGlobalNav("/admin")}
       </thead>
       <tbody>${rows}</tbody>
     </table>
+  </main>
+</body>
+</html>`;
+}
+
+function renderScrapeHistoryAdminHtml(items: ScrapeHistoryItem[]): string {
+  const previewList = (values: string[], emptyLabel: string) => {
+    if (values.length === 0) return `<span class="muted">${emptyLabel}</span>`;
+    const visible = values.slice(0, 6);
+    const more = values.length - visible.length;
+    return `${visible.map((value) => `<span class="name-chip">${escapeHtml(value)}</span>`).join("")}${more > 0 ? `<span class="muted">ほか ${more} 件</span>` : ""}`;
+  };
+  const rows = items
+    .map((item) => {
+      const statusClass = item.error ? "error" : item.warningCount > 0 ? "warning" : "";
+      const warnings = item.warningMessages.length > 0
+        ? `<ul>${item.warningMessages.map((message) => `<li>${escapeHtml(message)}</li>`).join("")}</ul>`
+        : `<span class="muted">なし</span>`;
+      const renamed = item.renamedPairs.length === 0
+        ? `<span class="muted">なし</span>`
+        : item.renamedPairs
+            .slice(0, 4)
+            .map((pair) => `<span class="rename-chip">${escapeHtml(pair.previous)} → ${escapeHtml(pair.current)}</span>`)
+            .join("");
+      const hiddenRenamed = item.renamedPairs.length > 4 ? `<span class="muted">ほか ${item.renamedPairs.length - 4} 件</span>` : "";
+      return `
+        <article class="history-item ${statusClass}">
+          <header class="history-header">
+            <div>
+              <h2><a href="/zoos/${encodeURIComponent(item.zooId)}">${escapeHtml(item.zooName)}</a></h2>
+              <p>${formatDateTime(item.scrapedAt)} / ${item.animalCount} 件</p>
+            </div>
+            <dl class="diff-summary">
+              <div><dt>追加</dt><dd class="diff-added">+${item.addedCount}</dd></div>
+              <div><dt>削除</dt><dd class="diff-removed">-${item.removedCount}</dd></div>
+              <div><dt>名称変更</dt><dd class="diff-renamed">${item.renamedCount}</dd></div>
+              <div><dt>警告</dt><dd>${item.warningCount}</dd></div>
+            </dl>
+          </header>
+          ${item.error ? `<p class="error-text">取得エラー: ${escapeHtml(item.error)}</p>` : ""}
+          <div class="history-grid">
+            <section>
+              <h3>追加</h3>
+              <p>${previewList(item.addedNames, "なし")}</p>
+            </section>
+            <section>
+              <h3>削除</h3>
+              <p>${previewList(item.removedNames, "なし")}</p>
+            </section>
+            <section>
+              <h3>名称変更候補</h3>
+              <p>${renamed}${hiddenRenamed}</p>
+            </section>
+            <section>
+              <h3>警告</h3>
+              ${warnings}
+            </section>
+          </div>
+        </article>`;
+    })
+    .join("");
+  const empty = items.length === 0 ? `<p class="empty">更新履歴はまだありません。</p>` : "";
+
+  return `<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>データ更新履歴 | 近畿動物園情報</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
+    main { max-width: 1120px; margin: 0 auto; padding: 1.25rem 1.5rem 2rem; display: grid; gap: 1rem; }
+    h1 { font-size: 1.2rem; }
+    .summary { color: #555; font-size: 0.9rem; }
+    .admin-links { display: flex; flex-wrap: wrap; gap: 0.75rem; font-size: 0.86rem; }
+    .admin-links a, h2 a { color: #1f5b45; }
+    .history-list { display: grid; gap: 0.85rem; }
+    .history-item { border: 1px solid #ddd; padding: 0.9rem; display: grid; gap: 0.8rem; }
+    .history-item.warning { background: #fffaf0; border-color: #eed89a; }
+    .history-item.error { background: #fff4f4; border-color: #efb3b3; }
+    .history-header { display: flex; justify-content: space-between; gap: 1rem; align-items: start; }
+    .history-header h2 { font-size: 1rem; margin-bottom: 0.2rem; }
+    .history-header p { color: #666; font-size: 0.82rem; }
+    .diff-summary { display: grid; grid-template-columns: repeat(4, minmax(4rem, 1fr)); gap: 0.45rem; min-width: 22rem; }
+    .diff-summary div { background: #fff; border: 1px solid #e1e8e3; padding: 0.45rem; }
+    .diff-summary dt { color: #666; font-size: 0.72rem; }
+    .diff-summary dd { font-weight: bold; margin-top: 0.12rem; }
+    .diff-added { color: #1f6f3d; }
+    .diff-removed { color: #a12b2b; }
+    .diff-renamed { color: #765000; }
+    .history-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.75rem; }
+    .history-grid h3 { color: #666; font-size: 0.78rem; margin-bottom: 0.35rem; }
+    .history-grid p { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+    .history-grid ul { padding-left: 1.1rem; color: #555; font-size: 0.82rem; }
+    .name-chip, .rename-chip { display: inline-block; border: 1px solid #d7eadc; background: #fff; color: #1f5b45; padding: 0.18rem 0.45rem; font-size: 0.76rem; }
+    .rename-chip { color: #765000; border-color: #eadca6; }
+    .muted { color: #888; font-size: 0.78rem; }
+    .error-text { color: #9b1c1c; font-size: 0.86rem; }
+    .empty { color: #777; padding: 1rem; border: 1px solid #ddd; }
+    @media (max-width: 760px) {
+      main { padding: 1rem 0.75rem; }
+      .history-header { display: grid; }
+      .diff-summary, .history-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); min-width: 0; }
+    }${ADMIN_BREADCRUMB_CSS}
+  </style>
+</head>
+<body>
+${renderSiteHeader()}
+${renderGlobalNav("/admin")}
+  <main>
+    ${renderAdminBreadcrumb([{ label: "データ更新履歴" }])}
+    <h1>データ更新履歴</h1>
+    <p class="summary">直近 ${items.length} 件のスクレイピング実行から、追加・削除・名称変更候補・警告を表示します。</p>
+    <p class="admin-links"><a href="/admin/scrape-health">スクレイプ監視へ戻る</a></p>
+    ${empty || `<div class="history-list">${rows}</div>`}
   </main>
 </body>
 </html>`;
@@ -5676,6 +5995,13 @@ export default {
     if (pathname === "/admin/scrape-health") {
       const items = await loadScrapeHealth(env.DB);
       return htmlResponse(renderScrapeHealthAdminHtml(items), url, activePref);
+    }
+
+    // HTML: /admin/scrape-history
+    if (pathname === "/admin/scrape-history") {
+      const limitParam = Number.parseInt(url.searchParams.get("limit") ?? "30", 10);
+      const items = await loadScrapeHistory(env.DB, Number.isFinite(limitParam) ? limitParam : 30);
+      return htmlResponse(renderScrapeHistoryAdminHtml(items), url, activePref);
     }
 
     // HTML: /admin/animal-taxonomy

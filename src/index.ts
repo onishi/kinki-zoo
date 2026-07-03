@@ -82,6 +82,11 @@ interface ZooCoverageStats {
   unclassified: number;
 }
 
+interface ZooAnimalTaxonomyRow {
+  display_name: string;
+  class_name: string | null;
+}
+
 type ScrapeDiffType = "added" | "removed" | "renamed";
 type ScrapeWarningType = "scrape_error" | "empty_result" | "below_minimum" | "sharp_drop" | "high_removal_count";
 
@@ -908,6 +913,31 @@ async function loadZooCoverage(db: D1Database, zooId: string): Promise<ZooCovera
     partial: row?.partial ?? 0,
     unclassified: row?.unclassified ?? 0,
   };
+}
+
+async function loadZooAnimalTaxonomyIndex(db: D1Database, zooId: string): Promise<Map<string, string>> {
+  const result = await db
+    .prepare(
+      `SELECT
+         za.display_name,
+         COALESCE(a.class_name, NULLIF(c.class_name, 'null')) AS class_name
+       FROM zoo_animals za
+       LEFT JOIN animals a ON a.id = za.animal_id
+       LEFT JOIN animal_taxonomy_candidates c
+         ON c.display_name = za.display_name
+        AND za.animal_id IS NULL
+        AND c.status IN ('partial', 'pending')
+        AND c.confidence >= 0.8
+       WHERE za.zoo_id = ?`
+    )
+    .bind(zooId)
+    .all<ZooAnimalTaxonomyRow>();
+
+  return new Map(
+    (result.results ?? [])
+      .filter((row): row is { display_name: string; class_name: string } => Boolean(row.class_name))
+      .map((row) => [row.display_name, row.class_name])
+  );
 }
 
 async function loadScrapeHealth(db: D1Database): Promise<ScrapeHealthItem[]> {
@@ -2774,6 +2804,56 @@ function buildMapUrl(pref: PrefectureCode | null, animal: string | null, taxClas
   return query ? `/map?${query}` : "/map";
 }
 
+function renderExploreCards(activePref: PrefectureCode | null, facilityCount: number, totalAnimalCount: number): string {
+  const prefLabel = activePref ? PREF_LABELS[activePref] : "近畿一円";
+  const cards = [
+    {
+      href: buildMapUrl(activePref, null),
+      label: "地図で探す",
+      meta: `${prefLabel}の ${facilityCount} 施設`,
+      body: "現在地や旅行先に近い動物園を地図から探せます。",
+    },
+    {
+      href: activePref ? `/animals?pref=${activePref}` : "/animals",
+      label: "動物から探す",
+      meta: totalAnimalCount > 0 ? `登録表示名 ${totalAnimalCount} 件` : "動物一覧",
+      body: "動物名、分類、見られる施設を一覧で確認できます。",
+    },
+    {
+      href: activePref ? `/taxonomy?pref=${activePref}` : "/taxonomy",
+      label: "分類から探す",
+      meta: "類・目・科で探索",
+      body: "哺乳類、鳥類、爬虫類など、分類ツリーから動物をたどれます。",
+    },
+    {
+      href: "/compare",
+      label: "動物園を比較",
+      meta: "共通・固有の動物",
+      body: "気になる施設を選んで、見られる動物の違いを比較できます。",
+    },
+  ];
+
+  return `
+  <section class="explore-section" aria-labelledby="explore-title">
+    <div class="explore-heading">
+      <h2 id="explore-title">探し方を選ぶ</h2>
+      <p>${escapeHtml(prefLabel)}の動物園を、場所・動物・分類から探せます。</p>
+    </div>
+    <div class="explore-grid">
+      ${cards
+        .map(
+          (card) => `
+            <a class="explore-card" href="${card.href}">
+              <span>${escapeHtml(card.label)}</span>
+              <small>${escapeHtml(card.meta)}</small>
+              <em>${escapeHtml(card.body)}</em>
+            </a>`
+        )
+        .join("")}
+    </div>
+  </section>`;
+}
+
 function buildAnimalSearchUrl(animal: string): string {
   const params = new URLSearchParams({ animal });
   return `/?${params.toString()}`;
@@ -3635,6 +3715,7 @@ function renderHtml(
 
   const count = results.length;
   const matchCount = results.reduce((sum, result) => sum + result.matchedAnimals.length, 0);
+  const totalAnimalCount = results.reduce((sum, result) => sum + result.animalCount, 0);
   const prefLabel = activePref && isPrefectureCode(activePref) ? PREF_LABELS[activePref] : "近畿一円";
   const summary = animal
     ? `${prefLabel} で「${escapedAnimal}」を探せる動物園・施設: ${count} 件 / 検索ヒット: ${matchCount} 件`
@@ -3675,6 +3756,16 @@ function renderHtml(
     .search-form button, .search-form a { font-size: 0.875rem; }
     .search-form button { border: 1px solid #1f5b45; background: #1f5b45; color: #fff; padding: 0.5rem 0.9rem; cursor: pointer; }
     .search-form a { padding: 0.5rem 0.7rem; color: #1f5b45; text-decoration: none; border: 1px solid #1f5b45; }
+    .explore-section { padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; display: grid; gap: 0.85rem; }
+    .explore-heading { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; align-items: baseline; justify-content: space-between; }
+    .explore-heading h2 { font-size: 1.08rem; }
+    .explore-heading p { color: #666; font-size: 0.86rem; }
+    .explore-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.7rem; }
+    .explore-card { display: grid; gap: 0.24rem; min-height: 7rem; align-content: start; border: 1px solid #dce7df; background: #f8fbf9; color: #1f5b45; padding: 0.85rem; text-decoration: none; }
+    .explore-card:hover { background: #f1f8f3; border-color: #9bc4ab; }
+    .explore-card span { font-weight: bold; font-size: 0.98rem; }
+    .explore-card small { color: #617469; font-size: 0.76rem; }
+    .explore-card em { color: #3f4f45; font-size: 0.8rem; line-height: 1.45; font-style: normal; }
     .summary { padding: 0.75rem 1.5rem; font-size: 0.9rem; color: #666; }
     .zoo-list { padding: 1rem 1.5rem; overflow-x: auto; }
     .zoo-table { width: 100%; border-collapse: collapse; min-width: 960px; border: 1px solid #ddd; }
@@ -3700,6 +3791,10 @@ function renderHtml(
       .search-form { display: grid; grid-template-columns: 1fr auto; padding: 0.75rem; }
       .search-form input { width: 100%; max-width: none; min-width: 0; min-height: 44px; grid-column: 1 / -1; }
       .search-form button, .search-form a { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; }
+      .explore-section { padding: 0.75rem; }
+      .explore-heading { display: grid; gap: 0.25rem; }
+      .explore-grid { grid-template-columns: 1fr; gap: 0.5rem; }
+      .explore-card { min-height: 0; }
       .summary { padding: 0.7rem 0.75rem; line-height: 1.5; }
       .zoo-list { padding: 0.75rem; overflow: visible; }
       .zoo-table { min-width: 0; border: 0; }
@@ -3724,6 +3819,7 @@ ${renderGlobalNav("/")}
     <button type="submit">検索</button>
     ${animal ? `<a href="${buildBrowseUrl(activePref, null)}">クリア</a>` : ""}
   </form>
+  ${animal ? "" : renderExploreCards(activePref, count, totalAnimalCount)}
   <p class="summary">${summary}</p>
   ${zooListHtml}
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
@@ -4339,21 +4435,71 @@ ${renderGlobalNav("/taxonomy")}
 </html>`;
 }
 
-function renderZooDetailHtml(zoo: Zoo, scraped: ScrapeResult, coverage: ZooCoverageStats, imageKeys: AnimalImageVersionIndex = new Map()): string {
+function renderZooDetailHtml(
+  zoo: Zoo,
+  scraped: ScrapeResult,
+  coverage: ZooCoverageStats,
+  imageKeys: AnimalImageVersionIndex = new Map(),
+  taxonomyByAnimal: Map<string, string> = new Map()
+): string {
   const prefLabel = PREF_LABELS[zoo.prefecture];
+  const classCounts = new Map<string, number>();
+  for (const animal of scraped.animals) {
+    const className = taxonomyByAnimal.get(animal) ?? "未分類";
+    classCounts.set(className, (classCounts.get(className) ?? 0) + 1);
+  }
+  const classFilterButtons = [...classCounts.entries()]
+    .sort(([a], [b]) => (a === "未分類" ? 1 : b === "未分類" ? -1 : a.localeCompare(b, "ja-JP")))
+    .map(
+      ([className, count]) =>
+        `<button type="button" data-class-filter="${escapeHtml(className)}">${escapeHtml(className)} <span>${count}</span></button>`
+    )
+    .join("");
+  const classFilterHtml = classCounts.size > 0
+    ? `<div class="class-filters" aria-label="分類で絞り込み">
+        <button type="button" class="active" data-class-filter="all">すべて <span>${scraped.animals.length}</span></button>
+        ${classFilterButtons}
+      </div>`
+    : "";
+  const featuredAnimals = scraped.animals
+    .filter((animal) => imageKeys.has(normalizeAnimalImageKey(animal)))
+    .slice(0, 8);
+  const featuredHtml = featuredAnimals.length > 0
+    ? `<section class="section featured-section">
+        <div class="section-heading">
+          <h3>画像で見る代表動物</h3>
+          <a href="/animals?pref=${zoo.prefecture}">動物一覧へ</a>
+        </div>
+        <div class="featured-grid">
+          ${featuredAnimals
+            .map((animal) => {
+              const animalKey = normalizeAnimalImageKey(animal);
+              const className = taxonomyByAnimal.get(animal) ?? "未分類";
+              return `
+                <a class="featured-animal" href="${buildZooAnimalUrl(animal)}">
+                  <img src="${buildAnimalImageUrl(animal, imageKeys.get(animalKey))}" alt="" loading="lazy" width="96" height="96">
+                  <span>${escapeHtml(animal)}</span>
+                  <small>${escapeHtml(className)}</small>
+                </a>`;
+            })
+            .join("")}
+        </div>
+      </section>`
+    : "";
   const animalLinks = scraped.animals
     .map((animal) => {
       const animalKey = normalizeAnimalImageKey(animal);
+      const className = taxonomyByAnimal.get(animal) ?? "未分類";
       const thumb = imageKeys.has(animalKey)
         ? `<img src="${buildAnimalImageUrl(animal, imageKeys.get(animalKey))}" alt="" class="animal-thumb" loading="lazy" width="36" height="36">`
         : `<span class="animal-thumb"></span>`;
-      return `<li><a href="${buildZooAnimalUrl(animal)}">${thumb}<span>${escapeHtml(animal)}</span></a></li>`;
+      return `<li data-class="${escapeHtml(className)}"><a href="${buildZooAnimalUrl(animal)}">${thumb}<span>${escapeHtml(animal)}</span><small>${escapeHtml(className)}</small></a></li>`;
     })
     .join("\n");
   const updatedAt = new Date(scraped.scrapedAt).toLocaleString("ja-JP");
   const animalListHtml =
     scraped.animals.length > 0
-      ? `<ul class="animal-links">${animalLinks}</ul>`
+      ? `${classFilterHtml}<ul class="animal-links" id="zoo-animal-list">${animalLinks}</ul>`
       : `<p class="empty">動物一覧を取得できませんでした。公式サイトもあわせてご確認ください。</p>`;
   const coverageHtml = coverage.total > 0
     ? `<dl class="coverage-stats">
@@ -4379,6 +4525,10 @@ function renderZooDetailHtml(zoo: Zoo, scraped: ScrapeResult, coverage: ZooCover
     h2 { margin-bottom: 0.5rem; }
     h3 { font-size: 1.05rem; margin-bottom: 0.75rem; }
     .kana { color: #777; margin-bottom: 1rem; }
+    .hero-actions { display: flex; flex-wrap: wrap; gap: 0.55rem; margin: 1rem 0; }
+    .hero-actions a { display: inline-flex; min-height: 40px; align-items: center; border: 1px solid #1f5b45; padding: 0.45rem 0.8rem; text-decoration: none; font-size: 0.86rem; }
+    .primary-link { background: #1f5b45; color: #fff; }
+    .secondary-link { background: #fff; color: #1f5b45; }
     .info-table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }
     .info-table th, .info-table td { border: 1px solid #ddd; padding: 0.45rem 0.55rem; text-align: left; vertical-align: top; font-size: 0.86rem; }
     .info-table th { width: 8em; background: #f7f7f7; color: #666; font-weight: bold; }
@@ -4389,10 +4539,25 @@ function renderZooDetailHtml(zoo: Zoo, scraped: ScrapeResult, coverage: ZooCover
     .coverage-stats div { background: #f7f7f7; border: 1px solid #e0e0e0; border-radius: 4px; padding: 0.4rem 0.65rem; min-width: 6em; }
     .coverage-stats dt { font-size: 0.72rem; color: #777; margin-bottom: 0.15rem; }
     .coverage-stats dd { font-size: 1rem; font-weight: bold; color: #222; }
+    .section-heading { display: flex; justify-content: space-between; gap: 0.75rem; align-items: baseline; margin-bottom: 0.75rem; }
+    .section-heading h3 { margin: 0; }
+    .section-heading a { color: #1f5b45; font-size: 0.82rem; text-decoration: none; }
+    .section-heading a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .featured-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 0.65rem; }
+    .featured-animal { display: grid; gap: 0.25rem; min-width: 0; color: #222; text-decoration: none; }
+    .featured-animal img { width: 100%; aspect-ratio: 1; height: auto; object-fit: cover; border: 1px solid #ddd; background: #f7f7f7; }
+    .featured-animal span { color: #1f5b45; font-size: 0.86rem; font-weight: bold; overflow-wrap: anywhere; }
+    .featured-animal small { color: #777; font-size: 0.72rem; }
+    .class-filters { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.75rem; }
+    .class-filters button { min-height: 36px; border: 1px solid #cddbd2; background: #fff; color: #1f5b45; padding: 0.3rem 0.65rem; cursor: pointer; font: inherit; font-size: 0.82rem; }
+    .class-filters button.active { background: #1f5b45; border-color: #1f5b45; color: #fff; }
+    .class-filters span { opacity: 0.78; font-size: 0.72rem; }
     .animal-links { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.4rem 1rem; padding: 0; list-style: none; }
     .animal-links li { min-width: 0; }
     .animal-links a { display: flex; align-items: center; gap: 0.5rem; color: #1f5b45; border-bottom: 1px solid #e7eee9; padding: 0.35rem 0; text-decoration: none; overflow-wrap: anywhere; }
     .animal-links a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .animal-links a small { margin-left: auto; color: #777; font-size: 0.7rem; }
+    .animal-links li.is-hidden { display: none; }
     .animal-links .animal-thumb { width: 36px; height: 36px; object-fit: cover; flex-shrink: 0; border-radius: 2px; background: #f0f0f0; }
     .animal-meta { color: #777; font-size: 0.78rem; margin-top: 0.85rem; }
     .error { color: #b00020; margin-bottom: 0.75rem; }
@@ -4407,7 +4572,9 @@ function renderZooDetailHtml(zoo: Zoo, scraped: ScrapeResult, coverage: ZooCover
       .info-table th, .info-table td { border: 0; }
       .info-table th { padding-bottom: 0.2rem; }
       .info-table td { padding-top: 0.2rem; }
+      .featured-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .animal-links { grid-template-columns: 1fr; }
+      .animal-links a small { display: none; }
       #map { height: 260px; }
     }
   </style>
@@ -4423,6 +4590,10 @@ ${renderGlobalNav("/")}
     <section class="section">
       <h2>${escapeHtml(zoo.name)}</h2>
       <p class="kana">${escapeHtml(zoo.nameKana)}</p>
+      <div class="hero-actions">
+        <a class="primary-link" href="${escapeHtml(zoo.website)}" target="_blank" rel="noopener noreferrer">公式サイトを見る</a>
+        <a class="secondary-link" href="${buildMapUrl(zoo.prefecture, null)}#zoo-${escapeHtml(zoo.id)}">地図で見る</a>
+      </div>
       <table class="info-table">
         <tbody>
           <tr><th scope="row">都道府県</th><td>${prefLabel}</td></tr>
@@ -4438,6 +4609,7 @@ ${renderGlobalNav("/")}
         </tbody>
       </table>
     </section>
+    ${featuredHtml}
     <section class="section" id="animals">
       <h3>見られる動物</h3>
       ${coverageHtml}
@@ -4450,6 +4622,18 @@ ${renderGlobalNav("/")}
   </main>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script>
+    var filterButtons = document.querySelectorAll('[data-class-filter]');
+    var animalItems = document.querySelectorAll('#zoo-animal-list li[data-class]');
+    filterButtons.forEach(function(button) {
+      button.addEventListener('click', function() {
+        var active = button.dataset.classFilter;
+        filterButtons.forEach(function(item) { item.classList.toggle('active', item === button); });
+        animalItems.forEach(function(item) {
+          item.classList.toggle('is-hidden', active !== 'all' && item.dataset.class !== active);
+        });
+      });
+    });
+
     var map = L.map('map').setView([${zoo.lat}, ${zoo.lon}], 15);
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
@@ -5660,12 +5844,13 @@ export default {
       if (!zoo || (activePref && zoo.prefecture !== activePref)) {
         return notFound(`選択中の地域に動物園 '${id}' が見つかりません`);
       }
-      const [scraped, coverage, imageKeys] = await Promise.all([
+      const [scraped, coverage, imageKeys, taxonomyByAnimal] = await Promise.all([
         getAnimalResult(env.DB, id, url.searchParams.get("refresh") === "1"),
         loadZooCoverage(env.DB, id),
         loadAnimalImageKeys(env.DB),
+        loadZooAnimalTaxonomyIndex(env.DB, id),
       ]);
-      const html = renderZooDetailHtml(zoo, scraped, coverage, imageKeys);
+      const html = renderZooDetailHtml(zoo, scraped, coverage, imageKeys, taxonomyByAnimal);
       return htmlResponse(html, url, activePref);
     }
 

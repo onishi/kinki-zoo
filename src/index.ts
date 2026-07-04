@@ -5657,11 +5657,15 @@ ${renderGlobalNav("/map")}
     var resultItemsByZooId = {};
     var resultPanel = document.querySelector('.result-list-panel');
     var resultToggle = document.querySelector('.result-sheet-toggle');
-    var isMobileViewport = window.matchMedia('(max-width: ${MAP_MOBILE_BREAKPOINT}px)').matches;
-    var allowSmoothScroll = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    var isSheetOpen = !isMobileViewport;
+    var mobileViewportQuery = window.matchMedia('(max-width: ${MAP_MOBILE_BREAKPOINT}px)');
+    var reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    var isSheetOpen = !mobileViewportQuery.matches;
     var prevFocused = null;
     var prevMarker = null;
+
+    function shouldSmoothScroll() {
+      return !reducedMotionQuery.matches;
+    }
 
     function setSheetOpen(nextOpen) {
       isSheetOpen = nextOpen;
@@ -5676,16 +5680,27 @@ ${renderGlobalNav("/map")}
         setSheetOpen(!isSheetOpen);
       });
       setSheetOpen(isSheetOpen);
+      var syncSheetToViewport = function(event) {
+        setSheetOpen(!event.matches);
+      };
+      if (mobileViewportQuery.addEventListener) {
+        mobileViewportQuery.addEventListener('change', syncSheetToViewport);
+      } else if (mobileViewportQuery.addListener) {
+        mobileViewportQuery.addListener(syncSheetToViewport);
+      }
     }
 
     function activateResult(id, options) {
       options = options || {};
+      if (options.openSheet || options.scroll) {
+        setSheetOpen(true);
+      }
       var item = resultItemsByZooId[id];
       if (item) {
         if (prevFocused) prevFocused.classList.remove('is-focused');
         item.classList.add('is-focused');
         prevFocused = item;
-        if (options.scroll) item.scrollIntoView({ block: 'nearest', behavior: allowSmoothScroll ? 'smooth' : 'auto' });
+        if (options.scroll) item.scrollIntoView({ block: 'nearest', behavior: shouldSmoothScroll() ? 'smooth' : 'auto' });
       }
       if (prevMarker) {
         var prevEl = prevMarker.getElement();
@@ -5697,9 +5712,6 @@ ${renderGlobalNav("/map")}
         if (markerEl) markerEl.classList.add('marker-active');
         marker.openPopup();
         prevMarker = marker;
-      }
-      if (options.openSheet) {
-        setSheetOpen(true);
       }
     }
 

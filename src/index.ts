@@ -5512,6 +5512,7 @@ ${renderGlobalNav("/compare")}
 }
 
 const MAP_CLASS_FILTERS = ["哺乳類", "鳥類", "爬虫類", "両生類", "魚類", "軟骨魚類", "無脊椎動物"];
+const MAP_MOBILE_BREAKPOINT = 640;
 
 function renderMapHtml(
   results: ZooSearchResult[],
@@ -5604,7 +5605,7 @@ function renderMapHtml(
     .result-animals a { color: #1f5b45; text-decoration: none; }
     .result-animals a:hover { text-decoration: underline; }
     .marker-active { filter: hue-rotate(160deg) saturate(2) brightness(1.1); }
-    @media (max-width: 640px) {
+    @media (max-width: ${MAP_MOBILE_BREAKPOINT}px) {
       .map-toolbar { justify-content: stretch; padding: 0 0.75rem; }
       .list-link { display: flex; min-height: 40px; align-items: center; }
       .search-form { display: grid; grid-template-columns: 1fr auto; padding: 0.65rem 0.75rem; }
@@ -5672,7 +5673,7 @@ ${renderGlobalNav("/map")}
       resultToggle.addEventListener('click', function() {
         setSheetOpen(!isSheetOpen);
       });
-      if (window.matchMedia('(max-width: 640px)').matches) {
+      if (window.matchMedia('(max-width: ${MAP_MOBILE_BREAKPOINT}px)').matches) {
         setSheetOpen(false);
       }
     }
@@ -5684,7 +5685,7 @@ ${renderGlobalNav("/map")}
         if (prevFocused) prevFocused.classList.remove('is-focused');
         item.classList.add('is-focused');
         prevFocused = item;
-        if (options.scroll) item.scrollIntoView({ block: 'nearest' });
+        if (options.scroll) item.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       }
       if (prevMarker) {
         var prevEl = prevMarker.getElement();

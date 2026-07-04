@@ -5590,7 +5590,9 @@ function renderMapHtml(
     .summary { padding: 0.4rem 1.5rem; font-size: 0.9rem; color: #666; flex-shrink: 0; }
     .map-body { flex: 1; min-height: 0; display: flex; }
     #map { flex: 1; min-height: 0; min-width: 0; }
-    .result-list-panel { width: 300px; flex-shrink: 0; border-left: 1px solid #ddd; overflow-y: auto; display: ${showPanel ? "block" : "none"}; }
+    .result-list-panel { width: 300px; flex-shrink: 0; border-left: 1px solid #ddd; display: ${showPanel ? "flex" : "none"}; flex-direction: column; min-height: 0; }
+    .result-sheet-toggle { display: none; }
+    .result-list-scroll { flex: 1; min-height: 0; overflow-y: auto; }
     .result-list { list-style: none; }
     .result-item { border-bottom: 1px solid #eee; }
     .result-item.is-focused { background: #f0fbf4; }
@@ -5609,9 +5611,11 @@ function renderMapHtml(
       .search-form input { width: 100%; max-width: none; min-width: 0; min-height: 44px; grid-column: 1 / -1; }
       .search-form button, .search-form a { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; }
       .summary { padding: 0.45rem 0.75rem; font-size: 0.8rem; line-height: 1.4; }
-      .map-body { flex-direction: column; }
-      #map { flex: none; height: 300px; }
-      .result-list-panel { width: 100%; border-left: none; border-top: 1px solid #ddd; flex: 1; }
+      .map-body { position: relative; }
+      #map { min-height: 320px; }
+      .result-list-panel { position: absolute; left: 0; right: 0; bottom: 0; width: auto; border-left: none; border-top: 1px solid #ddd; border-radius: 14px 14px 0 0; box-shadow: 0 -4px 18px rgba(0,0,0,0.18); max-height: min(68%, 420px); background: #fff; transform: translateY(0); transition: transform 0.2s ease-in-out; }
+      .result-list-panel.is-collapsed { transform: translateY(calc(100% - 44px)); }
+      .result-sheet-toggle { display: flex; min-height: 44px; align-items: center; justify-content: center; border: 0; border-bottom: 1px solid #e8ece9; background: #fff; color: #1f5b45; font-size: 0.82rem; font-weight: bold; cursor: pointer; }
     }
   </style>
 </head>
@@ -5631,7 +5635,10 @@ ${renderGlobalNav("/map")}
   <div class="map-body">
     <div id="map"></div>
     <aside class="result-list-panel" aria-label="検索結果一覧">
-      <ul class="result-list">${resultListHtml}</ul>
+      <button type="button" class="result-sheet-toggle" aria-expanded="true">検索結果を閉じる</button>
+      <div class="result-list-scroll">
+        <ul class="result-list">${resultListHtml}</ul>
+      </div>
     </aside>
   </div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
@@ -5646,12 +5653,62 @@ ${renderGlobalNav("/map")}
       return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
     var markers = {};
+    var resultItems = {};
+    var resultPanel = document.querySelector('.result-list-panel');
+    var resultToggle = document.querySelector('.result-sheet-toggle');
+    var isSheetOpen = true;
+
+    function setSheetOpen(nextOpen) {
+      isSheetOpen = nextOpen;
+      if (!resultPanel || !resultToggle) return;
+      resultPanel.classList.toggle('is-collapsed', !isSheetOpen);
+      resultToggle.setAttribute('aria-expanded', isSheetOpen ? 'true' : 'false');
+      resultToggle.textContent = isSheetOpen ? '検索結果を閉じる' : '検索結果を開く';
+    }
+
+    if (resultToggle) {
+      resultToggle.addEventListener('click', function() {
+        setSheetOpen(!isSheetOpen);
+      });
+      if (window.matchMedia('(max-width: 640px)').matches) {
+        setSheetOpen(false);
+      }
+    }
+
+    function activateResult(id, options) {
+      options = options || {};
+      var item = resultItems[id];
+      if (item) {
+        if (prevFocused) prevFocused.classList.remove('is-focused');
+        item.classList.add('is-focused');
+        prevFocused = item;
+        if (options.scroll) item.scrollIntoView({ block: 'nearest' });
+      }
+      if (prevMarker) {
+        var prevEl = prevMarker.getElement();
+        if (prevEl) prevEl.classList.remove('marker-active');
+      }
+      var marker = markers[id];
+      if (marker) {
+        var markerEl = marker.getElement();
+        if (markerEl) markerEl.classList.add('marker-active');
+        marker.openPopup();
+        prevMarker = marker;
+      }
+      if (options.openSheet) {
+        setSheetOpen(true);
+      }
+    }
+
     zoos.forEach(function(zoo) {
       var matchLine = ${animal ? "true" : "false"} ? '<br><span>検索ヒット: ' + zoo.matchCount + ' 件</span>' : '';
       var animalCountLine = '<br><span>動物種数: ' + (zoo.animalCount > 0 ? zoo.animalCount + ' 種' : '未取得') + '</span>';
       var marker = L.marker([zoo.lat, zoo.lon])
         .bindPopup('<b><a href="/zoos/' + esc(zoo.id) + '${activePref ? `?pref=${activePref}` : ""}">' + esc(zoo.name) + '</a></b>' + matchLine + animalCountLine)
         .addTo(map);
+      marker.on('click', function() {
+        activateResult(zoo.id, { openSheet: true, scroll: true });
+      });
       markers[zoo.id] = marker;
     });
     if (zoos.length > 0) {
@@ -5661,25 +5718,19 @@ ${renderGlobalNav("/map")}
     var prevFocused = null;
     var prevMarker = null;
     document.querySelectorAll('.result-item').forEach(function(item) {
+      var id = item.dataset.zooId;
+      if (id) resultItems[id] = item;
       function activate() {
-        if (prevFocused) prevFocused.classList.remove('is-focused');
-        item.classList.add('is-focused');
-        prevFocused = item;
-        if (prevMarker) {
-          var el = prevMarker.getElement();
-          if (el) el.classList.remove('marker-active');
-        }
-        var id = item.dataset.zooId;
-        var marker = markers[id];
-        if (marker) {
-          var el = marker.getElement();
-          if (el) el.classList.add('marker-active');
-          marker.openPopup();
-          prevMarker = marker;
-        }
+        if (id) activateResult(id);
       }
       item.addEventListener('mouseenter', activate);
       item.addEventListener('focusin', activate);
+      item.addEventListener('click', function() {
+        if (id) activateResult(id, { openSheet: true });
+      });
+      item.addEventListener('touchstart', function() {
+        if (id) activateResult(id, { openSheet: true });
+      }, { passive: true });
     });
   </script>
 </body>

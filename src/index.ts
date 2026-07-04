@@ -5654,10 +5654,12 @@ ${renderGlobalNav("/map")}
       return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
     var markers = {};
-    var resultItems = {};
+    var resultItemsByZooId = {};
     var resultPanel = document.querySelector('.result-list-panel');
     var resultToggle = document.querySelector('.result-sheet-toggle');
-    var isSheetOpen = true;
+    var isMobileViewport = window.matchMedia('(max-width: ${MAP_MOBILE_BREAKPOINT}px)').matches;
+    var allowSmoothScroll = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var isSheetOpen = !isMobileViewport;
     var prevFocused = null;
     var prevMarker = null;
 
@@ -5673,19 +5675,17 @@ ${renderGlobalNav("/map")}
       resultToggle.addEventListener('click', function() {
         setSheetOpen(!isSheetOpen);
       });
-      if (window.matchMedia('(max-width: ${MAP_MOBILE_BREAKPOINT}px)').matches) {
-        setSheetOpen(false);
-      }
+      setSheetOpen(isSheetOpen);
     }
 
     function activateResult(id, options) {
       options = options || {};
-      var item = resultItems[id];
+      var item = resultItemsByZooId[id];
       if (item) {
         if (prevFocused) prevFocused.classList.remove('is-focused');
         item.classList.add('is-focused');
         prevFocused = item;
-        if (options.scroll) item.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        if (options.scroll) item.scrollIntoView({ block: 'nearest', behavior: allowSmoothScroll ? 'smooth' : 'auto' });
       }
       if (prevMarker) {
         var prevEl = prevMarker.getElement();
@@ -5720,7 +5720,7 @@ ${renderGlobalNav("/map")}
     }
     document.querySelectorAll('.result-item').forEach(function(item) {
       var id = item.dataset.zooId;
-      if (id) resultItems[id] = item;
+      if (id) resultItemsByZooId[id] = item;
       function activate() {
         if (id) activateResult(id);
       }

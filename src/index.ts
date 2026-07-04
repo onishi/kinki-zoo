@@ -5657,6 +5657,8 @@ ${renderGlobalNav("/map")}
     var resultPanel = document.querySelector('.result-list-panel');
     var resultToggle = document.querySelector('.result-sheet-toggle');
     var isSheetOpen = true;
+    var prevFocused = null;
+    var prevMarker = null;
 
     function setSheetOpen(nextOpen) {
       isSheetOpen = nextOpen;
@@ -5715,8 +5717,6 @@ ${renderGlobalNav("/map")}
       var bounds = L.latLngBounds(zoos.map(function(z) { return [z.lat, z.lon]; }));
       map.fitBounds(bounds, { padding: [40, 40] });
     }
-    var prevFocused = null;
-    var prevMarker = null;
     document.querySelectorAll('.result-item').forEach(function(item) {
       var id = item.dataset.zooId;
       if (id) resultItems[id] = item;
@@ -5728,9 +5728,6 @@ ${renderGlobalNav("/map")}
       item.addEventListener('click', function() {
         if (id) activateResult(id, { openSheet: true });
       });
-      item.addEventListener('touchstart', function() {
-        if (id) activateResult(id, { openSheet: true });
-      }, { passive: true });
     });
   </script>
 </body>

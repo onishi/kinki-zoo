@@ -212,6 +212,12 @@ type TaxonomyRank = "class" | "order" | "family" | "genus" | "species";
 type AnimalListFilter = "all" | "unclassified";
 type AnimalImageVersionIndex = Map<string, number | null>;
 
+interface FeaturedAnimal {
+  displayName: string;
+  imageVersion: number | null;
+  zooCount: number;
+}
+
 interface TaxonomyRankConfig {
   key: TaxonomyRank;
   label: string;
@@ -1245,6 +1251,38 @@ async function loadAnimalImageKeys(db: D1Database): Promise<AnimalImageVersionIn
     .prepare("SELECT animal_key, selected_generation_id FROM animal_images")
     .all<{ animal_key: string; selected_generation_id: number | null }>();
   return new Map((result.results ?? []).map((r) => [r.animal_key, r.selected_generation_id]));
+}
+
+async function loadFeaturedAnimals(
+  db: D1Database,
+  pref: PrefectureCode | null,
+  limit = 6
+): Promise<FeaturedAnimal[]> {
+  const zooIds = getZooIdsForPrefecture(pref);
+  const prefFilter = pref ? `AND za.zoo_id IN (${buildPlaceholders(zooIds)})` : "";
+  const result = await db
+    .prepare(
+      `SELECT
+         ai.animal_key,
+         ai.selected_generation_id,
+         ai.display_name,
+         COUNT(DISTINCT za.zoo_id) AS zoo_count
+       FROM animal_images ai
+       INNER JOIN zoo_animals za ON za.normalized_display_name = ai.animal_key
+       WHERE ai.selected_generation_id IS NOT NULL
+         ${prefFilter}
+       GROUP BY ai.animal_key
+       ORDER BY COUNT(DISTINCT za.zoo_id) DESC, ai.animal_key
+       LIMIT ?`
+    )
+    .bind(...(pref ? zooIds : []), limit)
+    .all<{ animal_key: string; selected_generation_id: number | null; display_name: string; zoo_count: number }>();
+
+  return (result.results ?? []).map((row) => ({
+    displayName: row.display_name,
+    imageVersion: row.selected_generation_id,
+    zooCount: row.zoo_count,
+  }));
 }
 
 async function loadAnimalImage(db: D1Database, displayName: string): Promise<AnimalImageRecord | null> {
@@ -3062,6 +3100,69 @@ function renderExploreCards(activePref: PrefectureCode | null, facilityCount: nu
   </section>`;
 }
 
+function renderSpotlightSection(
+  featuredAnimals: FeaturedAnimal[],
+  featuredZoos: ZooSearchResult[],
+  activePref: PrefectureCode | null
+): string {
+  if (featuredAnimals.length === 0 && featuredZoos.length === 0) return "";
+
+  const prefLabel = activePref ? PREF_LABELS[activePref] : "近畿一円";
+
+  const animalsHtml =
+    featuredAnimals.length > 0
+      ? `<div class="spotlight-block">
+      <div class="spotlight-sub-heading">
+        <h3>画像のある動物</h3>
+        <a href="${activePref ? `/animals?pref=${activePref}` : "/animals"}" class="spotlight-more">動物一覧へ →</a>
+      </div>
+      <div class="spotlight-animal-grid">
+        ${featuredAnimals
+          .map(
+            (animal) => `
+          <a class="spotlight-animal-card ui-card-link ui-touch-target" href="${buildZooAnimalUrl(animal.displayName)}">
+            <img src="${buildAnimalImageUrl(animal.displayName, animal.imageVersion)}" alt="" class="spotlight-animal-img" width="72" height="72" loading="lazy">
+            <span>${escapeHtml(animal.displayName)}</span>
+            <small>${animal.zooCount} 施設</small>
+          </a>`
+          )
+          .join("")}
+      </div>
+    </div>`
+      : "";
+
+  const zoosHtml =
+    featuredZoos.length > 0
+      ? `<div class="spotlight-block">
+      <div class="spotlight-sub-heading">
+        <h3>動物の多い施設</h3>
+        <a href="${activePref ? `/?pref=${activePref}` : "/"}" class="spotlight-more">施設一覧へ →</a>
+      </div>
+      <div class="spotlight-zoo-grid">
+        ${featuredZoos
+          .map(
+            (result) => `
+          <a class="spotlight-zoo-card ui-card-link ui-touch-target" href="/zoos/${encodeURIComponent(result.zoo.id)}">
+            <span>${escapeHtml(result.zoo.name)}</span>
+            ${result.animalCount > 0 ? `<small>${result.animalCount} 種</small>` : ""}
+          </a>`
+          )
+          .join("")}
+      </div>
+    </div>`
+      : "";
+
+  return `
+  <section class="spotlight-section" aria-labelledby="spotlight-title">
+    <div class="spotlight-heading">
+      <h2 id="spotlight-title">注目の動物・施設</h2>
+      <p>${escapeHtml(prefLabel)}の見どころ</p>
+    </div>
+    ${animalsHtml}
+    ${zoosHtml}
+  </section>`;
+}
+
 function buildAnimalSearchUrl(animal: string): string {
   const params = new URLSearchParams({ animal });
   return `/?${params.toString()}`;
@@ -4083,7 +4184,8 @@ ${renderGlobalNav("/admin")}
 function renderHtml(
   results: ZooSearchResult[],
   activePref: PrefectureCode | null,
-  animal: string | null
+  animal: string | null,
+  featuredAnimals: FeaturedAnimal[] = []
 ): string {
   const includeMatchSummary = Boolean(animal);
   const rows = results.map((result) => renderZooCard(result, includeMatchSummary)).join("\n");
@@ -4118,6 +4220,13 @@ function renderHtml(
   </table></div>`;
   }
 
+  const featuredZoos = animal
+    ? []
+    : [...results]
+        .filter((r) => r.animalCount > 0)
+        .sort((a, b) => b.animalCount - a.animalCount || a.zoo.name.localeCompare(b.zoo.name, "ja-JP"))
+        .slice(0, 4);
+
   return `<!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -4140,6 +4249,24 @@ function renderHtml(
     .explore-card span { font-weight: bold; font-size: 0.98rem; }
     .explore-card small { color: #617469; font-size: 0.76rem; }
     .explore-card em { color: #3f4f45; font-size: 0.8rem; line-height: 1.45; font-style: normal; }
+    .spotlight-section { padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; display: grid; gap: 0.85rem; }
+    .spotlight-heading { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; align-items: baseline; justify-content: space-between; }
+    .spotlight-heading h2 { font-size: 1.08rem; }
+    .spotlight-heading p { color: #666; font-size: 0.86rem; }
+    .spotlight-block { display: grid; gap: 0.5rem; }
+    .spotlight-sub-heading { display: flex; align-items: baseline; gap: 0.5rem; }
+    .spotlight-sub-heading h3 { font-size: 0.88rem; color: #444; font-weight: bold; }
+    .spotlight-more { font-size: 0.78rem; color: #1f5b45; text-decoration: none; margin-left: auto; }
+    .spotlight-more:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .spotlight-animal-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0.5rem; }
+    .spotlight-animal-card { display: grid; gap: 0.2rem; padding: 0.5rem; align-content: start; justify-items: center; text-align: center; }
+    .spotlight-animal-img { width: 72px; height: 72px; object-fit: cover; border-radius: 3px; background: #f0f0f0; display: block; }
+    .spotlight-animal-card span { font-size: 0.82rem; font-weight: bold; }
+    .spotlight-animal-card small { color: #617469; font-size: 0.72rem; }
+    .spotlight-zoo-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.5rem; }
+    .spotlight-zoo-card { display: grid; gap: 0.2rem; padding: 0.85rem; align-content: start; }
+    .spotlight-zoo-card span { font-weight: bold; font-size: 0.9rem; }
+    .spotlight-zoo-card small { color: #617469; font-size: 0.76rem; }
     .summary { padding: 0.75rem 1.5rem; font-size: 0.9rem; color: #666; }
     .zoo-list { padding: 1rem 1.5rem; overflow-x: auto; }
     .zoo-table { width: 100%; border-collapse: collapse; min-width: 960px; border: 1px solid #ddd; }
@@ -4169,6 +4296,10 @@ function renderHtml(
       .explore-heading { display: grid; gap: 0.25rem; }
       .explore-grid { grid-template-columns: 1fr; gap: 0.5rem; }
       .explore-card { min-height: 0; }
+      .spotlight-section { padding: 0.75rem; }
+      .spotlight-heading { display: grid; gap: 0.25rem; }
+      .spotlight-animal-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .spotlight-zoo-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .summary { padding: 0.7rem 0.75rem; line-height: 1.5; }
       .zoo-list { padding: 0.75rem; overflow: visible; }
       .zoo-table { min-width: 0; border: 0; }
@@ -4194,6 +4325,7 @@ ${renderGlobalNav("/")}
     ${animal ? `<a href="${buildBrowseUrl(activePref, null)}" class="ui-btn ui-btn--secondary ui-touch-target">クリア</a>` : ""}
   </form>
   ${animal ? "" : renderExploreCards(activePref, count, totalAnimalCount)}
+  ${animal ? "" : renderSpotlightSection(featuredAnimals, featuredZoos, activePref)}
   <p class="summary">${summary}</p>
   ${zooListHtml}
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
@@ -6401,8 +6533,11 @@ export default {
     // HTML: /
     if (pathname === "/") {
       const animal = normalizeSearchTerm(url.searchParams.get("animal"));
-      const results = await searchZoos(env.DB, activePref, animal);
-      const html = renderHtml(results, activePref, animal);
+      const [results, featuredAnimals] = await Promise.all([
+        searchZoos(env.DB, activePref, animal),
+        animal ? Promise.resolve([]) : loadFeaturedAnimals(env.DB, activePref),
+      ]);
+      const html = renderHtml(results, activePref, animal, featuredAnimals);
       return htmlResponse(html, url, activePref);
     }
 

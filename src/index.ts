@@ -2944,7 +2944,7 @@ function renderMatchedValues(label: string, values: string[]): string {
   const visibleValues = values.slice(0, 8);
   const hiddenCount = values.length - visibleValues.length;
   const chips = visibleValues
-    .map((value) => `<span class="match-chip">${escapeHtml(value)}</span>`)
+    .map((value) => `<span class="match-chip ui-chip ui-pill">${escapeHtml(value)}</span>`)
     .join("");
   const more = hiddenCount > 0 ? `<span class="match-more">ほか ${hiddenCount} 件</span>` : "";
 
@@ -3051,7 +3051,7 @@ function renderExploreCards(activePref: PrefectureCode | null, facilityCount: nu
       ${cards
         .map(
           (card) => `
-            <a class="explore-card" href="${card.href}">
+            <a class="explore-card ui-card-link ui-touch-target" href="${card.href}">
               <span>${escapeHtml(card.label)}</span>
               <small>${escapeHtml(card.meta)}</small>
               <em>${escapeHtml(card.body)}</em>
@@ -3210,6 +3210,18 @@ const COMMON_STYLES = `
     body { min-width: 0; overflow-wrap: anywhere; }
     img, svg { max-width: 100%; }
     button, input, select { font: inherit; }
+    .ui-btn { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; border: 1px solid #1f5b45; padding: 0.45rem 0.8rem; text-decoration: none; cursor: pointer; }
+    .ui-btn--primary { background: #1f5b45; color: #fff; }
+    .ui-btn--secondary { background: #fff; color: #1f5b45; }
+    .ui-card-link { display: grid; border: 1px solid #dce7df; background: #f8fbf9; color: #1f5b45; text-decoration: none; }
+    .ui-card-link:hover { background: #f1f8f3; border-color: #9bc4ab; }
+    .ui-chip { display: inline-flex; align-items: center; gap: 0.25rem; color: #2d6a4f; border: 1px solid #d3e4d8; background: #f7fbf8; padding: 0.2rem 0.45rem; font-size: 0.78rem; text-decoration: none; }
+    .ui-chip:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .ui-chip--active { background: #1f5b45; border-color: #1f5b45; color: #fff; }
+    .ui-pill { border-radius: 999px; border-color: #b7dcc3; background: #fff; color: #1b5e3b; padding: 0.18rem 0.55rem; font-weight: bold; font-size: 0.75rem; }
+    .ui-thumb { display: block; object-fit: cover; flex-shrink: 0; border-radius: 2px; background: #f0f0f0; }
+    .ui-thumb--36 { width: 36px; height: 36px; }
+    .ui-touch-target { min-height: 40px; }
     .site-header { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem 2rem; padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; }
     .site-heading { flex: 1 1 320px; min-width: 0; }
     .site-header h1 { font-size: 1.5rem; }
@@ -3227,6 +3239,7 @@ const COMMON_STYLES = `
     .page-nav { margin-bottom: 1rem; display: flex; gap: 1rem; flex-wrap: wrap; }
     .page-nav a { color: #2d6a4f; text-decoration: none; }
     @media (max-width: 640px) {
+      .ui-btn, .ui-touch-target { min-height: 44px; }
       .site-header { display: grid; gap: 0.75rem; padding: 0.75rem; }
       .site-heading { width: 100%; }
       .site-header h1 { font-size: 1.2rem; line-height: 1.35; }
@@ -3957,8 +3970,8 @@ function renderAnimalImageManageDetailHtml(
     .map((generation) => {
       const selectedBadge = generation.selected ? `<span class="selected-badge">使用中</span>` : "";
       const selectButton = generation.selected
-        ? `<button type="submit" disabled>使用中</button>`
-        : `<button type="submit">この画像を使う</button>`;
+        ? `<button type="submit" class="ui-btn ui-btn--secondary ui-touch-target" disabled>使用中</button>`
+        : `<button type="submit" class="ui-btn ui-btn--secondary ui-touch-target">この画像を使う</button>`;
       return `
         <article class="generation-card">
           <div class="generation-image">
@@ -4002,7 +4015,7 @@ ${ADMIN_BREADCRUMB_CSS}
     .field { display: grid; gap: 0.35rem; }
     .field label { color: #555; font-size: 0.82rem; font-weight: bold; }
     .field select, .field input { min-height: 42px; border: 1px solid #bbb; padding: 0.5rem 0.65rem; }
-    .generate-form button { justify-self: start; border: 1px solid #1f5b45; background: #1f5b45; color: #fff; padding: 0.55rem 0.85rem; cursor: pointer; }
+    .generate-form button { justify-self: start; }
     .hint { color: #666; font-size: 0.82rem; line-height: 1.5; }
     .gallery-section { border-top: 1px solid #ddd; padding-top: 1rem; }
     .generation-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.9rem; }
@@ -4012,7 +4025,7 @@ ${ADMIN_BREADCRUMB_CSS}
     .selected-badge { position: absolute; top: 0.45rem; left: 0.45rem; background: #1f5b45; color: #fff; font-size: 0.76rem; padding: 0.18rem 0.45rem; }
     .generation-meta { display: grid; gap: 0.2rem; font-size: 0.8rem; color: #555; }
     .generation-meta h3 { font-size: 0.9rem; color: #222; }
-    .generation-card button { width: 100%; min-height: 40px; border: 1px solid #1f5b45; background: #fff; color: #1f5b45; cursor: pointer; }
+    .generation-card button { width: 100%; }
     .generation-card button:disabled { border-color: #ccc; color: #777; background: #f7f7f7; cursor: default; }
     .empty-message { color: #777; padding: 0.75rem 0; }
     @media (max-width: 720px) {
@@ -4048,7 +4061,7 @@ ${renderGlobalNav("/admin")}
             <input id="custom-model" name="customModel" placeholder="例: gemini-2.5-flash-image">
           </div>
           <p class="hint">任意のモデル名を入力すると、上の選択より優先します。生成した画像は履歴に残り、新しい画像が使用中になります。</p>
-          <button type="submit">画像生成</button>
+          <button type="submit" class="ui-btn ui-btn--primary ui-touch-target">画像生成</button>
         </form>
       </section>
     </div>
@@ -4113,15 +4126,13 @@ function renderHtml(
     .search-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; }
     .search-form input { flex: 1 1 220px; max-width: 320px; padding: 0.55rem 0.75rem; border: 1px solid #bbb; font-size: 0.95rem; }
     .search-form button, .search-form a { font-size: 0.875rem; }
-    .search-form button { border: 1px solid #1f5b45; background: #1f5b45; color: #fff; padding: 0.5rem 0.9rem; cursor: pointer; }
-    .search-form a { padding: 0.5rem 0.7rem; color: #1f5b45; text-decoration: none; border: 1px solid #1f5b45; }
+    .search-form button, .search-form a { padding: 0.5rem 0.9rem; }
     .explore-section { padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; display: grid; gap: 0.85rem; }
     .explore-heading { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; align-items: baseline; justify-content: space-between; }
     .explore-heading h2 { font-size: 1.08rem; }
     .explore-heading p { color: #666; font-size: 0.86rem; }
     .explore-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.7rem; }
-    .explore-card { display: grid; gap: 0.24rem; min-height: 7rem; align-content: start; border: 1px solid #dce7df; background: #f8fbf9; color: #1f5b45; padding: 0.85rem; text-decoration: none; }
-    .explore-card:hover { background: #f1f8f3; border-color: #9bc4ab; }
+    .explore-card { display: grid; gap: 0.24rem; min-height: 7rem; align-content: start; padding: 0.85rem; }
     .explore-card span { font-weight: bold; font-size: 0.98rem; }
     .explore-card small { color: #617469; font-size: 0.76rem; }
     .explore-card em { color: #3f4f45; font-size: 0.8rem; line-height: 1.45; font-style: normal; }
@@ -4141,7 +4152,7 @@ function renderHtml(
     .match-row { display: grid; gap: 0.35rem; }
     .match-label { color: #456052; font-size: 0.75rem; font-weight: bold; }
     .match-values { display: flex; flex-wrap: wrap; gap: 0.35rem; }
-    .match-chip { background: #fff; color: #1b5e3b; border: 1px solid #b7dcc3; border-radius: 999px; padding: 0.18rem 0.55rem; font-size: 0.75rem; font-weight: bold; }
+    .match-chip { font-size: 0.75rem; }
     .match-more { color: #5d7166; font-size: 0.75rem; align-self: center; }
     .match-note { color: #6d756f; font-size: 0.75rem; line-height: 1.5; }
     .empty { padding: 2rem 1.5rem; color: #888; }
@@ -4175,8 +4186,8 @@ ${renderSiteHeader()}
 ${renderGlobalNav("/")}
   <form class="search-form" action="/" method="get">
     <input type="search" name="animal" value="${escapedAnimal}" placeholder="動物名で検索（例: パンダ）" aria-label="動物名で検索">
-    <button type="submit">検索</button>
-    ${animal ? `<a href="${buildBrowseUrl(activePref, null)}">クリア</a>` : ""}
+    <button type="submit" class="ui-btn ui-btn--primary ui-touch-target">検索</button>
+    ${animal ? `<a href="${buildBrowseUrl(activePref, null)}" class="ui-btn ui-btn--secondary ui-touch-target">クリア</a>` : ""}
   </form>
   ${animal ? "" : renderExploreCards(activePref, count, totalAnimalCount)}
   <p class="summary">${summary}</p>
@@ -4250,7 +4261,7 @@ function renderAnimalsHtml(
     .animal-table thead th button[data-dir="asc"]::after { content: "▲"; color: #444; }
     .animal-table thead th button[data-dir="desc"]::after { content: "▼"; color: #444; }
     .animal-name { display: flex; align-items: center; gap: 0.55rem; }
-    .animal-thumb { width: 36px; height: 36px; object-fit: cover; flex-shrink: 0; border-radius: 2px; background: #f0f0f0; }
+    .animal-thumb { width: 36px; height: 36px; }
     .animal-name a { color: #1f5b45; text-decoration: none; font-size: 0.95rem; }
     .animal-name a:hover { text-decoration: underline; }
     .taxonomy { color: #444; line-height: 1.5; }
@@ -4259,7 +4270,7 @@ function renderAnimalsHtml(
     .unclassified { color: #777; }
     .facility-count { color: #666; font-size: 0.85rem; }
     .zoo-links { display: flex; flex-wrap: wrap; gap: 0.4rem; }
-    .zoo-links a { color: #2d6a4f; border: 1px solid #d3e4d8; background: #f7fbf8; padding: 0.2rem 0.45rem; font-size: 0.78rem; text-decoration: none; }
+    .zoo-links a { font-size: 0.78rem; }
     .zoo-links a:hover { text-decoration: underline; }
     .empty { padding: 2rem 1.5rem; color: #888; }
     footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; }
@@ -4329,7 +4340,7 @@ function renderAnimalCards(animals: AnimalListItem[], imageKeys: AnimalImageVers
   return animals
     .map((item) => {
       const zooLinks = item.zoos
-        .map((zoo) => `<a href="/zoos/${encodeURIComponent(zoo.id)}">${escapeHtml(zoo.name)}</a>`)
+        .map((zoo) => `<a class="ui-chip" href="/zoos/${encodeURIComponent(zoo.id)}">${escapeHtml(zoo.name)}</a>`)
         .join("");
       const primaryDisplayName = item.displayNames[0] ?? item.canonicalName ?? "";
       const searchName = item.canonicalName ?? primaryDisplayName;
@@ -4340,7 +4351,7 @@ function renderAnimalCards(animals: AnimalListItem[], imageKeys: AnimalImageVers
       const imageDisplayName = item.displayNames.find((n) => imageKeys.has(normalizeAnimalImageKey(n)));
       const imageVersion = imageDisplayName ? imageKeys.get(normalizeAnimalImageKey(imageDisplayName)) : null;
       const thumbHtml = imageDisplayName
-        ? `<img src="${buildAnimalImageUrl(imageDisplayName, imageVersion)}" alt="" class="animal-thumb" loading="lazy" width="36" height="36">`
+        ? `<img src="${buildAnimalImageUrl(imageDisplayName, imageVersion)}" alt="" class="animal-thumb ui-thumb ui-thumb--36" loading="lazy" width="36" height="36">`
         : "";
       const taxonomyDetails = buildTaxonomyDisplayParts([
         ["類", item.className],
@@ -4443,7 +4454,7 @@ function renderZooAnimalDetailHtml(
         ${relatedDisplayNames
           .map((item) => {
             const zooLabels = item.zoos.map((zoo) => escapeHtml(zoo.name)).join("、");
-            return `<a href="${buildZooAnimalUrl(item.displayName)}" class="alias-card">
+            return `<a href="${buildZooAnimalUrl(item.displayName)}" class="alias-card ui-card-link ui-touch-target">
               <span>${escapeHtml(item.displayName)}</span>
               <small>${zooLabels}</small>
             </a>`;
@@ -4467,7 +4478,7 @@ function renderZooAnimalDetailHtml(
       : `<div class="related-thumb related-thumb--empty"></div>`;
     const label = item.canonicalName ?? name;
     const taxonomy = [item.className, item.orderName, item.familyName].filter(Boolean).join(" / ");
-    return `<a href="/animal/${encodeURIComponent(name)}" class="related-card">
+    return `<a href="/animal/${encodeURIComponent(name)}" class="related-card ui-card-link ui-touch-target">
       ${thumb}
       <span class="related-name">${escapeHtml(label)}</span>
       <small>${escapeHtml(taxonomy || `${item.zoos.length}施設`)}</small>
@@ -4514,13 +4525,11 @@ function renderZooAnimalDetailHtml(
     .zoo-list a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .zoo-list span { color: #777; font-size: 0.8rem; }
     .alias-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.55rem; }
-    .alias-card { display: grid; gap: 0.25rem; border: 1px solid #e1e1e1; padding: 0.65rem 0.75rem; color: #1f5b45; text-decoration: none; background: #fff; }
-    .alias-card:hover { background: #f5fbf8; border-color: #1f5b45; }
+    .alias-card { display: grid; gap: 0.25rem; padding: 0.65rem 0.75rem; }
     .alias-card span { font-weight: bold; overflow-wrap: anywhere; }
     .alias-card small { color: #777; font-size: 0.76rem; line-height: 1.45; }
     .related-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 0.7rem; }
-    .related-card { display: grid; gap: 0.35rem; text-decoration: none; color: #1f5b45; border: 1px solid #e1e1e1; padding: 0.55rem; background: #fff; min-width: 0; }
-    .related-card:hover { background: #f5fbf8; border-color: #1f5b45; }
+    .related-card { display: grid; gap: 0.35rem; padding: 0.55rem; min-width: 0; }
     .related-thumb { display: block; width: 100%; aspect-ratio: 1; height: auto; object-fit: cover; background: #f7f7f7; }
     .related-thumb--empty { background: #f0f0f0; }
     .related-name { font-size: 0.82rem; font-weight: bold; line-height: 1.35; overflow-wrap: anywhere; }
@@ -4624,7 +4633,7 @@ function renderTaxonomyHtml(
               ? buildTaxonomyPathUrl([value.name])
               : buildLegacyTaxonomyUrl(section.key, value.name);
           return `
-            <a class="taxonomy-link" href="${href}">
+            <a class="taxonomy-link ui-card-link ui-touch-target" href="${href}">
               <span>${escapeHtml(value.name)}</span>
               <small>${value.animal_count} 種 / ${value.zoo_count} 施設</small>
             </a>`;
@@ -4674,8 +4683,7 @@ function renderTaxonomyHtml(
     .taxonomy-section:first-child { border-top: 0; padding-top: 0; }
     .taxonomy-section h2 { font-size: 1.05rem; margin-bottom: 0.75rem; }
     .taxonomy-links { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 0.55rem; }
-    .taxonomy-link { display: grid; gap: 0.2rem; border: 1px solid #dce7df; background: #f8fbf9; color: #1f5b45; padding: 0.65rem 0.75rem; text-decoration: none; }
-    .taxonomy-link:hover { border-color: #9bc4ab; background: #f1f8f3; }
+    .taxonomy-link { display: grid; gap: 0.2rem; padding: 0.65rem 0.75rem; }
     .taxonomy-link span { font-weight: bold; overflow-wrap: anywhere; }
     .taxonomy-link small { color: #617469; font-size: 0.75rem; }
     footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; }
@@ -4731,7 +4739,7 @@ function renderTaxonomyDetailHtml(
       ? childSection.values
           .map(
             (child) => `
-              <a class="taxonomy-link" href="${buildTaxonomyUrl(levels, child.name)}">
+              <a class="taxonomy-link ui-card-link ui-touch-target" href="${buildTaxonomyUrl(levels, child.name)}">
                 <span>${escapeHtml(child.name)}</span>
                 <small>${child.animal_count} 種 / ${child.zoo_count} 施設</small>
               </a>`
@@ -4764,8 +4772,7 @@ function renderTaxonomyDetailHtml(
     .child-taxonomy { padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; }
     .child-taxonomy h2 { font-size: 1.05rem; margin-bottom: 0.75rem; }
     .taxonomy-links { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 0.55rem; }
-    .taxonomy-link { display: grid; gap: 0.2rem; border: 1px solid #dce7df; background: #f8fbf9; color: #1f5b45; padding: 0.65rem 0.75rem; text-decoration: none; }
-    .taxonomy-link:hover { border-color: #9bc4ab; background: #f1f8f3; }
+    .taxonomy-link { display: grid; gap: 0.2rem; padding: 0.65rem 0.75rem; }
     .taxonomy-link span { font-weight: bold; overflow-wrap: anywhere; }
     .taxonomy-link small { color: #617469; font-size: 0.75rem; }
     .animal-list { padding: 1rem 1.5rem; overflow-x: auto; }
@@ -4773,7 +4780,7 @@ function renderTaxonomyDetailHtml(
     .animal-table th, .animal-table td { border: none; border-bottom: 1px solid #e8e8e8; padding: 0.65rem; vertical-align: top; text-align: left; font-size: 0.84rem; }
     .animal-table thead th { background: #f7f7f7; color: #555; border-bottom: 2px solid #ddd; }
     .animal-name { display: flex; align-items: center; gap: 0.5rem; }
-    .animal-thumb { width: 40px; height: 40px; object-fit: cover; flex-shrink: 0; border-radius: 2px; background: #f0f0f0; }
+    .animal-thumb { width: 40px; height: 40px; }
     .animal-name a { color: #1f5b45; text-decoration: none; font-size: 0.98rem; }
     .animal-name a:hover { text-decoration: underline; }
     .taxonomy { color: #444; line-height: 1.5; }
@@ -4782,7 +4789,7 @@ function renderTaxonomyDetailHtml(
     .unclassified { color: #777; }
     .facility-count { color: #666; font-size: 0.85rem; }
     .zoo-links { display: flex; flex-wrap: wrap; gap: 0.4rem; }
-    .zoo-links a { color: #2d6a4f; border: 1px solid #d3e4d8; background: #f7fbf8; padding: 0.2rem 0.45rem; font-size: 0.78rem; text-decoration: none; }
+    .zoo-links a { font-size: 0.78rem; }
     .zoo-links a:hover { text-decoration: underline; }
     .empty { padding: 2rem 1.5rem; color: #888; }
     footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; }
@@ -4845,12 +4852,12 @@ function renderZooDetailHtml(
     .sort(([a], [b]) => (a === "未分類" ? 1 : b === "未分類" ? -1 : a.localeCompare(b, "ja-JP")))
     .map(
       ([className, count]) =>
-        `<button type="button" data-class-filter="${escapeHtml(className)}">${escapeHtml(className)} <span>${count}</span></button>`
+        `<button type="button" class="ui-chip ui-touch-target" data-class-filter="${escapeHtml(className)}">${escapeHtml(className)} <span>${count}</span></button>`
     )
     .join("");
   const classFilterHtml = classCounts.size > 0
     ? `<div class="class-filters" aria-label="分類で絞り込み">
-        <button type="button" class="active" data-class-filter="all">すべて <span>${scraped.animals.length}</span></button>
+        <button type="button" class="ui-chip ui-chip--active ui-touch-target active" data-class-filter="all">すべて <span>${scraped.animals.length}</span></button>
         ${classFilterButtons}
       </div>`
     : "";
@@ -4884,8 +4891,8 @@ function renderZooDetailHtml(
       const animalKey = normalizeAnimalImageKey(animal);
       const className = taxonomyByAnimal.get(animal) ?? "未分類";
       const thumb = imageKeys.has(animalKey)
-        ? `<img src="${buildAnimalImageUrl(animal, imageKeys.get(animalKey))}" alt="" class="animal-thumb" loading="lazy" width="36" height="36">`
-        : `<span class="animal-thumb"></span>`;
+        ? `<img src="${buildAnimalImageUrl(animal, imageKeys.get(animalKey))}" alt="" class="animal-thumb ui-thumb ui-thumb--36" loading="lazy" width="36" height="36">`
+        : `<span class="animal-thumb ui-thumb ui-thumb--36"></span>`;
       return `<li data-class="${escapeHtml(className)}"><a href="${buildZooAnimalUrl(animal)}">${thumb}<span>${escapeHtml(animal)}</span><small>${escapeHtml(className)}</small></a></li>`;
     })
     .join("\n");
@@ -4937,9 +4944,7 @@ function renderZooDetailHtml(
     .zoo-title-main h2 { margin-bottom: 0.25rem; }
     .kana { color: #777; }
     .hero-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.55rem; flex: 0 0 auto; }
-    .hero-actions a { display: inline-flex; min-height: 40px; align-items: center; border: 1px solid #1f5b45; padding: 0.45rem 0.8rem; text-decoration: none; font-size: 0.86rem; }
-    .primary-link { background: #1f5b45; color: #fff; }
-    .secondary-link { background: #fff; color: #1f5b45; }
+    .hero-actions a { font-size: 0.86rem; }
     .quick-facts { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.5rem; margin-bottom: 0.85rem; }
     .quick-facts div { min-width: 0; border: 1px solid #e0e8e3; background: #f8fbf9; padding: 0.55rem 0.65rem; }
     .quick-facts dt { color: #66756b; font-size: 0.72rem; margin-bottom: 0.18rem; }
@@ -4964,7 +4969,7 @@ function renderZooDetailHtml(
     .featured-animal span { color: #1f5b45; font-size: 0.86rem; font-weight: bold; overflow-wrap: anywhere; }
     .featured-animal small { color: #777; font-size: 0.72rem; }
     .class-filters { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.75rem; }
-    .class-filters button { min-height: 36px; border: 1px solid #cddbd2; background: #fff; color: #1f5b45; padding: 0.3rem 0.65rem; cursor: pointer; font: inherit; font-size: 0.82rem; }
+    .class-filters button { font: inherit; font-size: 0.82rem; }
     .class-filters button.active { background: #1f5b45; border-color: #1f5b45; color: #fff; }
     .class-filters span { opacity: 0.78; font-size: 0.72rem; }
     .animal-links { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.4rem 1rem; padding: 0; list-style: none; }
@@ -4973,7 +4978,7 @@ function renderZooDetailHtml(
     .animal-links a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .animal-links a small { margin-left: auto; color: #777; font-size: 0.7rem; }
     .animal-links li.is-hidden { display: none; }
-    .animal-links .animal-thumb { width: 36px; height: 36px; object-fit: cover; flex-shrink: 0; border-radius: 2px; background: #f0f0f0; }
+    .animal-links .animal-thumb { width: 36px; height: 36px; }
     .animal-meta { color: #777; font-size: 0.78rem; margin-top: 0.85rem; }
     .error { color: #b00020; margin-bottom: 0.75rem; }
     .empty { color: #777; }
@@ -5012,8 +5017,8 @@ ${renderGlobalNav("/")}
           <p class="kana">${escapeHtml(zoo.nameKana)}</p>
         </div>
         <div class="hero-actions">
-          <a class="primary-link" href="${escapeHtml(zoo.website)}" target="_blank" rel="noopener noreferrer">公式サイトを見る</a>
-          <a class="secondary-link" href="${buildMapUrl(zoo.prefecture, null)}#zoo-${escapeHtml(zoo.id)}">地図で見る</a>
+          <a class="primary-link ui-btn ui-btn--primary ui-touch-target" href="${escapeHtml(zoo.website)}" target="_blank" rel="noopener noreferrer">公式サイトを見る</a>
+          <a class="secondary-link ui-btn ui-btn--secondary ui-touch-target" href="${buildMapUrl(zoo.prefecture, null)}#zoo-${escapeHtml(zoo.id)}">地図で見る</a>
         </div>
       </div>
       ${quickFactsHtml}
@@ -5050,7 +5055,11 @@ ${renderGlobalNav("/")}
     filterButtons.forEach(function(button) {
       button.addEventListener('click', function() {
         var active = button.dataset.classFilter;
-        filterButtons.forEach(function(item) { item.classList.toggle('active', item === button); });
+        filterButtons.forEach(function(item) {
+          var isCurrent = item === button;
+          item.classList.toggle('active', isCurrent);
+          item.classList.toggle('ui-chip--active', isCurrent);
+        });
         animalItems.forEach(function(item) {
           item.classList.toggle('is-hidden', active !== 'all' && item.dataset.class !== active);
         });

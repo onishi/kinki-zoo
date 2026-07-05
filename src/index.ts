@@ -3210,15 +3210,19 @@ const COMMON_STYLES = `
     body { min-width: 0; overflow-wrap: anywhere; }
     img, svg { max-width: 100%; }
     button, input, select { font: inherit; }
-    .ui-btn { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; border: 1px solid #1f5b45; padding: 0.45rem 0.8rem; text-decoration: none; cursor: pointer; }
+    .ui-btn { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; border: 1px solid #1f5b45; padding: 0.45rem 0.8rem; text-decoration: none; }
+    .ui-btn:not(:disabled) { cursor: pointer; }
     .ui-btn--primary { background: #1f5b45; color: #fff; }
+    .ui-btn--primary:hover { background: #184a38; border-color: #184a38; }
     .ui-btn--secondary { background: #fff; color: #1f5b45; }
+    .ui-btn--secondary:hover { background: #f1f8f3; }
     .ui-card-link { display: grid; border: 1px solid #dce7df; background: #f8fbf9; color: #1f5b45; text-decoration: none; }
     .ui-card-link:hover { background: #f1f8f3; border-color: #9bc4ab; }
     .ui-chip { display: inline-flex; align-items: center; gap: 0.25rem; color: #2d6a4f; border: 1px solid #d3e4d8; background: #f7fbf8; padding: 0.2rem 0.45rem; font-size: 0.78rem; text-decoration: none; }
     .ui-chip:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .ui-chip--active { background: #1f5b45; border-color: #1f5b45; color: #fff; }
-    .ui-pill { border-radius: 999px; border-color: #b7dcc3; background: #fff; color: #1b5e3b; padding: 0.18rem 0.55rem; font-weight: bold; font-size: 0.75rem; }
+    .ui-pill { border-radius: 999px; font-weight: bold; }
+    .ui-btn:focus-visible, .ui-card-link:focus-visible, .ui-chip:focus-visible { outline: 2px solid #1f5b45; outline-offset: 2px; }
     .ui-thumb { display: block; object-fit: cover; flex-shrink: 0; border-radius: 2px; background: #f0f0f0; }
     .ui-thumb--36 { width: 36px; height: 36px; }
     .ui-touch-target { min-height: 40px; }
@@ -4152,7 +4156,7 @@ function renderHtml(
     .match-row { display: grid; gap: 0.35rem; }
     .match-label { color: #456052; font-size: 0.75rem; font-weight: bold; }
     .match-values { display: flex; flex-wrap: wrap; gap: 0.35rem; }
-    .match-chip { font-size: 0.75rem; }
+    .match-chip { border-color: #b7dcc3; background: #fff; color: #1b5e3b; padding: 0.18rem 0.55rem; font-size: 0.75rem; font-weight: bold; }
     .match-more { color: #5d7166; font-size: 0.75rem; align-self: center; }
     .match-note { color: #6d756f; font-size: 0.75rem; line-height: 1.5; }
     .empty { padding: 2rem 1.5rem; color: #888; }
@@ -4852,12 +4856,12 @@ function renderZooDetailHtml(
     .sort(([a], [b]) => (a === "未分類" ? 1 : b === "未分類" ? -1 : a.localeCompare(b, "ja-JP")))
     .map(
       ([className, count]) =>
-        `<button type="button" class="ui-chip ui-touch-target" data-class-filter="${escapeHtml(className)}">${escapeHtml(className)} <span>${count}</span></button>`
+        `<button type="button" class="ui-chip ui-touch-target" data-class-filter="${escapeHtml(className)}" aria-pressed="false">${escapeHtml(className)} <span>${count}</span></button>`
     )
     .join("");
   const classFilterHtml = classCounts.size > 0
     ? `<div class="class-filters" aria-label="分類で絞り込み">
-        <button type="button" class="ui-chip ui-chip--active ui-touch-target active" data-class-filter="all">すべて <span>${scraped.animals.length}</span></button>
+        <button type="button" class="ui-chip ui-chip--active ui-touch-target" data-class-filter="all" aria-pressed="true">すべて <span>${scraped.animals.length}</span></button>
         ${classFilterButtons}
       </div>`
     : "";
@@ -4970,7 +4974,6 @@ function renderZooDetailHtml(
     .featured-animal small { color: #777; font-size: 0.72rem; }
     .class-filters { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.75rem; }
     .class-filters button { font: inherit; font-size: 0.82rem; }
-    .class-filters button.active { background: #1f5b45; border-color: #1f5b45; color: #fff; }
     .class-filters span { opacity: 0.78; font-size: 0.72rem; }
     .animal-links { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.4rem 1rem; padding: 0; list-style: none; }
     .animal-links li { min-width: 0; }
@@ -5057,8 +5060,8 @@ ${renderGlobalNav("/")}
         var active = button.dataset.classFilter;
         filterButtons.forEach(function(item) {
           var isCurrent = item === button;
-          item.classList.toggle('active', isCurrent);
           item.classList.toggle('ui-chip--active', isCurrent);
+          item.setAttribute('aria-pressed', isCurrent ? 'true' : 'false');
         });
         animalItems.forEach(function(item) {
           item.classList.toggle('is-hidden', active !== 'all' && item.dataset.class !== active);

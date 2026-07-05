@@ -1265,7 +1265,7 @@ async function loadFeaturedAnimals(
       `SELECT
          ai.animal_key,
          ai.selected_generation_id,
-         MIN(za.display_name) AS display_name,
+         ai.display_name,
          COUNT(DISTINCT za.zoo_id) AS zoo_count
        FROM animal_images ai
        INNER JOIN zoo_animals za ON za.normalized_display_name = ai.animal_key

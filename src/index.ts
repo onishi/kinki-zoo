@@ -3280,20 +3280,31 @@ function htmlResponse(html: string, url: URL, activePref: PrefectureCode | null)
   );
 }
 
-function renderTaxonomyBreadcrumb(levels: TaxonomyPathLevel[]): string {
-  const crumbs = [
-    `<a href="/taxonomy">分類一覧</a>`,
-    ...levels.map((level, index) => {
-      const label = `${level.rank.label}: ${level.value}`;
-      if (index === levels.length - 1) {
-        return `<span aria-current="page">${escapeHtml(label)}</span>`;
-      }
-      const href = buildTaxonomyPathUrl(levels.slice(0, index + 1).map((item) => item.value));
-      return `<a href="${href}">${escapeHtml(label)}</a>`;
-    }),
-  ];
+function renderBreadcrumb(crumbs: Array<{ href?: string; label: string }>): string {
+  const items = crumbs
+    .map((crumb, index) => {
+      const content =
+        crumb.href && index !== crumbs.length - 1
+          ? `<a href="${escapeHtml(crumb.href)}">${escapeHtml(crumb.label)}</a>`
+          : `<span aria-current="page">${escapeHtml(crumb.label)}</span>`;
+      return `<li>${content}</li>`;
+    })
+    .join("");
 
-  return `<nav class="breadcrumb" aria-label="パンくず">${crumbs.join("<span>/</span>")}</nav>`;
+  return `<nav class="breadcrumb" aria-label="パンくず"><ol>${items}</ol></nav>`;
+}
+
+function renderTaxonomyBreadcrumb(levels: TaxonomyPathLevel[]): string {
+  return renderBreadcrumb([
+    { href: "/taxonomy", label: "分類一覧" },
+    ...levels.map((level, index) => ({
+      href:
+        index === levels.length - 1
+          ? undefined
+          : buildTaxonomyPathUrl(levels.slice(0, index + 1).map((item) => item.value)),
+      label: `${level.rank.label}: ${level.value}`,
+    })),
+  ]);
 }
 
 function renderPrefTab(
@@ -3341,6 +3352,13 @@ const COMMON_STYLES = `
     .global-nav a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .global-nav a[aria-current="page"] { font-weight: bold; text-decoration: underline; text-underline-offset: 0.2em; }
     .global-nav .nav-admin { margin-left: auto; color: #888; font-size: 0.82rem; }
+    .breadcrumb { border-bottom: 1px solid #e5e5e5; color: #777; font-size: 0.78rem; }
+    .breadcrumb ol { display: flex; flex-wrap: wrap; gap: 0.35rem 0.45rem; align-items: center; padding: 0.65rem 1.5rem; list-style: none; }
+    .breadcrumb li { display: flex; min-width: 0; align-items: center; gap: 0.45rem; }
+    .breadcrumb li + li::before { content: "/"; color: #aaa; flex: 0 0 auto; }
+    .breadcrumb a { color: #1f5b45; text-decoration: none; }
+    .breadcrumb a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .breadcrumb span[aria-current="page"] { color: #333; font-weight: bold; overflow-wrap: anywhere; }
     .page-nav { margin-bottom: 1rem; display: flex; gap: 1rem; flex-wrap: wrap; }
     .page-nav a { color: #2d6a4f; text-decoration: none; }
     @media (max-width: 640px) {
@@ -3356,6 +3374,7 @@ const COMMON_STYLES = `
       .global-nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; padding: 0; }
       .global-nav a { display: flex; min-width: 0; min-height: 44px; align-items: center; justify-content: center; padding: 0.55rem 0.35rem; border-right: 1px solid #eee; border-bottom: 1px solid #eee; text-align: center; font-size: 0.82rem; }
       .global-nav a:nth-child(2n) { border-right: 0; }
+      .breadcrumb ol { padding: 0.6rem 0.75rem; }
       .page-nav { gap: 0.5rem; }
       .page-nav a { display: inline-flex; align-items: center; min-height: 44px; }
     }`;
@@ -4546,16 +4565,11 @@ function renderZooAnimalDetailHtml(
         </div>`
     )
     .join("");
-  const taxonomyPath =
-    detail.className && detail.orderName && detail.familyName && detail.genusName && detail.speciesName
-      ? buildTaxonomyPathUrl([
-          detail.className,
-          detail.orderName,
-          detail.familyName,
-          detail.genusName,
-          detail.speciesName,
-        ])
-      : null;
+  const breadcrumb = renderBreadcrumb([
+    { href: "/animals", label: "動物一覧" },
+    ...(detail.className ? [{ href: buildTaxonomyPathUrl([detail.className]), label: detail.className }] : []),
+    { label: detail.displayName },
+  ]);
   const taxonomyHtml = taxonomyDetails
     ? `<dl class="taxonomy-details">${taxonomyDetails}</dl>`
     : `<p class="unclassified">分類未設定</p>`;
@@ -4689,6 +4703,7 @@ function renderZooAnimalDetailHtml(
 <body>
 ${renderSiteHeader()}
 ${renderGlobalNav("/animals")}
+  ${breadcrumb}
   <main>
     ${noticeHtml ? `<div style="padding:0.6rem 1.5rem">${noticeHtml}</div>` : ""}
     <div class="hero">
@@ -4900,10 +4915,6 @@ function renderTaxonomyDetailHtml(
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
-    .breadcrumb { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; padding: 0.65rem 1.5rem; border-bottom: 1px solid #e5e5e5; color: #777; font-size: 0.78rem; }
-    .breadcrumb a { color: #1f5b45; text-decoration: none; }
-    .breadcrumb a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
-    .breadcrumb span[aria-current="page"] { color: #333; font-weight: bold; overflow-wrap: anywhere; }
     .summary { padding: 0.75rem 1.5rem; font-size: 0.9rem; color: #666; }
     .child-taxonomy { padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; }
     .child-taxonomy h2 { font-size: 1.05rem; margin-bottom: 0.75rem; }
@@ -4930,7 +4941,7 @@ function renderTaxonomyDetailHtml(
     .empty { padding: 2rem 1.5rem; color: #888; }
     footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; }
     @media (max-width: 700px) {
-      .breadcrumb, .summary, .child-taxonomy { padding-left: 0.75rem; padding-right: 0.75rem; }
+      .summary, .child-taxonomy { padding-left: 0.75rem; padding-right: 0.75rem; }
       .taxonomy-links { grid-template-columns: 1fr; }
       .animal-list { padding: 0.75rem; overflow: visible; }
       .animal-table { min-width: 0; border: 0; }
@@ -5060,6 +5071,11 @@ function renderZooDetailHtml(
       )
       .join("")}
   </dl>`;
+  const breadcrumb = renderBreadcrumb([
+    { href: "/", label: "動物園一覧" },
+    { href: `/?pref=${zoo.prefecture}`, label: prefLabel },
+    { label: zoo.name },
+  ]);
 
   return `<!DOCTYPE html>
 <html lang="ja">
@@ -5140,6 +5156,7 @@ function renderZooDetailHtml(
 <body>
 ${renderSiteHeader()}
 ${renderGlobalNav("/")}
+  ${breadcrumb}
   <main>
     <nav class="page-nav">
       <a href="#animals">動物一覧</a>

@@ -3304,9 +3304,9 @@ function renderStateMessage(
 ): string {
   const links = actions
     .map((action) => {
-      const extraAttrs = action.external ? ` target="_blank" rel="noopener noreferrer"` : "";
+      const extraAttrs = action.external ? `target="_blank" rel="noopener noreferrer"` : "";
       const buttonClass = tone === "error" ? "ui-btn--primary" : "ui-btn--secondary";
-      return `<a href="${escapeHtml(action.href)}" class="ui-btn ${buttonClass} ui-touch-target"${extraAttrs}>${escapeHtml(action.label)}</a>`;
+      return `<a href="${escapeHtml(action.href)}" class="ui-btn ${buttonClass} ui-touch-target"${extraAttrs ? ` ${extraAttrs}` : ""}>${escapeHtml(action.label)}</a>`;
     })
     .join("");
   const linksHtml = links ? `<div class="ui-state-actions">${links}</div>` : "";
@@ -4253,9 +4253,7 @@ function renderHtml(
   const summary = animal
     ? `${prefLabel} で「${escapedAnimal}」を探せる動物園・施設: ${count} 件 / 検索ヒット: ${matchCount} 件`
     : `${prefLabel} の動物園・施設: ${count} 件`;
-  const emptyMessage = animal
-    ? `「${animalLabel}」に該当する施設が見つかりませんでした。`
-    : "該当する施設が見つかりませんでした。";
+  const emptyMessage = animal ? "検索条件に該当する施設が見つかりませんでした。" : "該当する施設が見つかりませんでした。";
   let zooListHtml = renderStateMessage(
     emptyMessage,
     animal
@@ -5786,7 +5784,7 @@ function renderMapHtml(
     count === 0
       ? renderStateMessage(
           animal
-            ? `「${animalLabel}」に該当する施設が見つかりませんでした。`
+            ? "検索条件に該当する施設が見つかりませんでした。"
             : taxClass
               ? "選択した分類に該当する施設が見つかりませんでした。"
               : "表示できる施設が見つかりませんでした。",

@@ -3185,8 +3185,9 @@ const CANONICAL_SEARCH_PARAMS = new Set(["animal", "filter", "cls", "a", "b", "c
 
 function buildCanonicalUrl(url: URL): string {
   const canonical = new URLSearchParams();
-  for (const [key, value] of url.searchParams) {
-    if (CANONICAL_SEARCH_PARAMS.has(key)) {
+  for (const key of CANONICAL_SEARCH_PARAMS) {
+    const value = url.searchParams.get(key);
+    if (value !== null) {
       canonical.set(key, value);
     }
   }
@@ -3267,7 +3268,7 @@ function htmlResponse(html: string, url: URL, activePref: PrefectureCode | null)
   let rewriter = new HTMLRewriter()
     .on("head", {
       element(element) {
-        element.append(`<link rel="canonical" href="${canonicalUrl}">`, { html: true });
+        element.prepend(`<link rel="canonical" href="${canonicalUrl}">`, { html: true });
       },
     })
     .on(".site-header", {

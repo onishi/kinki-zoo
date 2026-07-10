@@ -3180,6 +3180,21 @@ function buildLegacyTaxonomyUrl(rank: TaxonomyRank, value: string): string {
   return `/taxonomy/${rank}/${encodeURIComponent(value)}`;
 }
 
+// Query parameters that contribute to page content and belong in the canonical URL.
+const CANONICAL_SEARCH_PARAMS = new Set(["animal", "filter", "cls", "a", "b", "c"]);
+
+function buildCanonicalUrl(url: URL): string {
+  const canonical = new URLSearchParams();
+  for (const key of CANONICAL_SEARCH_PARAMS) {
+    const value = url.searchParams.get(key);
+    if (value !== null) {
+      canonical.set(key, value);
+    }
+  }
+  const query = canonical.toString();
+  return `${url.origin}${url.pathname}${query ? `?${query}` : ""}`;
+}
+
 function buildTaxonomyUrl(levels: TaxonomyPathLevel[], value: string): string {
   return buildTaxonomyPathUrl([...levels.map((level) => level.value), value]);
 }
@@ -3249,7 +3264,13 @@ function renderPrefectureSelector(url: URL, activePref: PrefectureCode | null): 
 }
 
 function htmlResponse(html: string, url: URL, activePref: PrefectureCode | null): Response {
+  const canonicalUrl = escapeHtml(buildCanonicalUrl(url));
   let rewriter = new HTMLRewriter()
+    .on("head", {
+      element(element) {
+        element.prepend(`<link rel="canonical" href="${canonicalUrl}">`, { html: true });
+      },
+    })
     .on(".site-header", {
       element(element) {
         element.append(renderPrefectureSelector(url, activePref), { html: true });
@@ -6661,6 +6682,15 @@ export default {
       ]);
       const html = renderHtml(results, activePref, animal, featuredAnimals);
       return htmlResponse(html, url, activePref);
+    }
+
+    // Redirect: /zoos → / (301)
+    if (pathname === "/zoos") {
+      const destination = new URL("/", url.origin);
+      for (const [key, value] of url.searchParams) {
+        destination.searchParams.set(key, value);
+      }
+      return Response.redirect(destination.toString(), 301);
     }
 
     return notFound("ページが見つかりません");

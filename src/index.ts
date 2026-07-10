@@ -3263,7 +3263,7 @@ function renderPrefectureSelector(url: URL, activePref: PrefectureCode | null): 
 }
 
 function htmlResponse(html: string, url: URL, activePref: PrefectureCode | null): Response {
-  const canonicalUrl = buildCanonicalUrl(url);
+  const canonicalUrl = escapeHtml(buildCanonicalUrl(url));
   let rewriter = new HTMLRewriter()
     .on("head", {
       element(element) {

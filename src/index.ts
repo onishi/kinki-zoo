@@ -5729,7 +5729,7 @@ function renderMapHtml(
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>地図 | 近畿動物園情報</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
   <style>
@@ -5775,8 +5775,9 @@ function renderMapHtml(
       .summary { padding: 0.45rem 0.75rem; font-size: 0.8rem; line-height: 1.4; }
       .map-body { position: relative; }
       #map { min-height: 320px; }
-      .result-list-panel { position: absolute; left: 0; right: 0; bottom: 0; width: auto; border-left: none; border-top: 1px solid #ddd; border-radius: 14px 14px 0 0; box-shadow: 0 -4px 18px rgba(0,0,0,0.18); max-height: min(68%, 420px); background: #fff; transform: translateY(0); transition: transform 0.2s ease-in-out; }
-      .result-list-panel.is-collapsed { transform: translateY(calc(100% - 44px)); }
+      .result-list-panel { position: absolute; left: 0; right: 0; bottom: 0; width: auto; border-left: none; border-top: 1px solid #ddd; border-radius: 14px 14px 0 0; box-shadow: 0 -4px 18px rgba(0,0,0,0.18); max-height: min(68%, 420px); background: #fff; transform: translateY(0); transition: transform 0.2s ease-in-out; padding-bottom: env(safe-area-inset-bottom); }
+      .result-list-panel.is-collapsed { transform: translateY(calc(100% - 44px - env(safe-area-inset-bottom))); }
+      .result-list-scroll { overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch; }
       .result-sheet-toggle { display: flex; min-height: 44px; align-items: center; justify-content: center; border: 0; border-bottom: 1px solid #e8ece9; background: #fff; color: #1f5b45; font-size: 0.82rem; font-weight: bold; cursor: pointer; }
     }
   </style>
@@ -5849,6 +5850,22 @@ ${renderGlobalNav("/map")}
       } else if (mobileViewportQuery.addListener) {
         mobileViewportQuery.addListener(syncSheetToViewport);
       }
+    }
+
+    if (resultPanel) {
+      // Prevent Leaflet from capturing scroll/wheel events within the bottom sheet panel,
+      // which would otherwise zoom or pan the map while the user scrolls the result list.
+      L.DomEvent.disableScrollPropagation(resultPanel);
+    }
+
+    if (window.visualViewport) {
+      // On iOS Safari the visual viewport changes height when the address bar shows or
+      // hides, but the layout viewport does not fire a regular resize event in time.
+      // Calling invalidateSize() ensures Leaflet recalculates the map container size
+      // after such changes so tiles and controls remain correctly positioned.
+      window.visualViewport.addEventListener('resize', function() {
+        map.invalidateSize();
+      });
     }
 
     function activateResult(id, options) {

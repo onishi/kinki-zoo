@@ -3304,9 +3304,9 @@ function renderStateMessage(
 ): string {
   const links = actions
     .map((action) => {
-      const extraAttrs = action.external ? `target="_blank" rel="noopener noreferrer"` : "";
+      const extraAttrs = action.external ? ` target="_blank" rel="noopener noreferrer"` : "";
       const buttonClass = tone === "error" ? "ui-btn--primary" : "ui-btn--secondary";
-      return `<a href="${escapeHtml(action.href)}" class="ui-btn ${buttonClass} ui-touch-target"${extraAttrs ? ` ${extraAttrs}` : ""}>${escapeHtml(action.label)}</a>`;
+      return `<a href="${escapeHtml(action.href)}" class="ui-btn ${buttonClass} ui-touch-target"${extraAttrs}>${escapeHtml(action.label)}</a>`;
     })
     .join("");
   const linksHtml = links ? `<div class="ui-state-actions">${links}</div>` : "";
@@ -4243,8 +4243,7 @@ function renderHtml(
 ): string {
   const includeMatchSummary = Boolean(animal);
   const rows = results.map((result) => renderZooCard(result, includeMatchSummary)).join("\n");
-  const animalLabel = animal ?? "";
-  const escapedAnimal = escapeHtml(animalLabel);
+  const escapedAnimal = escapeHtml(animal ?? "");
 
   const count = results.length;
   const matchCount = results.reduce((sum, result) => sum + result.matchedAnimals.length, 0);
@@ -5755,8 +5754,7 @@ function renderMapHtml(
   animal: string | null,
   taxClass: string | null = null
 ): string {
-  const animalLabel = animal ?? "";
-  const escapedAnimal = escapeHtml(animalLabel);
+  const escapedAnimal = escapeHtml(animal ?? "");
 
   // Embed only the data needed for map markers; safe to embed as JSON in <script>
   const mapData = JSON.stringify(

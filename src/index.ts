@@ -3301,9 +3301,9 @@ function renderStateMessage(
 ): string {
   const links = actions
     .map((action) => {
-      const rel = action.external ? ` target="_blank" rel="noopener noreferrer"` : "";
+      const extraAttrs = action.external ? ` target="_blank" rel="noopener noreferrer"` : "";
       const buttonClass = tone === "error" ? "ui-btn--primary" : "ui-btn--secondary";
-      return `<a href="${escapeHtml(action.href)}" class="ui-btn ${buttonClass} ui-touch-target"${rel}>${escapeHtml(action.label)}</a>`;
+      return `<a href="${escapeHtml(action.href)}" class="ui-btn ${buttonClass} ui-touch-target"${extraAttrs}>${escapeHtml(action.label)}</a>`;
     })
     .join("");
   const linksHtml = links ? `<div class="ui-state-actions">${links}</div>` : "";
@@ -3380,7 +3380,15 @@ const COMMON_STYLES = `
     .breadcrumb span[aria-current="page"] { color: #333; font-weight: bold; overflow-wrap: anywhere; }
     .page-nav { margin-bottom: 1rem; display: flex; gap: 1rem; flex-wrap: wrap; }
     .page-nav a { color: #2d6a4f; text-decoration: none; }
-    .ui-state { margin: 1rem 1.5rem; border: 1px solid #d7e4dd; background: #f8fbf9; padding: 1rem; display: grid; gap: 0.75rem; color: #3f4f45; }
+    .ui-state {
+      margin: 1rem 1.5rem;
+      border: 1px solid #d7e4dd;
+      background: #f8fbf9;
+      padding: 1rem;
+      display: grid;
+      gap: 0.75rem;
+      color: #3f4f45;
+    }
     .ui-state--error { border-color: #edc8cd; background: #fff7f8; color: #6a2a33; }
     .ui-state-message { line-height: 1.6; }
     .ui-state-actions { display: flex; flex-wrap: wrap; gap: 0.45rem; }
@@ -4232,7 +4240,8 @@ function renderHtml(
 ): string {
   const includeMatchSummary = Boolean(animal);
   const rows = results.map((result) => renderZooCard(result, includeMatchSummary)).join("\n");
-  const escapedAnimal = animal ? escapeHtml(animal) : "";
+  const animalLabel = animal ?? "";
+  const escapedAnimal = escapeHtml(animalLabel);
 
   const count = results.length;
   const matchCount = results.reduce((sum, result) => sum + result.matchedAnimals.length, 0);
@@ -4242,7 +4251,7 @@ function renderHtml(
     ? `${prefLabel} で「${escapedAnimal}」を探せる動物園・施設: ${count} 件 / 検索ヒット: ${matchCount} 件`
     : `${prefLabel} の動物園・施設: ${count} 件`;
   const emptyMessage = animal
-    ? `「${animal}」に該当する施設が見つかりませんでした。`
+    ? `「${animalLabel}」に該当する施設が見つかりませんでした。`
     : "該当する施設が見つかりませんでした。";
   let zooListHtml = renderStateMessage(
     emptyMessage,
@@ -5745,7 +5754,9 @@ function renderMapHtml(
   animal: string | null,
   taxClass: string | null = null
 ): string {
-  const escapedAnimal = animal ? escapeHtml(animal) : "";
+  const animalLabel = animal ?? "";
+  const escapedAnimal = escapeHtml(animalLabel);
+  const taxClassLabel = taxClass ?? "";
 
   // Embed only the data needed for map markers; safe to embed as JSON in <script>
   const mapData = JSON.stringify(
@@ -5773,9 +5784,9 @@ function renderMapHtml(
     count === 0
       ? renderStateMessage(
           animal
-            ? `「${animal}」に該当する施設が見つかりませんでした。`
+            ? `「${animalLabel}」に該当する施設が見つかりませんでした。`
             : taxClass
-              ? `${taxClass}に該当する施設が見つかりませんでした。`
+              ? `${taxClassLabel}に該当する施設が見つかりませんでした。`
               : "表示できる施設が見つかりませんでした。",
           [
             ...(animal || taxClass ? [{ href: buildMapUrl(activePref, null), label: "検索条件をクリア" }] : []),

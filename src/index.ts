@@ -3294,6 +3294,9 @@ function renderBreadcrumb(crumbs: Array<{ href?: string; label: string }>): stri
   return `<nav class="breadcrumb" aria-label="パンくず"><ol>${items}</ol></nav>`;
 }
 
+/**
+ * 空状態・エラー状態の案内と次アクションを共通レイアウトで描画する。
+ */
 function renderStateMessage(
   message: string,
   actions: Array<{ href: string; label: string; external?: boolean }> = [],
@@ -5756,7 +5759,6 @@ function renderMapHtml(
 ): string {
   const animalLabel = animal ?? "";
   const escapedAnimal = escapeHtml(animalLabel);
-  const taxClassLabel = taxClass ?? "";
 
   // Embed only the data needed for map markers; safe to embed as JSON in <script>
   const mapData = JSON.stringify(
@@ -5786,7 +5788,7 @@ function renderMapHtml(
           animal
             ? `「${animalLabel}」に該当する施設が見つかりませんでした。`
             : taxClass
-              ? `${taxClassLabel}に該当する施設が見つかりませんでした。`
+              ? "選択した分類に該当する施設が見つかりませんでした。"
               : "表示できる施設が見つかりませんでした。",
           [
             ...(animal || taxClass ? [{ href: buildMapUrl(activePref, null), label: "検索条件をクリア" }] : []),

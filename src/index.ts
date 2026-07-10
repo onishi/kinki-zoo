@@ -3294,6 +3294,25 @@ function renderBreadcrumb(crumbs: Array<{ href?: string; label: string }>): stri
   return `<nav class="breadcrumb" aria-label="パンくず"><ol>${items}</ol></nav>`;
 }
 
+function renderStateMessage(
+  message: string,
+  actions: Array<{ href: string; label: string; external?: boolean }> = [],
+  tone: "empty" | "error" = "empty"
+): string {
+  const links = actions
+    .map((action) => {
+      const rel = action.external ? ` target="_blank" rel="noopener noreferrer"` : "";
+      const buttonClass = tone === "error" ? "ui-btn--primary" : "ui-btn--secondary";
+      return `<a href="${escapeHtml(action.href)}" class="ui-btn ${buttonClass} ui-touch-target"${rel}>${escapeHtml(action.label)}</a>`;
+    })
+    .join("");
+  const linksHtml = links ? `<div class="ui-state-actions">${links}</div>` : "";
+  return `<section class="ui-state${tone === "error" ? " ui-state--error" : ""}" role="${tone === "error" ? "alert" : "status"}">
+    <p class="ui-state-message">${escapeHtml(message)}</p>
+    ${linksHtml}
+  </section>`;
+}
+
 function renderTaxonomyBreadcrumb(levels: TaxonomyPathLevel[]): string {
   return renderBreadcrumb([
     { href: "/taxonomy", label: "分類一覧" },
@@ -3361,6 +3380,10 @@ const COMMON_STYLES = `
     .breadcrumb span[aria-current="page"] { color: #333; font-weight: bold; overflow-wrap: anywhere; }
     .page-nav { margin-bottom: 1rem; display: flex; gap: 1rem; flex-wrap: wrap; }
     .page-nav a { color: #2d6a4f; text-decoration: none; }
+    .ui-state { margin: 1rem 1.5rem; border: 1px solid #d7e4dd; background: #f8fbf9; padding: 1rem; display: grid; gap: 0.75rem; color: #3f4f45; }
+    .ui-state--error { border-color: #edc8cd; background: #fff7f8; color: #6a2a33; }
+    .ui-state-message { line-height: 1.6; }
+    .ui-state-actions { display: flex; flex-wrap: wrap; gap: 0.45rem; }
     @media (max-width: 640px) {
       .ui-btn, .ui-touch-target { min-height: 44px; }
       .site-header { display: grid; gap: 0.75rem; padding: 0.75rem; }
@@ -3377,6 +3400,7 @@ const COMMON_STYLES = `
       .breadcrumb ol { padding: 0.6rem 0.75rem; }
       .page-nav { gap: 0.5rem; }
       .page-nav a { display: inline-flex; align-items: center; min-height: 44px; }
+      .ui-state { margin: 0.75rem; padding: 0.85rem; }
     }`;
 
 function renderSiteHeader(): string {
@@ -4218,9 +4242,17 @@ function renderHtml(
     ? `${prefLabel} で「${escapedAnimal}」を探せる動物園・施設: ${count} 件 / 検索ヒット: ${matchCount} 件`
     : `${prefLabel} の動物園・施設: ${count} 件`;
   const emptyMessage = animal
-    ? `「${escapedAnimal}」に該当する施設が見つかりませんでした。`
+    ? `「${animal}」に該当する施設が見つかりませんでした。`
     : "該当する施設が見つかりませんでした。";
-  let zooListHtml = `<p class="empty">${emptyMessage}</p>`;
+  let zooListHtml = renderStateMessage(
+    emptyMessage,
+    animal
+      ? [
+          { href: buildBrowseUrl(activePref, null), label: "検索をクリア" },
+          { href: buildMapUrl(activePref, null), label: "地図で見る" },
+        ]
+      : [{ href: "/taxonomy", label: "分類から探す" }]
+  );
   if (count > 0) {
     zooListHtml = `<div class="zoo-list"><table class="zoo-table">
     <thead>
@@ -4372,8 +4404,17 @@ function renderAnimalsHtml(
   const emptyMessage =
     animals.length === 0
       ? filter === "unclassified"
-        ? `<p class="empty">分類未設定の動物はありません。</p>`
-        : `<p class="empty">動物データがまだありません。各動物園の動物一覧を取得するか、全件更新を実行してください。</p>`
+        ? renderStateMessage("分類未設定の動物はありません。", [
+            { href: buildAnimalsUrl("all"), label: "すべての動物を見る" },
+            { href: "/taxonomy", label: "分類から探す" },
+          ])
+        : renderStateMessage(
+            "動物データがまだありません。動物園一覧から気になる施設を開き、掲載動物をご確認ください。",
+            [
+              { href: buildBrowseUrl(activePref, null), label: "動物園一覧へ戻る" },
+              { href: buildMapUrl(activePref, null), label: "地図で見る" },
+            ]
+          )
       : "";
   let animalListHtml = emptyMessage;
   if (animals.length > 0) {
@@ -4863,7 +4904,13 @@ ${renderGlobalNav("/taxonomy")}
       ${
         treeHtml
           ? `<ul class="taxonomy-tree">${treeHtml}</ul>`
-          : `<p>この地域には分類済みの動物がありません。</p>`
+          : renderStateMessage(
+              "この地域には分類済みの動物がありません。",
+              [
+                { href: buildAnimalsUrl("unclassified"), label: "分類未設定の動物を見る" },
+                { href: buildBrowseUrl(activePref, null), label: "動物園一覧へ戻る" },
+              ]
+            )
       }
     </section>
     <h2 class="rank-sections-title">ランク別一覧</h2>
@@ -4975,7 +5022,10 @@ ${renderGlobalNav("/taxonomy")}
     </thead>
     <tbody>${items}</tbody>
   </table></div>`
-      : `<p class="empty">該当する動物がありません。</p>`
+      : renderStateMessage("該当する動物がありません。", [
+          { href: "/taxonomy", label: "分類一覧へ戻る" },
+          { href: buildAnimalsUrl("all"), label: "動物一覧を見る" },
+        ])
   }
   <footer>分類は利用者が探しやすい粒度で整理しています。最新情報は各施設の公式サイトでご確認ください。</footer>
 </body>
@@ -5048,7 +5098,13 @@ function renderZooDetailHtml(
   const animalListHtml =
     scraped.animals.length > 0
       ? `${classFilterHtml}<ul class="animal-links" id="zoo-animal-list">${animalLinks}</ul>`
-      : `<p class="empty">動物一覧を取得できませんでした。公式サイトもあわせてご確認ください。</p>`;
+      : renderStateMessage(
+          "動物一覧をまだ取得できていません。最新の情報は公式サイトでご確認ください。",
+          [
+            { href: zoo.website, label: "公式サイトを見る", external: true },
+            { href: buildBrowseUrl(zoo.prefecture, null), label: "動物園一覧へ戻る" },
+          ]
+        );
   const coverageHtml = coverage.total > 0
     ? `<dl class="coverage-stats">
         <div><dt>総動物数</dt><dd>${coverage.total}</dd></div>
@@ -5194,7 +5250,15 @@ ${renderGlobalNav("/")}
       <h3>見られる動物</h3>
       ${coverageHtml}
       <p class="animal-summary">${scraped.animals.length} 件</p>
-      ${scraped.error ? `<p class="error">取得に失敗しました: ${escapeHtml(scraped.error)}</p>` : ""}
+      ${
+        scraped.error
+          ? renderStateMessage(
+              "動物一覧の取得で問題が発生しました。時間をおいて再度ご確認いただくか、公式サイトをご確認ください。",
+              [{ href: zoo.website, label: "公式サイトを見る", external: true }],
+              "error"
+            )
+          : ""
+      }
       ${animalListHtml}
       <p class="animal-meta">最終取得: ${escapeHtml(updatedAt)}</p>
     </section>
@@ -5705,6 +5769,20 @@ function renderMapHtml(
       : `${prefLabel} の動物園・施設: ${count} 件`;
 
   const showPanel = (animal || taxClass) && results.length > 0;
+  const mapStateMessage =
+    count === 0
+      ? renderStateMessage(
+          animal
+            ? `「${animal}」に該当する施設が見つかりませんでした。`
+            : taxClass
+              ? `${taxClass}に該当する施設が見つかりませんでした。`
+              : "表示できる施設が見つかりませんでした。",
+          [
+            ...(animal || taxClass ? [{ href: buildMapUrl(activePref, null), label: "検索条件をクリア" }] : []),
+            { href: buildBrowseUrl(activePref, null), label: "動物園一覧へ戻る" },
+          ]
+        )
+      : "";
 
   const resultListHtml = showPanel
     ? results.map((r) => {
@@ -5795,6 +5873,7 @@ ${renderGlobalNav("/map")}
   </form>
   <div class="cls-filter">${classChips}</div>
   <p class="summary">${summary}</p>
+  ${mapStateMessage}
   <div class="map-body">
     <div id="map"></div>
     <aside class="result-list-panel" aria-label="検索結果一覧">

@@ -5853,9 +5853,10 @@ function renderMapHtml(
     .list-link:hover { text-decoration: underline; }
     .share-btn { font-size: 0.82rem; padding: 0.35rem 0.75rem; border: 1px solid #1f5b45; background: #fff; color: #1f5b45; cursor: pointer; line-height: 1; white-space: nowrap; }
     .share-btn:hover { background: #f1f8f3; }
-    .share-toast { position: fixed; bottom: 1.25rem; left: 50%; transform: translateX(-50%); padding: 0.5rem 1.1rem; border-radius: 4px; font-size: 0.85rem; z-index: 2000; opacity: 0; transition: opacity 0.25s; pointer-events: none; white-space: nowrap; }
-    .share-toast--ok { background: #1f5b45; color: #fff; opacity: 1; }
-    .share-toast--error { background: #b91c1c; color: #fff; opacity: 1; }
+    .share-btn:focus-visible { outline: 2px solid #1f5b45; outline-offset: 2px; }
+    .share-toast { position: fixed; bottom: 1.25rem; left: 50%; transform: translateX(-50%); padding: 0.5rem 1.1rem; border-radius: 4px; font-size: 0.85rem; z-index: 2000; opacity: 0; visibility: hidden; transition: opacity 0.25s, visibility 0.25s; pointer-events: none; white-space: nowrap; }
+    .share-toast--ok { background: #1f5b45; color: #fff; opacity: 1; visibility: visible; }
+    .share-toast--error { background: #b91c1c; color: #fff; opacity: 1; visibility: visible; }
     .search-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; flex-shrink: 0; }
     .search-form input { flex: 1 1 220px; max-width: 320px; padding: 0.55rem 0.75rem; border: 1px solid #bbb; font-size: 0.95rem; }
     .search-form button, .search-form a { font-size: 0.875rem; }
@@ -6081,10 +6082,10 @@ ${renderGlobalNav("/map")}
           try {
             var ta = document.createElement('textarea');
             ta.value = shareUrl;
-            ta.style.cssText = 'position:fixed;top:-1000px;left:-1000px;';
+            ta.style.cssText = 'position:fixed;top:-1000px;left:-1000px;opacity:0;';
+            ta.setAttribute('readonly', '');
             document.body.appendChild(ta);
-            ta.focus();
-            ta.select();
+            ta.setSelectionRange(0, ta.value.length);
             document.execCommand('copy');
             document.body.removeChild(ta);
             showToast('URLをコピーしました', false);

@@ -5773,7 +5773,10 @@ function renderMapHtml(
   results: ZooSearchResult[],
   activePref: PrefectureCode | null,
   animal: string | null,
-  taxClass: string | null = null
+  taxClass: string | null = null,
+  initialLat: number | null = null,
+  initialLon: number | null = null,
+  initialZoom: number | null = null
 ): string {
   const escapedAnimal = escapeHtml(animal ?? "");
 
@@ -5845,9 +5848,15 @@ function renderMapHtml(
     body { font-family: sans-serif; background: #fff; color: #222; display: flex; flex-direction: column; height: 100vh; height: 100dvh; }${COMMON_STYLES}
     .site-header { flex-shrink: 0; }
     .global-nav { flex-shrink: 0; }
-    .map-toolbar { display: flex; justify-content: flex-end; padding: 0.55rem 1.5rem; border-bottom: 1px solid #ddd; flex-shrink: 0; }
+    .map-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 0.55rem 1.5rem; border-bottom: 1px solid #ddd; flex-shrink: 0; gap: 0.5rem; }
     .list-link { font-size: 0.85rem; color: #1f5b45; text-decoration: none; }
     .list-link:hover { text-decoration: underline; }
+    .share-btn { font-size: 0.82rem; padding: 0.35rem 0.75rem; border: 1px solid #1f5b45; background: #fff; color: #1f5b45; cursor: pointer; line-height: 1; white-space: nowrap; }
+    .share-btn:hover { background: #f1f8f3; }
+    .share-btn:focus-visible { outline: 2px solid #1f5b45; outline-offset: 2px; }
+    .share-toast { position: fixed; bottom: 1.25rem; left: 50%; transform: translateX(-50%); padding: 0.5rem 1.1rem; border-radius: 4px; font-size: 0.85rem; z-index: 2000; opacity: 0; visibility: hidden; transition: opacity 0.25s, visibility 0.25s; pointer-events: none; white-space: nowrap; }
+    .share-toast--ok { background: #1f5b45; color: #fff; opacity: 1; visibility: visible; }
+    .share-toast--error { background: #b91c1c; color: #fff; opacity: 1; visibility: visible; }
     .search-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; flex-shrink: 0; }
     .search-form input { flex: 1 1 220px; max-width: 320px; padding: 0.55rem 0.75rem; border: 1px solid #bbb; font-size: 0.95rem; }
     .search-form button, .search-form a { font-size: 0.875rem; }
@@ -5875,8 +5884,9 @@ function renderMapHtml(
     .result-animals a:hover { text-decoration: underline; }
     .marker-active { filter: hue-rotate(160deg) saturate(2) brightness(1.1); }
     @media (max-width: ${MAP_MOBILE_BREAKPOINT}px) {
-      .map-toolbar { justify-content: stretch; padding: 0 0.75rem; }
-      .list-link { display: flex; min-height: 40px; align-items: center; }
+      .map-toolbar { padding: 0 0.75rem; }
+      .list-link { display: flex; min-height: 44px; align-items: center; }
+      .share-btn { min-height: 44px; }
       .search-form { display: grid; grid-template-columns: 1fr auto; padding: 0.65rem 0.75rem; }
       .search-form input { width: 100%; max-width: none; min-width: 0; min-height: 44px; grid-column: 1 / -1; }
       .search-form button, .search-form a { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; }
@@ -5895,6 +5905,7 @@ ${renderSiteHeader()}
 ${renderGlobalNav("/map")}
   <nav class="map-toolbar">
     <a href="${buildBrowseUrl(activePref, animal)}" class="list-link">一覧で見る →</a>
+    <button type="button" class="share-btn" id="share-btn" aria-label="現在の地図状態のリンクをコピー">リンクをコピー</button>
   </nav>
   <form class="search-form" action="/map" method="get">
     <input type="search" name="animal" value="${escapedAnimal}" placeholder="動物名で検索（例: パンダ）" aria-label="動物名で検索">
@@ -5913,10 +5924,16 @@ ${renderGlobalNav("/map")}
       </div>
     </aside>
   </div>
+  <div class="share-toast" id="share-toast" role="status" aria-live="polite"></div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script>
     var zoos = ${mapData};
-    var map = L.map('map').setView([34.7, 135.5], 8);
+    var mapInitLat = ${initialLat !== null ? String(initialLat) : "null"};
+    var mapInitLon = ${initialLon !== null ? String(initialLon) : "null"};
+    var mapInitZoom = ${initialZoom !== null ? String(initialZoom) : "null"};
+    var map = (mapInitLat !== null && mapInitLon !== null && mapInitZoom !== null)
+      ? L.map('map').setView([mapInitLat, mapInitLon], mapInitZoom)
+      : L.map('map');
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -6013,10 +6030,72 @@ ${renderGlobalNav("/map")}
       });
       markers[zoo.id] = marker;
     });
-    if (zoos.length > 0) {
-      var bounds = L.latLngBounds(zoos.map(function(z) { return [z.lat, z.lon]; }));
-      map.fitBounds(bounds, { padding: [40, 40] });
+    if (mapInitLat === null || mapInitLon === null || mapInitZoom === null) {
+      if (zoos.length > 0) {
+        var bounds = L.latLngBounds(zoos.map(function(z) { return [z.lat, z.lon]; }));
+        map.fitBounds(bounds, { padding: [40, 40] });
+      } else {
+        map.setView([34.7, 135.5], 8);
+      }
     }
+
+    function updateUrlFromMap() {
+      var center = map.getCenter();
+      var zoom = map.getZoom();
+      var lat = Math.round(center.lat * 10000) / 10000;
+      var lon = Math.round(center.lng * 10000) / 10000;
+      var z = Math.round(zoom * 10) / 10;
+      var url = new URL(window.location.href);
+      url.searchParams.set('lat', String(lat));
+      url.searchParams.set('lon', String(lon));
+      url.searchParams.set('z', String(z));
+      history.replaceState(null, '', url.toString());
+    }
+    map.on('moveend', updateUrlFromMap);
+    map.on('zoomend', updateUrlFromMap);
+
+    var shareBtn = document.getElementById('share-btn');
+    var shareToast = document.getElementById('share-toast');
+    var toastTimer = null;
+
+    function showToast(msg, isError) {
+      if (!shareToast) return;
+      shareToast.textContent = msg;
+      shareToast.className = 'share-toast ' + (isError ? 'share-toast--error' : 'share-toast--ok');
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(function() {
+        shareToast.className = 'share-toast';
+      }, 3000);
+    }
+
+    if (shareBtn) {
+      shareBtn.addEventListener('click', function() {
+        updateUrlFromMap();
+        var shareUrl = window.location.href;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(shareUrl).then(function() {
+            showToast('URLをコピーしました', false);
+          }, function() {
+            showToast('コピーに失敗しました', true);
+          });
+        } else {
+          try {
+            var ta = document.createElement('textarea');
+            ta.value = shareUrl;
+            ta.style.cssText = 'position:fixed;top:-1000px;left:-1000px;opacity:0;';
+            ta.setAttribute('readonly', '');
+            document.body.appendChild(ta);
+            ta.setSelectionRange(0, ta.value.length);
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+            showToast('URLをコピーしました', false);
+          } catch (e) {
+            showToast('コピーに失敗しました', true);
+          }
+        }
+      });
+    }
+
     document.querySelectorAll('.result-item').forEach(function(item) {
       var id = item.dataset.zooId;
       if (id) resultItemsByZooId[id] = item;
@@ -6666,10 +6745,16 @@ export default {
     if (pathname === "/map") {
       const animal = normalizeSearchTerm(url.searchParams.get("animal"));
       const taxClass = url.searchParams.get("cls") ?? null;
+      const latParam = parseFloat(url.searchParams.get("lat") ?? "");
+      const lonParam = parseFloat(url.searchParams.get("lon") ?? "");
+      const zoomParam = parseFloat(url.searchParams.get("z") ?? "");
+      const initialLat = isFinite(latParam) ? latParam : null;
+      const initialLon = isFinite(lonParam) ? lonParam : null;
+      const initialZoom = isFinite(zoomParam) ? zoomParam : null;
       const results = taxClass && !animal
         ? await searchZoosByTaxonomyClass(env.DB, activePref, taxClass)
         : await searchZoos(env.DB, activePref, animal);
-      const html = renderMapHtml(results, activePref, animal, animal ? null : taxClass);
+      const html = renderMapHtml(results, activePref, animal, animal ? null : taxClass, initialLat, initialLon, initialZoom);
       return htmlResponse(html, url, activePref);
     }
 

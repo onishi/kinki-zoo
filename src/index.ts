@@ -3176,12 +3176,21 @@ function toApiZoo(result: ZooSearchResult, includeMatches: boolean): Zoo & {
   };
 }
 
-function renderMatchedValues(label: string, values: string[]): string {
+function renderMatchedValues(
+  label: string,
+  values: string[],
+  linkBuilder?: (value: string) => string
+): string {
   if (values.length === 0) return "";
   const visibleValues = values.slice(0, 8);
   const hiddenCount = values.length - visibleValues.length;
   const chips = visibleValues
-    .map((value) => `<span class="match-chip ui-chip ui-pill">${escapeHtml(value)}</span>`)
+    .map((value) => {
+      const escapedValue = escapeHtml(value);
+      return linkBuilder
+        ? `<a class="match-chip ui-chip ui-pill" href="${escapeHtml(linkBuilder(value))}">${escapedValue}</a>`
+        : `<span class="match-chip ui-chip ui-pill">${escapedValue}</span>`;
+    })
     .join("");
   const more = hiddenCount > 0 ? `<span class="match-more">ほか ${hiddenCount} 件</span>` : "";
 
@@ -3193,7 +3202,11 @@ function renderMatchedValues(label: string, values: string[]): string {
 }
 
 function renderMatchSummary(result: ZooSearchResult): string {
-  const animalMatches = renderMatchedValues("ヒットした動物・分類", result.matchedAnimals);
+  const animalMatches = renderMatchedValues(
+    "ヒットした動物・分類",
+    result.matchedAnimals,
+    buildZooAnimalUrl
+  );
   const featureMatches = renderMatchedValues("ヒットした施設情報", result.matchedFeatures);
 
   if (!animalMatches && !featureMatches) return "";

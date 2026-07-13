@@ -3062,7 +3062,7 @@ function renderExploreCards(activePref: PrefectureCode | null, facilityCount: nu
     {
       href: activePref ? `/animals?pref=${activePref}` : "/animals",
       label: "動物から探す",
-      meta: totalAnimalCount > 0 ? `登録表示名 ${totalAnimalCount} 件` : "動物一覧",
+      meta: totalAnimalCount > 0 ? `動物 ${totalAnimalCount} 種` : "動物一覧",
       body: "動物名、分類、見られる施設を一覧で確認できます。",
     },
     {
@@ -3136,7 +3136,7 @@ function renderSpotlightSection(
       ? `<div class="spotlight-block">
       <div class="spotlight-sub-heading">
         <h3>動物の多い施設</h3>
-        <a href="${activePref ? `/?pref=${activePref}` : "/"}" class="spotlight-more">施設一覧へ →</a>
+        <a href="${activePref ? `/?pref=${activePref}` : "/"}" class="spotlight-more">動物園一覧へ →</a>
       </div>
       <div class="spotlight-zoo-grid">
         ${featuredZoos
@@ -3439,7 +3439,7 @@ function renderSiteHeader(): string {
   return `  <header class="site-header">
     <div class="site-heading">
       <h1><a href="/">近畿動物園情報</a></h1>
-      <p>近畿一円の動物園・動物施設をまとめて調べられます</p>
+      <p>近畿一円の動物園・施設をまとめて調べられます</p>
     </div>
   </header>`;
 }

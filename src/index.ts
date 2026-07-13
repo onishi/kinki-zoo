@@ -3038,7 +3038,7 @@ function buildBrowseUrl(pref: PrefectureCode | null, animal: string | null): str
   if (pref) params.set("pref", pref);
   if (animal) params.set("animal", animal);
   const query = params.toString();
-  return query ? `/?${query}` : "/";
+  return query ? `/zoos?${query}` : "/zoos";
 }
 
 function buildMapUrl(pref: PrefectureCode | null, animal: string | null, taxClass?: string | null): string {
@@ -3050,9 +3050,67 @@ function buildMapUrl(pref: PrefectureCode | null, animal: string | null, taxClas
   return query ? `/map?${query}` : "/map";
 }
 
+function renderHomeOverview(
+  activePref: PrefectureCode | null,
+  facilityCount: number,
+  totalAnimalCount: number,
+  featuredZoos: ZooSearchResult[]
+): string {
+  const prefLabel = activePref ? PREF_LABELS[activePref] : "近畿一円";
+  const prefectureCount = activePref ? 1 : new Set(zoos.map((zoo) => zoo.prefecture)).size;
+  const topZoo = featuredZoos[0];
+  const stats = [
+    { label: "掲載施設", value: `${facilityCount}`, unit: "施設" },
+    { label: "登録動物", value: `${totalAnimalCount}`, unit: "件" },
+    { label: "対象地域", value: `${prefectureCount}`, unit: activePref ? "府県" : "府県" },
+  ];
+  const topZooHtml = topZoo
+    ? `<a class="home-featured-link" href="/zoos/${encodeURIComponent(topZoo.zoo.id)}">
+        <span>${escapeHtml(topZoo.zoo.name)}</span>
+        <small>${topZoo.animalCount} 種</small>
+      </a>`
+    : `<span class="home-featured-empty">集計中</span>`;
+
+  return `
+  <section class="home-overview" aria-labelledby="home-overview-title">
+    <div class="home-overview-main">
+      <p class="home-kicker">${escapeHtml(prefLabel)}</p>
+      <h2 id="home-overview-title">動物園・動物・分類をまとめて探す</h2>
+      <p class="home-lead">施設一覧、地図、動物名、分類から近畿の動物園情報を確認できます。</p>
+      <div class="home-primary-actions">
+        <a href="${buildBrowseUrl(activePref, null)}" class="ui-btn ui-btn--primary ui-touch-target">動物園一覧</a>
+        <a href="${buildMapUrl(activePref, null)}" class="ui-btn ui-btn--secondary ui-touch-target">地図で見る</a>
+      </div>
+    </div>
+    <div class="home-overview-side" aria-label="掲載状況">
+      <dl class="home-stats">
+        ${stats
+          .map(
+            (stat) => `
+        <div>
+          <dt>${escapeHtml(stat.label)}</dt>
+          <dd><strong>${escapeHtml(stat.value)}</strong><span>${escapeHtml(stat.unit)}</span></dd>
+        </div>`
+          )
+          .join("")}
+      </dl>
+      <div class="home-featured-zoo">
+        <span>動物掲載数が多い施設</span>
+        ${topZooHtml}
+      </div>
+    </div>
+  </section>`;
+}
+
 function renderExploreCards(activePref: PrefectureCode | null, facilityCount: number, totalAnimalCount: number): string {
   const prefLabel = activePref ? PREF_LABELS[activePref] : "近畿一円";
   const cards = [
+    {
+      href: buildBrowseUrl(activePref, null),
+      label: "動物園一覧",
+      meta: `${prefLabel}の ${facilityCount} 施設`,
+      body: "施設名、地域、住所、基本情報を一覧で確認できます。",
+    },
     {
       href: buildMapUrl(activePref, null),
       label: "地図で探す",
@@ -3071,19 +3129,13 @@ function renderExploreCards(activePref: PrefectureCode | null, facilityCount: nu
       meta: "類・目・科で探索",
       body: "哺乳類、鳥類、爬虫類など、分類ツリーから動物をたどれます。",
     },
-    {
-      href: "/compare",
-      label: "動物園を比較",
-      meta: "共通・固有の動物",
-      body: "気になる施設を選んで、見られる動物の違いを比較できます。",
-    },
   ];
 
   return `
   <section class="explore-section" aria-labelledby="explore-title">
     <div class="explore-heading">
-      <h2 id="explore-title">探し方を選ぶ</h2>
-      <p>${escapeHtml(prefLabel)}の動物園を、場所・動物・分類から探せます。</p>
+      <h2 id="explore-title">主要ページ</h2>
+      <a href="/compare" class="section-link">動物園を比較 →</a>
     </div>
     <div class="explore-grid">
       ${cards
@@ -3136,7 +3188,7 @@ function renderSpotlightSection(
       ? `<div class="spotlight-block">
       <div class="spotlight-sub-heading">
         <h3>動物の多い施設</h3>
-        <a href="${activePref ? `/?pref=${activePref}` : "/"}" class="spotlight-more">動物園一覧へ →</a>
+        <a href="${buildBrowseUrl(activePref, null)}" class="spotlight-more">施設一覧へ →</a>
       </div>
       <div class="spotlight-zoo-grid">
         ${featuredZoos
@@ -3165,7 +3217,7 @@ function renderSpotlightSection(
 
 function buildAnimalSearchUrl(animal: string): string {
   const params = new URLSearchParams({ animal });
-  return `/?${params.toString()}`;
+  return `/zoos?${params.toString()}`;
 }
 
 function buildZooAnimalUrl(displayName: string): string {
@@ -3446,7 +3498,8 @@ function renderSiteHeader(): string {
 
 function renderGlobalNav(activePath: string): string {
   const navItems: [string, string][] = [
-    ["/", "動物園一覧"],
+    ["/", "トップ"],
+    ["/zoos", "動物園一覧"],
     ["/animals", "動物一覧"],
     ["/taxonomy", "分類から探す"],
     ["/map", "地図で見る"],
@@ -4260,8 +4313,10 @@ function renderHtml(
   results: ZooSearchResult[],
   activePref: PrefectureCode | null,
   animal: string | null,
-  featuredAnimals: FeaturedAnimal[] = []
+  featuredAnimals: FeaturedAnimal[] = [],
+  page: "home" | "zoos" = "zoos"
 ): string {
+  const isHome = page === "home";
   const includeMatchSummary = Boolean(animal);
   const rows = results.map((result) => renderZooCard(result, includeMatchSummary)).join("\n");
   const escapedAnimal = escapeHtml(animal ?? "");
@@ -4271,9 +4326,11 @@ function renderHtml(
   const totalAnimalCount = results.reduce((sum, result) => sum + result.animalCount, 0);
   const prefLabel = activePref && isPrefectureCode(activePref) ? PREF_LABELS[activePref] : "近畿一円";
   const summary = animal
-    ? `${prefLabel} で「${escapedAnimal}」を探せる動物園・施設: ${count} 件 / 検索ヒット: ${matchCount} 件`
-    : `${prefLabel} の動物園・施設: ${count} 件`;
-  const emptyMessage = animal ? "検索条件に該当する施設が見つかりませんでした。" : "該当する施設が見つかりませんでした。";
+    ? `${prefLabel}で「${escapedAnimal}」を探せる動物園・施設: ${count} 件 / 検索ヒット: ${matchCount} 件`
+    : `${prefLabel}の動物園・施設: ${count} 件`;
+  const emptyMessage = animal
+    ? `「${escapedAnimal}」に該当する施設が見つかりませんでした。`
+    : "該当する施設が見つかりませんでした。";
   let zooListHtml = renderStateMessage(
     emptyMessage,
     animal
@@ -4321,10 +4378,31 @@ function renderHtml(
     .search-form input { flex: 1 1 220px; max-width: 320px; padding: 0.55rem 0.75rem; border: 1px solid #bbb; font-size: 0.95rem; }
     .search-form button, .search-form a { font-size: 0.875rem; }
     .search-form button, .search-form a { padding: 0.5rem 0.9rem; }
+    .home-overview { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.8fr); gap: 1.25rem; padding: 1.35rem 1.5rem; border-bottom: 1px solid #ddd; background: #fbfcfb; }
+    .home-overview-main { display: grid; align-content: center; gap: 0.55rem; min-width: 0; }
+    .home-kicker { color: #617469; font-size: 0.8rem; font-weight: bold; }
+    .home-overview h2 { font-size: 1.35rem; line-height: 1.35; }
+    .home-lead { max-width: 44rem; color: #4c5d53; font-size: 0.92rem; line-height: 1.65; }
+    .home-primary-actions { display: flex; flex-wrap: wrap; gap: 0.55rem; margin-top: 0.15rem; }
+    .home-overview-side { display: grid; gap: 0.65rem; align-content: start; min-width: 0; }
+    .home-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.45rem; }
+    .home-stats div { min-width: 0; border: 1px solid #e0e8e3; background: #fff; padding: 0.6rem 0.65rem; }
+    .home-stats dt { color: #66756b; font-size: 0.72rem; margin-bottom: 0.2rem; }
+    .home-stats dd { display: flex; align-items: baseline; gap: 0.22rem; color: #222; }
+    .home-stats strong { font-size: 1.25rem; line-height: 1; }
+    .home-stats span { color: #66756b; font-size: 0.72rem; }
+    .home-featured-zoo { display: grid; gap: 0.25rem; border: 1px solid #e0e8e3; background: #fff; padding: 0.7rem; }
+    .home-featured-zoo > span { color: #66756b; font-size: 0.74rem; font-weight: bold; }
+    .home-featured-link { display: flex; justify-content: space-between; gap: 0.75rem; align-items: baseline; color: #1f5b45; text-decoration: none; }
+    .home-featured-link:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .home-featured-link span { font-weight: bold; overflow-wrap: anywhere; }
+    .home-featured-link small, .home-featured-empty { color: #66756b; font-size: 0.78rem; }
     .explore-section { padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; display: grid; gap: 0.85rem; }
     .explore-heading { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; align-items: baseline; justify-content: space-between; }
     .explore-heading h2 { font-size: 1.08rem; }
     .explore-heading p { color: #666; font-size: 0.86rem; }
+    .section-link { color: #1f5b45; font-size: 0.82rem; text-decoration: none; }
+    .section-link:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .explore-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.7rem; }
     .explore-card { display: grid; gap: 0.24rem; min-height: 7rem; align-content: start; padding: 0.85rem; }
     .explore-card span { font-weight: bold; font-size: 0.98rem; }
@@ -4373,6 +4451,13 @@ function renderHtml(
       .search-form { display: grid; grid-template-columns: 1fr auto; padding: 0.75rem; }
       .search-form input { width: 100%; max-width: none; min-width: 0; min-height: 44px; grid-column: 1 / -1; }
       .search-form button, .search-form a { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; }
+      .home-overview { grid-template-columns: 1fr; gap: 0.85rem; padding: 1rem 0.75rem; }
+      .home-overview h2 { font-size: 1.15rem; }
+      .home-lead { font-size: 0.86rem; }
+      .home-primary-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .home-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .home-stats div { padding: 0.55rem 0.45rem; }
+      .home-stats strong { font-size: 1.05rem; }
       .explore-section { padding: 0.75rem; }
       .explore-heading { display: grid; gap: 0.25rem; }
       .explore-grid { grid-template-columns: 1fr; gap: 0.5rem; }
@@ -4399,16 +4484,21 @@ function renderHtml(
 </head>
 <body>
 ${renderSiteHeader()}
-${renderGlobalNav("/")}
-  <form class="search-form" action="/" method="get">
+${renderGlobalNav(isHome ? "/" : "/zoos")}
+  ${isHome ? renderHomeOverview(activePref, count, totalAnimalCount, featuredZoos) : ""}
+  <form class="search-form" action="/zoos" method="get">
     <input type="search" name="animal" value="${escapedAnimal}" placeholder="動物名で検索（例: パンダ）" aria-label="動物名で検索">
     <button type="submit" class="ui-btn ui-btn--primary ui-touch-target">検索</button>
     ${animal ? `<a href="${buildBrowseUrl(activePref, null)}" class="ui-btn ui-btn--secondary ui-touch-target">クリア</a>` : ""}
   </form>
-  ${animal ? "" : renderExploreCards(activePref, count, totalAnimalCount)}
-  ${animal ? "" : renderSpotlightSection(featuredAnimals, featuredZoos, activePref)}
-  <p class="summary">${summary}</p>
-  ${zooListHtml}
+  ${isHome ? renderExploreCards(activePref, count, totalAnimalCount) : ""}
+  ${isHome ? renderSpotlightSection(featuredAnimals, featuredZoos, activePref) : ""}
+  ${
+    isHome
+      ? ""
+      : `<p class="summary">${summary}</p>
+  ${zooListHtml}`
+  }
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
 </body>
 </html>`;
@@ -5158,8 +5248,8 @@ function renderZooDetailHtml(
       .join("")}
   </dl>`;
   const breadcrumb = renderBreadcrumb([
-    { href: "/", label: "動物園一覧" },
-    { href: `/?pref=${zoo.prefecture}`, label: prefLabel },
+    { href: "/zoos", label: "動物園一覧" },
+    { href: `/zoos?pref=${zoo.prefecture}`, label: prefLabel },
     { label: zoo.name },
   ]);
 
@@ -5241,7 +5331,7 @@ function renderZooDetailHtml(
 </head>
 <body>
 ${renderSiteHeader()}
-${renderGlobalNav("/")}
+${renderGlobalNav("/zoos")}
   ${breadcrumb}
   <main>
     <nav class="page-nav">
@@ -6554,6 +6644,14 @@ export default {
       return htmlResponse(html, url, activePref);
     }
 
+    // HTML: /zoos
+    if (pathname === "/zoos") {
+      const animal = normalizeSearchTerm(url.searchParams.get("animal"));
+      const results = await searchZoos(env.DB, activePref, animal);
+      const html = renderHtml(results, activePref, animal, [], "zoos");
+      return htmlResponse(html, url, activePref);
+    }
+
     // HTML: /animal/:displayName
     const animalClassifyMatch = pathname.match(/^\/animal\/(.+)\/classify$/);
     if (animalClassifyMatch) {
@@ -6761,21 +6859,17 @@ export default {
     // HTML: /
     if (pathname === "/") {
       const animal = normalizeSearchTerm(url.searchParams.get("animal"));
-      const [results, featuredAnimals] = await Promise.all([
-        searchZoos(env.DB, activePref, animal),
-        animal ? Promise.resolve([]) : loadFeaturedAnimals(env.DB, activePref),
-      ]);
-      const html = renderHtml(results, activePref, animal, featuredAnimals);
-      return htmlResponse(html, url, activePref);
-    }
-
-    // Redirect: /zoos → / (301)
-    if (pathname === "/zoos") {
-      const destination = new URL("/", url.origin);
-      for (const [key, value] of url.searchParams) {
-        destination.searchParams.set(key, value);
+      if (animal) {
+        const destination = new URL("/zoos", url.origin);
+        destination.search = url.search;
+        return Response.redirect(destination.toString(), 301);
       }
-      return Response.redirect(destination.toString(), 301);
+      const [results, featuredAnimals] = await Promise.all([
+        searchZoos(env.DB, activePref, null),
+        loadFeaturedAnimals(env.DB, activePref),
+      ]);
+      const html = renderHtml(results, activePref, null, featuredAnimals, "home");
+      return htmlResponse(html, url, activePref);
     }
 
     return notFound("ページが見つかりません");

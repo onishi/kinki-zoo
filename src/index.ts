@@ -3437,6 +3437,10 @@ function buildZooAnimalUrl(displayName: string): string {
   return `/animal/${encodeURIComponent(displayName)}`;
 }
 
+function buildJapaneseWikipediaUrl(title: string): string {
+  return `https://ja.wikipedia.org/wiki/${encodeURIComponent(title)}`;
+}
+
 function buildTaxonomyPathUrl(values: string[]): string {
   return `/taxonomy/${values.map((value) => encodeURIComponent(value)).join("/")}`;
 }
@@ -3528,6 +3532,23 @@ function renderPrefectureSelector(url: URL, activePref: PrefectureCode | null): 
   </form>`;
 }
 
+function getHeaderSearchValue(url: URL): string {
+  return url.searchParams.get("q") ?? url.searchParams.get("animal") ?? "";
+}
+
+function renderHeaderSearch(url: URL, activePref: PrefectureCode | null): string {
+  const value = getHeaderSearchValue(url);
+  const prefInput = activePref
+    ? `<input type="hidden" name="pref" value="${escapeHtml(activePref)}">`
+    : "";
+  return `<form class="header-search" action="/search" method="get" role="search">
+    ${prefInput}
+    <label for="header-search-input">サイト内検索</label>
+    <input id="header-search-input" type="search" name="q" value="${escapeHtml(value)}" placeholder="動物・動物園を検索" autocomplete="off">
+    <button type="submit">検索</button>
+  </form>`;
+}
+
 function htmlResponse(html: string, url: URL, activePref: PrefectureCode | null): Response {
   const canonicalUrl = escapeHtml(buildCanonicalUrl(url));
   let rewriter = new HTMLRewriter()
@@ -3538,6 +3559,7 @@ function htmlResponse(html: string, url: URL, activePref: PrefectureCode | null)
     })
     .on(".site-header", {
       element(element) {
+        element.append(renderHeaderSearch(url, activePref), { html: true });
         element.append(renderPrefectureSelector(url, activePref), { html: true });
       },
     })
@@ -3651,6 +3673,11 @@ const COMMON_STYLES = `
     .site-header h1 { font-size: 1.5rem; }
     .site-header h1 a { color: inherit; text-decoration: none; }
     .site-header p { font-size: 0.9rem; color: #555; margin-top: 0.25rem; }
+    .header-search { display: flex; flex: 1 1 300px; max-width: 460px; align-items: center; gap: 0.4rem; }
+    .header-search label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+    .header-search input { flex: 1 1 auto; min-width: 0; min-height: 40px; border: 1px solid #aaa; background: #fff; padding: 0.5rem 0.65rem; font-size: 0.9rem; }
+    .header-search button { flex: 0 0 auto; min-height: 40px; border: 1px solid #1f5b45; background: #1f5b45; color: #fff; padding: 0.45rem 0.75rem; font-size: 0.86rem; cursor: pointer; }
+    .header-search button:hover { background: #184a38; border-color: #184a38; }
     .pref-selector { display: flex; align-items: center; gap: 0.5rem; }
     .pref-selector label { color: #555; font-size: 0.82rem; font-weight: bold; }
     .pref-selector select { min-width: 9rem; border: 1px solid #aaa; background: #fff; padding: 0.45rem 2rem 0.45rem 0.6rem; font: inherit; }
@@ -3687,6 +3714,8 @@ const COMMON_STYLES = `
       .site-heading { width: 100%; }
       .site-header h1 { font-size: 1.2rem; line-height: 1.35; }
       .site-header p { font-size: 0.78rem; line-height: 1.45; }
+      .header-search { width: 100%; max-width: none; }
+      .header-search input, .header-search button { min-height: 44px; }
       .pref-selector { width: 100%; }
       .pref-selector label { flex: 0 0 auto; }
       .pref-selector select { flex: 1 1 auto; min-width: 0; min-height: 44px; }
@@ -5196,6 +5225,10 @@ function renderZooAnimalDetailHtml(
     detail.canonicalName && detail.canonicalName !== detail.displayName
       ? `<p class="canonical">分類マスタ: ${escapeHtml(detail.canonicalName)}</p>`
       : "";
+  const wikipediaTitle = detail.speciesName ?? detail.canonicalName ?? detail.displayName;
+  const externalLinksHtml = `<p class="animal-external-links">
+    <a href="${escapeHtml(buildJapaneseWikipediaUrl(wikipediaTitle))}" target="_blank" rel="noopener noreferrer">Wikipedia</a>
+  </p>`;
   const noticeHtml = notice
     ? `<p class="notice">${escapeHtml(notice)}</p>`
     : "";
@@ -5277,6 +5310,9 @@ function renderZooAnimalDetailHtml(
     .hero-info { display: grid; gap: 0.75rem; }
     .hero-name { font-size: 1.5rem; font-weight: bold; overflow-wrap: anywhere; line-height: 1.3; }
     .canonical { color: #777; font-size: 0.88rem; }
+    .animal-external-links { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .animal-external-links a { color: #1f5b45; font-size: 0.88rem; font-weight: bold; text-decoration: none; }
+    .animal-external-links a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .notice { border: 1px solid #cfe5d8; background: #f5fbf7; color: #244d37; padding: 0.6rem 0.75rem; font-size: 0.86rem; }
     .taxonomy-details { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border: 1px solid #e1e1e1; }
     .taxonomy-details div { min-width: 0; border-right: 1px solid #e1e1e1; }
@@ -5330,6 +5366,7 @@ ${renderGlobalNav("/animals")}
       <div class="hero-info">
         <h1 class="hero-name">${escapedDisplayName}</h1>
         ${canonicalHtml}
+        ${externalLinksHtml}
         ${taxonomyHtml}
       </div>
     </div>

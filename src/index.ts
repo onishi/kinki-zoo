@@ -4818,7 +4818,10 @@ function renderSearchHtml(
     ? `<a href="/animals?q=${encodeURIComponent(query)}" class="section-link">動物をもっと見る →</a>`
     : "";
   const zooMore = results.zoos.length > visibleZoos.length
-    ? `<a href="/zoos" class="section-link">動物園一覧へ →</a>`
+    ? `<div class="section-actions">
+        <a href="${buildBrowseUrl(activePref, query)}" class="section-link">動物園一覧へ →</a>
+        <a href="${buildMapUrl(activePref, query)}" class="section-link">地図を見る →</a>
+      </div>`
     : "";
   const taxonomyMore = results.taxonomies.length > visibleTaxonomies.length
     ? `<a href="/taxonomy" class="section-link">分類一覧へ →</a>`
@@ -4858,6 +4861,7 @@ function renderSearchHtml(
     .search-section-heading small { color: #666; font-size: 0.8rem; }
     .section-link { color: #1f5b45; font-size: 0.82rem; text-decoration: none; }
     .section-link:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .section-actions { display: flex; flex-wrap: wrap; gap: 0.5rem 0.9rem; align-items: center; }
     .search-animal-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 0.75rem; }
     .search-animal-card { display: grid; gap: 0.55rem; border: 1px solid #dce7df; padding: 0.75rem; background: #fff; }
     .search-animal-main { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 0.65rem; align-items: center; color: #1f5b45; text-decoration: none; }
@@ -6436,9 +6440,12 @@ function renderMapHtml(
     .map-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 0.55rem 1.5rem; border-bottom: 1px solid #ddd; flex-shrink: 0; gap: 0.5rem; }
     .list-link { font-size: 0.85rem; color: #1f5b45; text-decoration: none; }
     .list-link:hover { text-decoration: underline; }
-    .share-btn { font-size: 0.82rem; padding: 0.35rem 0.75rem; border: 1px solid #1f5b45; background: #fff; color: #1f5b45; cursor: pointer; line-height: 1; white-space: nowrap; }
-    .share-btn:hover { background: #f1f8f3; }
-    .share-btn:focus-visible { outline: 2px solid #1f5b45; outline-offset: 2px; }
+    .map-toolbar-actions { display: flex; align-items: center; gap: 0.45rem; }
+    .share-btn, .location-btn { font-size: 0.82rem; padding: 0.35rem 0.75rem; border: 1px solid #1f5b45; background: #fff; color: #1f5b45; cursor: pointer; line-height: 1; white-space: nowrap; }
+    .share-btn:hover, .location-btn:hover { background: #f1f8f3; }
+    .share-btn:focus-visible, .location-btn:focus-visible { outline: 2px solid #1f5b45; outline-offset: 2px; }
+    .location-btn:disabled { opacity: 0.65; cursor: wait; }
+    .result-distance { margin-left: auto; font-size: 0.7rem; font-weight: normal; color: #66756b; white-space: nowrap; }
     .share-toast { position: fixed; bottom: 1.25rem; left: 50%; transform: translateX(-50%); padding: 0.5rem 1.1rem; border-radius: 4px; font-size: 0.85rem; z-index: 2000; opacity: 0; visibility: hidden; transition: opacity 0.25s, visibility 0.25s; pointer-events: none; white-space: nowrap; }
     .share-toast--ok { background: #1f5b45; color: #fff; opacity: 1; visibility: visible; }
     .share-toast--error { background: #b91c1c; color: #fff; opacity: 1; visibility: visible; }
@@ -6471,7 +6478,7 @@ function renderMapHtml(
     @media (max-width: ${MAP_MOBILE_BREAKPOINT}px) {
       .map-toolbar { padding: 0 0.75rem; }
       .list-link { display: flex; min-height: 44px; align-items: center; }
-      .share-btn { min-height: 44px; }
+      .share-btn, .location-btn { min-height: 44px; }
       .search-form { display: grid; grid-template-columns: 1fr auto; padding: 0.65rem 0.75rem; }
       .search-form input { width: 100%; max-width: none; min-width: 0; min-height: 44px; grid-column: 1 / -1; }
       .search-form button, .search-form a { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; }
@@ -6490,7 +6497,10 @@ ${renderSiteHeader()}
 ${renderGlobalNav("/map")}
   <nav class="map-toolbar">
     <a href="${buildBrowseUrl(activePref, animal)}" class="list-link">一覧で見る →</a>
-    <button type="button" class="share-btn" id="share-btn" aria-label="現在の地図状態のリンクをコピー">リンクをコピー</button>
+    <div class="map-toolbar-actions">
+      <button type="button" class="location-btn" id="location-btn">現在地から探す</button>
+      <button type="button" class="share-btn" id="share-btn" aria-label="現在の地図状態のリンクをコピー">リンクをコピー</button>
+    </div>
   </nav>
   <form class="search-form" action="/map" method="get">
     <input type="search" name="animal" value="${escapedAnimal}" placeholder="動物名で検索（例: パンダ）" aria-label="動物名で検索">
@@ -6535,6 +6545,7 @@ ${renderGlobalNav("/map")}
     var isSheetOpen = !mobileViewportQuery.matches;
     var prevFocused = null;
     var prevMarker = null;
+    var locationMarker = null;
 
     function shouldSmoothScroll() {
       return !reducedMotionQuery.matches;
@@ -6602,6 +6613,42 @@ ${renderGlobalNav("/map")}
         marker.openPopup();
         prevMarker = marker;
       }
+    }
+
+    function distanceInKm(lat1, lon1, lat2, lon2) {
+      var radians = Math.PI / 180;
+      var dLat = (lat2 - lat1) * radians;
+      var dLon = (lon2 - lon1) * radians;
+      var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * radians) * Math.cos(lat2 * radians) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    function formatDistance(km) {
+      return km < 1 ? Math.round(km * 1000) + 'm' : km.toFixed(km < 10 ? 1 : 0) + 'km';
+    }
+
+    function sortResultsByDistance(lat, lon) {
+      var list = document.querySelector('.result-list');
+      if (!list) return;
+      var items = Object.keys(resultItemsByZooId).map(function(id) {
+        var zoo = zoos.find(function(item) { return item.id === id; });
+        var item = resultItemsByZooId[id];
+        return { zoo: zoo, item: item, distance: zoo ? distanceInKm(lat, lon, zoo.lat, zoo.lon) : Infinity };
+      }).filter(function(entry) { return entry.zoo && entry.item; });
+      items.sort(function(a, b) { return a.distance - b.distance; });
+      items.forEach(function(entry) {
+        var name = entry.item.querySelector('.result-name');
+        var distance = entry.item.querySelector('.result-distance');
+        if (!distance) {
+          distance = document.createElement('span');
+          distance.className = 'result-distance';
+          name.appendChild(distance);
+        }
+        distance.textContent = formatDistance(entry.distance);
+        list.appendChild(entry.item);
+      });
     }
 
     zoos.forEach(function(zoo) {
@@ -6678,6 +6725,35 @@ ${renderGlobalNav("/map")}
             showToast('コピーに失敗しました', true);
           }
         }
+      });
+    }
+
+    var locationBtn = document.getElementById('location-btn');
+    if (locationBtn) {
+      locationBtn.addEventListener('click', function() {
+        if (!navigator.geolocation) {
+          showToast('このブラウザでは現在地を取得できません', true);
+          return;
+        }
+        locationBtn.disabled = true;
+        locationBtn.textContent = '現在地を取得中…';
+        navigator.geolocation.getCurrentPosition(function(position) {
+          var lat = position.coords.latitude;
+          var lon = position.coords.longitude;
+          if (locationMarker) map.removeLayer(locationMarker);
+          locationMarker = L.circleMarker([lat, lon], {
+            radius: 9, color: '#155eef', weight: 3, fillColor: '#fff', fillOpacity: 1
+          }).addTo(map).bindPopup('現在地').openPopup();
+          map.setView([lat, lon], Math.max(map.getZoom(), 11));
+          sortResultsByDistance(lat, lon);
+          locationBtn.disabled = false;
+          locationBtn.textContent = '現在地から探す';
+          showToast('近い順に並べ替えました', false);
+        }, function(error) {
+          locationBtn.disabled = false;
+          locationBtn.textContent = '現在地から探す';
+          showToast(error.code === 1 ? '現在地の利用が許可されませんでした' : '現在地を取得できませんでした', true);
+        }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 });
       });
     }
 

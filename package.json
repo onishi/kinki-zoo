@@ -14,6 +14,7 @@
     "generate:animal-images": "node scripts/generate-animal-images.mjs",
     "generate:all-animal-images": "node scripts/generate-all-animal-images.mjs",
     "upload:images-to-r2": "node scripts/upload-images-to-r2.mjs",
+    "sync:remote": "node scripts/sync-to-remote.mjs",
     "typecheck": "npx tsc --noEmit"
   },
   "devDependencies": {

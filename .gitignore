@@ -2,3 +2,4 @@ node_modules/
 dist/
 .wrangler/
 .dev.vars
+.r2-sync-state.json

@@ -335,6 +335,23 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
+function renderFavoriteButton(
+  type: "zoo" | "animal",
+  id: string,
+  label: string,
+  href: string,
+  variant: "icon" | "large" = "icon"
+): string {
+  const escId = escapeHtml(id);
+  const escLabel = escapeHtml(label);
+  const escHref = escapeHtml(href);
+  const attrs = `data-fav-type="${type}" data-fav-id="${escId}" data-fav-name="${escLabel}" data-fav-href="${escHref}" aria-pressed="false"`;
+  if (variant === "large") {
+    return `<button type="button" class="fav-toggle fav-toggle--large ui-btn ui-btn--secondary ui-touch-target" ${attrs}><span class="fav-toggle-icon" aria-hidden="true">☆</span><span class="fav-toggle-text">お気に入りに追加</span></button>`;
+  }
+  return `<button type="button" class="fav-toggle fav-toggle--icon" ${attrs} aria-label="お気に入りに追加"><span class="fav-toggle-icon" aria-hidden="true">☆</span></button>`;
+}
+
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data, null, 2), {
     status,
@@ -3225,7 +3242,10 @@ function renderZooCard(result: ZooSearchResult, includeMatchSummary: boolean): s
   return `
     <tr id="${escapeHtml(zooDomId)}">
       <th scope="row" class="zoo-name">
-        <a href="/zoos/${zooId}">${escapeHtml(zoo.name)}</a>
+        <div class="name-with-fav">
+          <a href="/zoos/${zooId}">${escapeHtml(zoo.name)}</a>
+          ${renderFavoriteButton("zoo", zoo.id, zoo.name, `/zoos/${zooId}`)}
+        </div>
         <p class="kana">${escapeHtml(zoo.nameKana)}</p>
         <p class="zoo-name-links">
           <a href="${escapeHtml(zoo.website)}" target="_blank" rel="noopener noreferrer">公式サイト</a>
@@ -3668,6 +3688,14 @@ const COMMON_STYLES = `
     .ui-thumb { display: block; object-fit: cover; flex-shrink: 0; border-radius: 2px; background: #f0f0f0; }
     .ui-thumb--36 { width: 36px; height: 36px; }
     .ui-touch-target { min-height: 40px; }
+    .fav-toggle { border: 1px solid #d8c98a; background: #fff; color: #b8930b; cursor: pointer; }
+    .fav-toggle:disabled { opacity: 0.4; cursor: not-allowed; }
+    .fav-toggle--icon { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; width: 1.9rem; height: 1.9rem; padding: 0; font-size: 1.05rem; border-radius: 4px; margin-left: auto; }
+    .fav-toggle--icon[aria-pressed="true"] { background: #fdf6e0; }
+    .fav-toggle--large { display: inline-flex; align-items: center; gap: 0.35rem; }
+    .fav-toggle--large[aria-pressed="true"] { background: #fdf6e0; }
+    .fav-toggle-icon { color: #d9a900; }
+    .name-with-fav { display: flex; align-items: center; gap: 0.4rem; }
     .site-header { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem 2rem; padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; }
     .site-heading { flex: 1 1 320px; min-width: 0; }
     .site-header h1 { font-size: 1.5rem; }
@@ -3747,6 +3775,7 @@ function renderGlobalNav(activePath: string): string {
     ["/taxonomy", "分類から探す"],
     ["/map", "地図で見る"],
     ["/compare", "動物園を比較"],
+    ["/favorites", "お気に入り"],
     ["/admin", "動物管理"],
   ];
   const links = navItems
@@ -4743,6 +4772,7 @@ ${renderGlobalNav(isHome ? "/" : "/zoos")}
   ${zooListHtml}`
   }
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
+  <script src="/favorites.js" defer></script>
 </body>
 </html>`;
 }
@@ -4771,13 +4801,16 @@ function renderSearchAnimalCards(
 
       return `
         <article class="search-animal-card">
-          <a class="search-animal-main" href="${buildZooAnimalUrl(primaryDisplayName)}">
-            ${thumb}
-            <span>
-              <strong>${escapeHtml(title)}</strong>
-              ${primaryDisplayName && title !== primaryDisplayName ? `<small>${escapeHtml(primaryDisplayName)}</small>` : ""}
-            </span>
-          </a>
+          <div class="search-animal-head">
+            <a class="search-animal-main" href="${buildZooAnimalUrl(primaryDisplayName)}">
+              ${thumb}
+              <span>
+                <strong>${escapeHtml(title)}</strong>
+                ${primaryDisplayName && title !== primaryDisplayName ? `<small>${escapeHtml(primaryDisplayName)}</small>` : ""}
+              </span>
+            </a>
+            ${renderFavoriteButton("animal", title, title, buildZooAnimalUrl(primaryDisplayName))}
+          </div>
           ${taxonomy ? `<p class="search-taxonomy">${escapeHtml(taxonomy)}</p>` : `<p class="search-taxonomy">分類未設定</p>`}
           ${aliasText}
           <div class="search-zoo-links" aria-label="見られる施設">${zooLinks}${moreZoos}</div>
@@ -4864,7 +4897,8 @@ function renderSearchHtml(
     .section-actions { display: flex; flex-wrap: wrap; gap: 0.5rem 0.9rem; align-items: center; }
     .search-animal-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 0.75rem; }
     .search-animal-card { display: grid; gap: 0.55rem; border: 1px solid #dce7df; padding: 0.75rem; background: #fff; }
-    .search-animal-main { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 0.65rem; align-items: center; color: #1f5b45; text-decoration: none; }
+    .search-animal-head { display: flex; align-items: center; gap: 0.5rem; }
+    .search-animal-main { flex: 1 1 auto; min-width: 0; display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 0.65rem; align-items: center; color: #1f5b45; text-decoration: none; }
     .search-animal-main strong { display: block; overflow-wrap: anywhere; }
     .search-animal-main small { display: block; margin-top: 0.15rem; color: #66756b; font-size: 0.76rem; }
     .search-animal-main:hover strong { text-decoration: underline; text-underline-offset: 0.2em; }
@@ -4967,6 +5001,7 @@ ${renderGlobalNav("/search")}
     </section>` : ""}
   </main>
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
+  <script src="/favorites.js" defer></script>
 </body>
 </html>`;
 }
@@ -5109,6 +5144,7 @@ ${renderGlobalNav("/animals")}
   <p class="summary">${summary}</p>
   ${animalListHtml}
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
+  <script src="/favorites.js" defer></script>
 <script>
 (function () {
   const table = document.getElementById('animal-table');
@@ -5181,7 +5217,7 @@ function renderAnimalCards(animals: AnimalListItem[], imageKeys: AnimalImageVers
       const sortZoo = escapeHtml(item.zoos[0]?.name ?? "\u{FFFF}");
       return `
         <tr data-name="${sortName}" data-class="${sortClass}" data-count="${item.zoos.length}" data-zoo="${sortZoo}">
-          <th scope="row" class="animal-name">${thumbHtml}<a href="${escapeHtml(titleHref)}">${title}</a></th>
+          <th scope="row" class="animal-name">${thumbHtml}<a href="${escapeHtml(titleHref)}">${title}</a>${renderFavoriteButton("animal", searchName, item.canonicalName ?? primaryDisplayName, titleHref)}</th>
           <td data-label="分類">${taxonomyRow}</td>
           <td data-label="施設数"><span class="facility-count">${item.zoos.length}</span></td>
           <td data-label="施設一覧"><div class="zoo-links">${zooLinks}</div></td>
@@ -5312,6 +5348,7 @@ function renderZooAnimalDetailHtml(
     .animal-image--empty { display: grid; place-items: center; align-content: center; gap: 0.5rem; color: #777; font-size: 0.9rem; }
     .animal-image--empty a { color: #1f5b45; font-size: 0.82rem; }
     .hero-info { display: grid; gap: 0.75rem; }
+    .hero-name-row { display: flex; align-items: center; flex-wrap: wrap; gap: 0.75rem; }
     .hero-name { font-size: 1.5rem; font-weight: bold; overflow-wrap: anywhere; line-height: 1.3; }
     .canonical { color: #777; font-size: 0.88rem; }
     .animal-external-links { display: flex; flex-wrap: wrap; gap: 0.5rem; }
@@ -5368,7 +5405,16 @@ ${renderGlobalNav("/animals")}
     <div class="hero">
       ${imageHtml}
       <div class="hero-info">
-        <h1 class="hero-name">${escapedDisplayName}</h1>
+        <div class="hero-name-row">
+          <h1 class="hero-name">${escapedDisplayName}</h1>
+          ${renderFavoriteButton(
+            "animal",
+            detail.canonicalName ?? detail.displayName,
+            detail.canonicalName ?? detail.displayName,
+            buildZooAnimalUrl(detail.displayName),
+            "large"
+          )}
+        </div>
         ${canonicalHtml}
         ${externalLinksHtml}
         ${taxonomyHtml}
@@ -5382,6 +5428,7 @@ ${renderGlobalNav("/animals")}
     ${relatedSection}
   </main>
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
+  <script src="/favorites.js" defer></script>
 </body>
 </html>`;
 }
@@ -5846,6 +5893,7 @@ ${renderGlobalNav("/zoos")}
         <div class="hero-actions">
           <a class="primary-link ui-btn ui-btn--primary ui-touch-target" href="${escapeHtml(zoo.website)}" target="_blank" rel="noopener noreferrer">公式サイトを見る</a>
           <a class="secondary-link ui-btn ui-btn--secondary ui-touch-target" href="${buildMapUrl(zoo.prefecture, null)}#zoo-${escapeHtml(zoo.id)}">地図で見る</a>
+          ${renderFavoriteButton("zoo", zoo.id, zoo.name, `/zoos/${encodeURIComponent(zoo.id)}`, "large")}
         </div>
       </div>
       ${quickFactsHtml}
@@ -5883,6 +5931,7 @@ ${renderGlobalNav("/zoos")}
     </section>
     <div id="map"></div>
   </main>
+  <script src="/favorites.js" defer></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script>
     var filterButtons = document.querySelectorAll('[data-class-filter]');
@@ -6774,6 +6823,208 @@ ${renderGlobalNav("/map")}
 </html>`;
 }
 
+const FAVORITES_JS = `(function () {
+  var STORAGE_KEY = "kinkizoo:favorites:v1";
+  var hasStorage = (function () {
+    try {
+      var testKey = "__kinkizoo_test__";
+      window.localStorage.setItem(testKey, "1");
+      window.localStorage.removeItem(testKey);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  })();
+
+  function loadFavorites() {
+    if (!hasStorage) return { zoos: {}, animals: {} };
+    try {
+      var raw = window.localStorage.getItem(STORAGE_KEY);
+      if (!raw) return { zoos: {}, animals: {} };
+      var parsed = JSON.parse(raw);
+      return {
+        zoos: parsed && typeof parsed.zoos === "object" && parsed.zoos ? parsed.zoos : {},
+        animals: parsed && typeof parsed.animals === "object" && parsed.animals ? parsed.animals : {}
+      };
+    } catch (e) {
+      return { zoos: {}, animals: {} };
+    }
+  }
+
+  function saveFavorites(data) {
+    if (!hasStorage) return;
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    } catch (e) {
+      // ignore write failures (private mode, quota)
+    }
+  }
+
+  function bucketFor(data, type) {
+    return type === "zoo" ? data.zoos : data.animals;
+  }
+
+  function isFavorite(data, type, id) {
+    return Object.prototype.hasOwnProperty.call(bucketFor(data, type), id);
+  }
+
+  function toggleFavorite(type, id, label, href) {
+    var data = loadFavorites();
+    var bucket = bucketFor(data, type);
+    if (Object.prototype.hasOwnProperty.call(bucket, id)) {
+      delete bucket[id];
+    } else {
+      bucket[id] = { label: label, href: href };
+    }
+    saveFavorites(data);
+    return isFavorite(data, type, id);
+  }
+
+  function syncButton(button) {
+    var type = button.getAttribute("data-fav-type");
+    var id = button.getAttribute("data-fav-id");
+    if (!type || !id) return;
+    var active = isFavorite(loadFavorites(), type, id);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+    var icon = button.querySelector(".fav-toggle-icon");
+    if (icon) icon.textContent = active ? "\\u2605" : "\\u2606";
+    var text = button.querySelector(".fav-toggle-text");
+    if (text) text.textContent = active ? "お気に入り済み" : "お気に入りに追加";
+    if (!text) {
+      button.setAttribute("aria-label", active ? "お気に入り解除" : "お気に入りに追加");
+    }
+  }
+
+  function initButtons(root) {
+    var buttons = (root || document).querySelectorAll("[data-fav-type][data-fav-id]");
+    buttons.forEach(function (button) {
+      if (button.dataset.favBound === "1") return;
+      button.dataset.favBound = "1";
+      if (!hasStorage) {
+        button.disabled = true;
+        button.title = "このブラウザではお気に入りを保存できません";
+        return;
+      }
+      syncButton(button);
+      button.addEventListener("click", function (event) {
+        event.preventDefault();
+        var type = button.getAttribute("data-fav-type");
+        var id = button.getAttribute("data-fav-id");
+        var label = button.getAttribute("data-fav-name") || id;
+        var href = button.getAttribute("data-fav-href") || "";
+        toggleFavorite(type, id, label, href);
+        document.querySelectorAll('[data-fav-type="' + type + '"][data-fav-id="' + CSS.escape(id) + '"]').forEach(syncButton);
+        renderFavoritesPage();
+      });
+    });
+  }
+
+  function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, function (ch) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch];
+    });
+  }
+
+  function renderFavoritesPage() {
+    var root = document.getElementById("favorites-root");
+    if (!root) return;
+    if (!hasStorage) {
+      root.innerHTML = '<p class="favorites-empty">このブラウザではお気に入りを利用できません（プライベートブラウズなど localStorage が無効な環境です）。</p>';
+      return;
+    }
+    var data = loadFavorites();
+    var zooEntries = Object.keys(data.zoos).map(function (id) {
+      var entry = data.zoos[id];
+      return { id: id, label: entry.label || id, href: entry.href || "#" };
+    });
+    var animalEntries = Object.keys(data.animals).map(function (id) {
+      var entry = data.animals[id];
+      return { id: id, label: entry.label || id, href: entry.href || "#" };
+    });
+
+    function renderSection(type, title, entries, emptyMessage) {
+      if (entries.length === 0) {
+        return '<section class="favorites-section"><h2>' + title + '</h2><p class="favorites-empty">' + emptyMessage + '</p></section>';
+      }
+      var items = entries
+        .map(function (entry) {
+          return (
+            '<li><a href="' + escapeHtml(entry.href) + '">' + escapeHtml(entry.label) + "</a>" +
+            '<button type="button" class="ui-btn ui-btn--secondary favorites-remove" data-fav-remove data-fav-type="' +
+            type + '" data-fav-id="' + escapeHtml(entry.id) + '">削除</button></li>'
+          );
+        })
+        .join("");
+      return '<section class="favorites-section"><h2>' + title + "（" + entries.length + "）</h2><ul class=\\"favorites-list\\">" + items + "</ul></section>";
+    }
+
+    root.innerHTML =
+      renderSection("zoo", "動物園", zooEntries, "お気に入りの動物園はまだありません。") +
+      renderSection("animal", "動物", animalEntries, "お気に入りの動物はまだありません。");
+
+    root.querySelectorAll("[data-fav-remove]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var type = button.getAttribute("data-fav-type");
+        var id = button.getAttribute("data-fav-id");
+        toggleFavorite(type, id, "", "");
+        document.querySelectorAll('[data-fav-type="' + type + '"][data-fav-id="' + CSS.escape(id) + '"]').forEach(syncButton);
+        renderFavoritesPage();
+      });
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    initButtons();
+    renderFavoritesPage();
+  });
+})();
+`;
+
+function renderFavoritesHtml(): string {
+  return `<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>お気に入り | 近畿動物園情報</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
+    main { max-width: 800px; margin: 0 auto; padding: 1.5rem; display: grid; gap: 1.25rem; }
+    main > p.lead { color: #666; font-size: 0.9rem; line-height: 1.6; }
+    .favorites-section { display: grid; gap: 0.6rem; }
+    .favorites-section h2 { font-size: 1.05rem; }
+    .favorites-empty { color: #777; font-size: 0.88rem; border: 1px solid #e1e1e1; background: #f7f7f7; padding: 0.75rem; }
+    .favorites-list { list-style: none; display: grid; gap: 0.5rem; }
+    .favorites-list li { display: flex; align-items: center; justify-content: space-between; gap: 1rem; border: 1px solid #dce7df; padding: 0.65rem 0.85rem; }
+    .favorites-list a { color: #1f5b45; font-weight: bold; text-decoration: none; overflow-wrap: anywhere; }
+    .favorites-list a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .favorites-remove { flex: 0 0 auto; font-size: 0.78rem; padding: 0.35rem 0.65rem; min-height: 0; }
+    noscript p { color: #777; font-size: 0.88rem; border: 1px solid #e1e1e1; background: #f7f7f7; padding: 0.75rem; }
+    footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; }
+    @media (max-width: 640px) {
+      main { padding: 0.85rem; }
+      .favorites-list li { flex-wrap: wrap; }
+    }
+  </style>
+</head>
+<body>
+${renderSiteHeader()}
+${renderGlobalNav("/favorites")}
+  <main>
+    <div>
+      <h1>お気に入り</h1>
+      <p class="lead">お気に入りに追加した動物園・動物は、このブラウザの端末内にのみ保存されます。他の端末やブラウザとは共有されません。</p>
+    </div>
+    <noscript><p>お気に入り機能を利用するには JavaScript を有効にしてください。</p></noscript>
+    <div id="favorites-root"></div>
+  </main>
+  <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
+  <script src="/favorites.js" defer></script>
+</body>
+</html>`;
+}
+
 function isAdminPath(pathname: string): boolean {
   return (
     pathname.startsWith("/admin") ||
@@ -6804,6 +7055,16 @@ export default {
       return notFound(`都道府県コード '${prefParam}' は無効です`);
     }
     const activePref = getActivePrefecture(url);
+
+    // Static: /favorites.js
+    if (pathname === "/favorites.js") {
+      return new Response(FAVORITES_JS, {
+        headers: {
+          "Content-Type": "application/javascript; charset=utf-8",
+          "Cache-Control": "public, max-age=86400",
+        },
+      });
+    }
 
     if (isAdminPath(pathname)) {
       if (!env.ADMIN_PASSWORD || !checkAdminAuth(request, env.ADMIN_PASSWORD)) {
@@ -7438,6 +7699,11 @@ export default {
         : await searchZoos(env.DB, activePref, animal);
       const html = renderMapHtml(results, activePref, animal, animal ? null : taxClass, initialLat, initialLon, initialZoom);
       return htmlResponse(html, url, activePref);
+    }
+
+    // HTML: /favorites
+    if (pathname === "/favorites") {
+      return htmlResponse(renderFavoritesHtml(), url, activePref);
     }
 
     // HTML: /

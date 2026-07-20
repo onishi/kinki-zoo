@@ -357,11 +357,11 @@ function renderHomeOrZoosPage(
 ${renderSiteHeader()}
 ${renderGlobalNav(isHome ? "/" : "/zoos")}
   ${isHome ? renderHomeOverview(activePref, count, totalAnimalCount, featuredZoos) : ""}
-  <form class="search-form" action="${isHome ? "/search" : "/zoos"}" method="get">
-    <input type="search" name="${isHome ? "q" : "animal"}" value="${escapedAnimal}" placeholder="動物名で検索（例: パンダ）" aria-label="動物名で検索">
+  ${isHome ? "" : `<form class="search-form" action="/zoos" method="get">
+    <input type="search" name="animal" value="${escapedAnimal}" placeholder="動物名で検索（例: パンダ）" aria-label="動物名で検索">
     <button type="submit" class="ui-btn ui-btn--primary ui-touch-target">検索</button>
     ${animal ? `<a href="${buildBrowseUrl(activePref, null)}" class="ui-btn ui-btn--secondary ui-touch-target">クリア</a>` : ""}
-  </form>
+  </form>`}
   ${isHome ? renderExploreCards(activePref, count, totalAnimalCount) : ""}
   ${isHome ? renderSpotlightSection(featuredAnimals, featuredZoos, activePref) : ""}
   ${

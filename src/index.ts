@@ -5709,6 +5709,7 @@ ${renderGlobalNav("/taxonomy")}
         ])
   }
   <footer>分類は利用者が探しやすい粒度で整理しています。最新情報は各施設の公式サイトでご確認ください。</footer>
+  <script src="/favorites.js" defer></script>
 </body>
 </html>`;
 }

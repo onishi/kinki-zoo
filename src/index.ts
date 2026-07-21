@@ -5284,11 +5284,22 @@ function renderZooAnimalDetailHtml(
       : `<div class="related-thumb related-thumb--empty"></div>`;
     const label = item.canonicalName ?? name;
     const taxonomy = [item.className, item.orderName, item.familyName].filter(Boolean).join(" / ");
-    return `<a href="/animal/${encodeURIComponent(name)}" class="related-card ui-card-link ui-touch-target">
-      ${thumb}
-      <span class="related-name">${escapeHtml(label)}</span>
-      <small>${escapeHtml(taxonomy || `${item.zoos.length}施設`)}</small>
-    </a>`;
+    const visibleZoos = item.zoos.slice(0, 2);
+    const zooChips = visibleZoos
+      .map((zoo) => `<a class="ui-chip" href="/zoos/${encodeURIComponent(zoo.id)}">${escapeHtml(zoo.name)}</a>`)
+      .join("");
+    const moreZoosCount = item.zoos.length - visibleZoos.length;
+    const zooLinksHtml = item.zoos.length > 0
+      ? `<div class="related-zoo-links">${zooChips}${moreZoosCount > 0 ? `<span class="related-more-zoos">ほか${moreZoosCount}施設</span>` : ""}</div>`
+      : "";
+    return `<div class="related-card ui-card-link">
+      <a href="/animal/${encodeURIComponent(name)}" class="related-card-main ui-touch-target">
+        ${thumb}
+        <span class="related-name">${escapeHtml(label)}</span>
+      </a>
+      ${taxonomy ? `<p class="related-taxonomy">${escapeHtml(taxonomy)}</p>` : ""}
+      ${zooLinksHtml}
+    </div>`;
   }).join("");
 
   const relatedSection = relatedAnimals.length > 0 ? `
@@ -5339,10 +5350,14 @@ function renderZooAnimalDetailHtml(
     .alias-card small { color: #777; font-size: 0.76rem; line-height: 1.45; }
     .related-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 0.7rem; }
     .related-card { display: grid; gap: 0.35rem; padding: 0.55rem; min-width: 0; }
+    .related-card-main { display: grid; gap: 0.35rem; color: inherit; text-decoration: none; }
     .related-thumb { display: block; width: 100%; aspect-ratio: 1; height: auto; object-fit: cover; background: #f7f7f7; }
     .related-thumb--empty { background: #f0f0f0; }
     .related-name { font-size: 0.82rem; font-weight: bold; line-height: 1.35; overflow-wrap: anywhere; }
-    .related-card small { color: #777; font-size: 0.72rem; line-height: 1.35; }
+    .related-taxonomy { color: #777; font-size: 0.72rem; line-height: 1.35; }
+    .related-zoo-links { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; }
+    .related-zoo-links a { font-size: 0.7rem; padding: 0.15rem 0.4rem; }
+    .related-more-zoos { color: #999; font-size: 0.68rem; }
     footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; border-top: 1px solid #eee; }
     @media (max-width: 640px) {
       .hero { grid-template-columns: 1fr; padding: 1rem 0.75rem; gap: 1rem; }

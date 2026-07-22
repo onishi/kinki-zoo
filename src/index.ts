@@ -3688,14 +3688,14 @@ const COMMON_STYLES = `
     .ui-thumb { display: block; object-fit: cover; flex-shrink: 0; border-radius: 2px; background: #f0f0f0; }
     .ui-thumb--36 { width: 36px; height: 36px; }
     .ui-animal-placeholder {
-      --placeholder-gap: 0.28rem;
-      --placeholder-padding: 0.4rem;
-      --placeholder-font-size: clamp(0.52rem, 1.3vw, 0.82rem);
+      --animal-placeholder-gap: 0.28rem;
+      --animal-placeholder-padding: 0.4rem;
+      --animal-placeholder-font-size: clamp(0.52rem, 1.3vw, 0.82rem);
       display: grid;
       align-content: center;
       justify-items: center;
-      gap: var(--placeholder-gap);
-      padding: var(--placeholder-padding);
+      gap: var(--animal-placeholder-gap);
+      padding: var(--animal-placeholder-padding);
       border: 1px dashed #cfd9d3;
       background:
         linear-gradient(135deg, rgba(255, 255, 255, 0.4), rgba(236, 243, 239, 0.96)),
@@ -3706,9 +3706,9 @@ const COMMON_STYLES = `
       overflow: hidden;
     }
     .ui-animal-placeholder--compact {
-      --placeholder-gap: 0.16rem;
-      --placeholder-padding: 0.22rem;
-      --placeholder-font-size: clamp(0.46rem, 1vw, 0.64rem);
+      --animal-placeholder-gap: 0.16rem;
+      --animal-placeholder-padding: 0.22rem;
+      --animal-placeholder-font-size: clamp(0.46rem, 1vw, 0.64rem);
     }
     .ui-animal-placeholder-icon {
       width: min(42%, 2.25rem);
@@ -3743,14 +3743,14 @@ const COMMON_STYLES = `
     }
     .ui-animal-placeholder strong {
       max-width: 100%;
-      font-size: var(--placeholder-font-size);
+      font-size: var(--animal-placeholder-font-size);
       font-weight: bold;
       letter-spacing: 0.04em;
       overflow-wrap: anywhere;
     }
     .ui-animal-placeholder small {
       max-width: 16em;
-      font-size: calc(var(--placeholder-font-size) - 0.08rem);
+      font-size: calc(var(--animal-placeholder-font-size) - 0.08rem);
       color: #6f8077;
       overflow-wrap: anywhere;
     }
@@ -3896,7 +3896,7 @@ function renderAnimalImagePlaceholder(
   ]
     .filter(Boolean)
     .join(" ");
-  const textHtml = label ? `<strong>${escapeHtml(label)}</strong>` : "";
+  const textHtml = `<strong>${escapeHtml(label)}</strong>`;
   const detailHtml = detail ? `<small>${escapeHtml(detail)}</small>` : "";
   return `<div class="${classes}"${ariaHidden ? ' aria-hidden="true"' : ""}>
     <span class="ui-animal-placeholder-icon"></span>

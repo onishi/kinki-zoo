@@ -1,8 +1,8 @@
 import type { PrefectureCode, Zoo } from "./types";
 import { zoos } from "./data";
 import { findAnimalTaxonomy, type AnimalTaxonomy } from "./animal-taxonomy";
-import type { ScrapeResult } from "./scraper";
-import { scrapeAnimals } from "./scraper";
+import type { ScrapeResult, NewsItem } from "./scraper";
+import { scrapeAnimals, scrapeZooNews } from "./scraper";
 
 const PREF_LABELS: Record<PrefectureCode, string> = {
   osaka: "大阪府",
@@ -3092,6 +3092,54 @@ async function refreshAllAnimalCache(db: D1Database): Promise<ScrapeResult[]> {
   return results;
 }
 
+interface ZooNewsRow {
+  id: number;
+  zoo_id: string;
+  title: string;
+  url: string;
+  published_at: string | null;
+  fetched_at: string;
+}
+
+async function loadZooNews(db: D1Database, zooId: string, limit = 5): Promise<ZooNewsRow[]> {
+  const rows = await db
+    .prepare(
+      `SELECT id, zoo_id, title, url, published_at, fetched_at
+       FROM zoo_news
+       WHERE zoo_id = ?
+       ORDER BY CASE WHEN published_at IS NULL THEN 1 ELSE 0 END, published_at DESC
+       LIMIT ?`
+    )
+    .bind(zooId, limit)
+    .all<ZooNewsRow>();
+  return rows.results ?? [];
+}
+
+async function saveZooNews(db: D1Database, zooId: string, items: NewsItem[]): Promise<void> {
+  if (items.length === 0) return;
+  const fetchedAt = new Date().toISOString();
+  const statements = items.map((item) =>
+    db
+      .prepare(
+        `INSERT INTO zoo_news (zoo_id, title, url, published_at, fetched_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(zoo_id, url) DO UPDATE SET
+           title = excluded.title,
+           published_at = COALESCE(excluded.published_at, zoo_news.published_at),
+           fetched_at = excluded.fetched_at`
+      )
+      .bind(zooId, item.title, item.url, item.publishedAt ?? null, fetchedAt)
+  );
+  await db.batch(statements);
+}
+
+async function refreshAllZooNews(db: D1Database): Promise<void> {
+  for (const zoo of zoos) {
+    const items = await scrapeZooNews(zoo.id);
+    await saveZooNews(db, zoo.id, items);
+  }
+}
+
 async function searchZoos(db: D1Database, pref?: string | null, animal?: string | null): Promise<ZooSearchResult[]> {
   const normalizedAnimal = normalizeSearchTerm(animal);
 
@@ -5719,7 +5767,8 @@ function renderZooDetailHtml(
   scraped: ScrapeResult,
   coverage: ZooCoverageStats,
   imageKeys: AnimalImageVersionIndex = new Map(),
-  taxonomyByAnimal: Map<string, string> = new Map()
+  taxonomyByAnimal: Map<string, string> = new Map(),
+  news: ZooNewsRow[] = []
 ): string {
   const prefLabel = PREF_LABELS[zoo.prefecture];
   const classCounts = new Map<string, number>();
@@ -5871,6 +5920,11 @@ function renderZooDetailHtml(
     .animal-meta { color: #777; font-size: 0.78rem; margin-top: 0.85rem; }
     .error { color: #b00020; margin-bottom: 0.75rem; }
     .empty { color: #777; }
+    .zoo-news-list { list-style: none; display: grid; gap: 0.5rem; }
+    .zoo-news-list li { display: flex; gap: 0.75rem; align-items: baseline; }
+    .news-date { flex: 0 0 auto; color: #777; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+    .zoo-news-list a { color: #1f5b45; text-decoration: none; font-size: 0.9rem; overflow-wrap: anywhere; }
+    .zoo-news-list a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     #map { height: 320px; border: 1px solid #ddd; }
     @media (max-width: 640px) {
       main { padding: 0.75rem; }
@@ -5897,6 +5951,7 @@ ${renderGlobalNav("/zoos")}
   ${breadcrumb}
   <main>
     <nav class="page-nav">
+      ${news.length > 0 ? `<a href="#zoo-news">お知らせ</a>` : ""}
       <a href="#animals">動物一覧</a>
       <a href="${escapeHtml(zoo.website)}" target="_blank" rel="noopener noreferrer">公式サイト</a>
     </nav>
@@ -5929,6 +5984,27 @@ ${renderGlobalNav("/zoos")}
       </table>
     </section>
     ${featuredHtml}
+    ${
+      news.length > 0
+        ? `<section class="section" id="zoo-news">
+        <div class="section-heading">
+          <h3>お知らせ</h3>
+          <a href="${escapeHtml(zoo.website)}" target="_blank" rel="noopener noreferrer">公式サイトで見る</a>
+        </div>
+        <ul class="zoo-news-list">
+          ${news
+            .map(
+              (item) =>
+                `<li>
+                  ${item.published_at ? `<span class="news-date">${escapeHtml(item.published_at)}</span>` : ""}
+                  <a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a>
+                </li>`
+            )
+            .join("")}
+        </ul>
+      </section>`
+        : ""
+    }
     <section class="section" id="animals">
       <h3>見られる動物</h3>
       ${coverageHtml}
@@ -7668,13 +7744,14 @@ export default {
       if (!zoo || (activePref && zoo.prefecture !== activePref)) {
         return notFound(`選択中の地域に動物園 '${id}' が見つかりません`);
       }
-      const [scraped, coverage, imageKeys, taxonomyByAnimal] = await Promise.all([
+      const [scraped, coverage, imageKeys, taxonomyByAnimal, news] = await Promise.all([
         getAnimalResult(env.DB, id, url.searchParams.get("refresh") === "1"),
         loadZooCoverage(env.DB, id),
         loadAnimalImageKeys(env.DB),
         loadZooAnimalTaxonomyIndex(env.DB, id),
+        loadZooNews(env.DB, id),
       ]);
-      const html = renderZooDetailHtml(zoo, scraped, coverage, imageKeys, taxonomyByAnimal);
+      const html = renderZooDetailHtml(zoo, scraped, coverage, imageKeys, taxonomyByAnimal, news);
       return htmlResponse(html, url, activePref);
     }
 
@@ -7741,6 +7818,11 @@ export default {
     return notFound("ページが見つかりません");
   },
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(refreshAllAnimalCache(env.DB));
+    ctx.waitUntil(
+      (async () => {
+        await refreshAllAnimalCache(env.DB);
+        await refreshAllZooNews(env.DB);
+      })()
+    );
   },
 };

@@ -268,3 +268,185 @@ export async function scrapeAnimals(zooId: string): Promise<ScrapeResult> {
     error: animals.length === 0 && errors.length > 0 ? errors.join("; ") : undefined,
   };
 }
+
+// ---- Zoo news scraping ----
+
+export interface NewsItem {
+  title: string;
+  url: string;
+  publishedAt: string | null;
+}
+
+interface NewsScraperConfig {
+  rssUrl?: string;
+  newsUrl?: string;
+  linkSelector?: string;
+  titleChildSelector?: string;
+  dateChildSelector?: string;
+}
+
+const NEWS_SCRAPER_CONFIGS: Record<string, NewsScraperConfig> = {
+  "tennoji-zoo": { rssUrl: "https://www.tennojizoo.jp/feed/" },
+  "kyoto-zoo": { rssUrl: "https://zoo.city.kyoto.lg.jp/zoo/news/feed/" },
+  "himeji-zoo": { rssUrl: "https://www.city.himeji.lg.jp/rss/rss_new_dobutuen.xml" },
+  "awaji-farm-park": { rssUrl: "https://www.england-hill.com/feed/" },
+  "gokatsura-animal-park": { rssUrl: "https://gokatsura.jp/feed/" },
+  "ikeda-zoo": {
+    newsUrl: "https://www.satsukiyamazoo.com/news/",
+    linkSelector: "article a",
+    titleChildSelector: "p",
+    dateChildSelector: "time",
+  },
+  "adventure-world": {
+    newsUrl: "https://www.aws-s.com/topics/",
+    linkSelector: "ul li a[href]",
+    titleChildSelector: "h3",
+  },
+};
+
+function parseNewsDate(raw: string): string | null {
+  const s = raw.trim();
+  if (!s) return null;
+  // RFC 822: "Wed, 23 Jul 2026 09:00:00 +0900"
+  if (/^[A-Za-z]{3},/.test(s)) {
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  }
+  // Japanese: "2026年7月23日" (possibly with brackets or day-of-week)
+  const ja = s.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/);
+  if (ja) return `${ja[1]}-${ja[2].padStart(2, "0")}-${ja[3].padStart(2, "0")}`;
+  // YYYY.MM.DD
+  const dot = s.match(/(\d{4})\.(\d{1,2})\.(\d{1,2})/);
+  if (dot) return `${dot[1]}-${dot[2].padStart(2, "0")}-${dot[3].padStart(2, "0")}`;
+  // YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  // YYYY/MM/DD or "YYYY M/D"
+  const slash = s.match(/(\d{4})[/ ](\d{1,2})\/(\d{1,2})/);
+  if (slash) return `${slash[1]}-${slash[2].padStart(2, "0")}-${slash[3].padStart(2, "0")}`;
+  return null;
+}
+
+function unescapeXmlEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)));
+}
+
+function parseRssItems(xml: string, limit = 20): NewsItem[] {
+  const items: NewsItem[] = [];
+  for (const m of xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)) {
+    if (items.length >= limit) break;
+    const body = m[1];
+    const rawTitle =
+      body.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/i)?.[1]?.trim() ?? "";
+    const title = unescapeXmlEntities(rawTitle);
+    const link =
+      body.match(/<link>(https?:\/\/[^\s<]+)<\/link>/i)?.[1]?.trim() ??
+      body.match(/<guid[^>]*>(https?:\/\/[^\s<]+)<\/guid>/i)?.[1]?.trim() ??
+      "";
+    const pubDateRaw =
+      body.match(/<pubDate>([\s\S]*?)<\/pubDate>/i)?.[1]?.trim() ?? "";
+    if (title && link) {
+      items.push({ title, url: link, publishedAt: parseNewsDate(pubDateRaw) });
+    }
+  }
+  return items;
+}
+
+class NewsHtmlCollector {
+  readonly items: NewsItem[] = [];
+  private current: { titleParts: string[]; dateParts: string[]; url: string } | null = null;
+
+  onLink(element: Element, baseUrl: string): void {
+    const href = element.getAttribute("href");
+    if (!href || href.startsWith("#") || href.startsWith("javascript:")) return;
+    let resolved: string;
+    try {
+      resolved = new URL(href, baseUrl).toString();
+    } catch {
+      resolved = href;
+    }
+    this.current = { titleParts: [], dateParts: [], url: resolved };
+    element.onEndTag(() => {
+      if (!this.current) return;
+      const title = this.current.titleParts.join("").trim();
+      if (title && this.current.url) {
+        this.items.push({
+          title,
+          url: this.current.url,
+          publishedAt: parseNewsDate(this.current.dateParts.join("").trim()),
+        });
+      }
+      this.current = null;
+    });
+  }
+
+  onTitle(chunk: Text): void {
+    if (this.current) this.current.titleParts.push(chunk.text);
+  }
+
+  onDate(chunk: Text): void {
+    if (this.current) this.current.dateParts.push(chunk.text);
+  }
+}
+
+async function scrapeNewsFromHtml(config: NewsScraperConfig): Promise<NewsItem[]> {
+  if (!config.newsUrl || !config.linkSelector) return [];
+  let response: Response;
+  try {
+    response = await fetch(config.newsUrl, {
+      headers: {
+        "User-Agent": "kinki-zoo-bot/1.0 (+https://github.com/onishi/kinki-zoo)",
+        Accept: "text/html",
+      },
+    });
+  } catch {
+    return [];
+  }
+  if (!response.ok) return [];
+
+  const baseUrl = config.newsUrl;
+  const collector = new NewsHtmlCollector();
+  let rewriter = new HTMLRewriter().on(config.linkSelector, {
+    element: (el) => collector.onLink(el, baseUrl),
+  });
+  if (config.titleChildSelector) {
+    rewriter = rewriter.on(`${config.linkSelector} ${config.titleChildSelector}`, {
+      text: (chunk) => collector.onTitle(chunk),
+    });
+  }
+  if (config.dateChildSelector) {
+    rewriter = rewriter.on(`${config.linkSelector} ${config.dateChildSelector}`, {
+      text: (chunk) => collector.onDate(chunk),
+    });
+  }
+  await rewriter.transform(response).arrayBuffer();
+  return collector.items.slice(0, 20);
+}
+
+export async function scrapeZooNews(zooId: string): Promise<NewsItem[]> {
+  const config = NEWS_SCRAPER_CONFIGS[zooId];
+  if (!config) return [];
+  try {
+    if (config.rssUrl) {
+      const response = await fetch(config.rssUrl, {
+        headers: {
+          "User-Agent": "kinki-zoo-bot/1.0 (+https://github.com/onishi/kinki-zoo)",
+          Accept: "application/rss+xml, application/xml, text/xml",
+        },
+      });
+      if (!response.ok) return [];
+      const xml = await response.text();
+      return parseRssItems(xml);
+    }
+    return await scrapeNewsFromHtml(config);
+  } catch (err) {
+    console.error(`[scraper] news fetch failed for ${zooId}:`, err);
+    return [];
+  }
+}

@@ -3100,6 +3100,7 @@ interface ZooNewsRow {
   published_at: string | null;
   fetched_at: string;
   body: string | null;
+  animal_names: string | null;
 }
 
 interface AnimalNewsRow {
@@ -3113,10 +3114,13 @@ interface AnimalNewsRow {
 async function loadZooNews(db: D1Database, zooId: string, limit = 5): Promise<ZooNewsRow[]> {
   const rows = await db
     .prepare(
-      `SELECT id, zoo_id, title, url, published_at, fetched_at
-       FROM zoo_news
-       WHERE zoo_id = ?
-       ORDER BY CASE WHEN published_at IS NULL THEN 1 ELSE 0 END, published_at DESC
+      `SELECT n.id, n.zoo_id, n.title, n.url, n.published_at, n.fetched_at, n.body,
+              GROUP_CONCAT(a.animal_name) AS animal_names
+       FROM zoo_news n
+       LEFT JOIN zoo_news_animals a ON a.news_id = n.id
+       WHERE n.zoo_id = ?
+       GROUP BY n.id
+       ORDER BY CASE WHEN n.published_at IS NULL THEN 1 ELSE 0 END, n.published_at DESC
        LIMIT ?`
     )
     .bind(zooId, limit)
@@ -6022,11 +6026,15 @@ function renderZooDetailHtml(
     .animal-meta { color: #777; font-size: 0.78rem; margin-top: 0.85rem; }
     .error { color: #b00020; margin-bottom: 0.75rem; }
     .empty { color: #777; }
-    .zoo-news-list { list-style: none; display: grid; gap: 0.5rem; }
-    .zoo-news-list li { display: flex; gap: 0.75rem; align-items: baseline; }
+    .zoo-news-list { list-style: none; display: grid; gap: 0.65rem; }
+    .zoo-news-list li { display: grid; gap: 0.2rem; }
+    .news-item-top { display: flex; gap: 0.75rem; align-items: baseline; }
     .news-date { flex: 0 0 auto; color: #777; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
-    .zoo-news-list a { color: #1f5b45; text-decoration: none; font-size: 0.9rem; overflow-wrap: anywhere; }
-    .zoo-news-list a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .news-item-top a { color: #1f5b45; text-decoration: none; font-size: 0.9rem; overflow-wrap: anywhere; }
+    .news-item-top a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .news-animals { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+    .news-animals a { font-size: 0.72rem; color: #1f5b45; background: #f0f7f3; border: 1px solid #c5dece; padding: 0.1rem 0.45rem; text-decoration: none; }
+    .news-animals a:hover { background: #e1f0e8; }
     #map { height: 320px; border: 1px solid #ddd; }
     @media (max-width: 640px) {
       main { padding: 0.75rem; }
@@ -6095,13 +6103,23 @@ ${renderGlobalNav("/zoos")}
         </div>
         <ul class="zoo-news-list">
           ${news
-            .map(
-              (item) =>
-                `<li>
+            .map((item) => {
+              const animals = item.animal_names
+                ? item.animal_names.split(",").filter(Boolean)
+                : [];
+              const animalsHtml = animals.length > 0
+                ? `<div class="news-animals">${animals
+                    .map((n) => `<a href="/animal/${encodeURIComponent(n)}">${escapeHtml(n)}</a>`)
+                    .join("")}</div>`
+                : "";
+              return `<li>
+                <div class="news-item-top">
                   ${item.published_at ? `<span class="news-date">${escapeHtml(item.published_at)}</span>` : ""}
                   <a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a>
-                </li>`
-            )
+                </div>
+                ${animalsHtml}
+              </li>`;
+            })
             .join("")}
         </ul>
       </section>`

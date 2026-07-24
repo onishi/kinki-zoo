@@ -3099,6 +3099,15 @@ interface ZooNewsRow {
   url: string;
   published_at: string | null;
   fetched_at: string;
+  body: string | null;
+}
+
+interface AnimalNewsRow {
+  news_id: number;
+  zoo_id: string;
+  title: string;
+  url: string;
+  published_at: string | null;
 }
 
 async function loadZooNews(db: D1Database, zooId: string, limit = 5): Promise<ZooNewsRow[]> {
@@ -3115,28 +3124,95 @@ async function loadZooNews(db: D1Database, zooId: string, limit = 5): Promise<Zo
   return rows.results ?? [];
 }
 
-async function saveZooNews(db: D1Database, zooId: string, items: NewsItem[]): Promise<void> {
+async function loadAllZooAnimalNames(db: D1Database): Promise<Set<string>> {
+  const rows = await db
+    .prepare(`SELECT DISTINCT display_name FROM zoo_animals`)
+    .all<{ display_name: string }>();
+  return new Set((rows.results ?? []).map((r) => r.display_name));
+}
+
+function extractAnimalNamesFromText(text: string, animalNames: Set<string>): string[] {
+  const found: string[] = [];
+  for (const name of animalNames) {
+    if (name.length >= 2 && text.includes(name)) {
+      found.push(name);
+    }
+  }
+  return found;
+}
+
+async function saveZooNews(
+  db: D1Database,
+  zooId: string,
+  items: NewsItem[],
+  allAnimalNames: Set<string>
+): Promise<void> {
   if (items.length === 0) return;
   const fetchedAt = new Date().toISOString();
-  const statements = items.map((item) =>
-    db
-      .prepare(
-        `INSERT INTO zoo_news (zoo_id, title, url, published_at, fetched_at)
-         VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(zoo_id, url) DO UPDATE SET
-           title = excluded.title,
-           published_at = COALESCE(excluded.published_at, zoo_news.published_at),
-           fetched_at = excluded.fetched_at`
-      )
-      .bind(zooId, item.title, item.url, item.publishedAt ?? null, fetchedAt)
+  await db.batch(
+    items.map((item) =>
+      db
+        .prepare(
+          `INSERT INTO zoo_news (zoo_id, title, url, published_at, fetched_at, body)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(zoo_id, url) DO UPDATE SET
+             title = excluded.title,
+             published_at = COALESCE(excluded.published_at, zoo_news.published_at),
+             body = COALESCE(excluded.body, zoo_news.body),
+             fetched_at = excluded.fetched_at`
+        )
+        .bind(zooId, item.title, item.url, item.publishedAt ?? null, fetchedAt, item.body ?? null)
+    )
   );
-  await db.batch(statements);
+
+  // Extract and save animal name links
+  const animalInserts: ReturnType<D1Database["prepare"]>[] = [];
+  for (const item of items) {
+    const row = await db
+      .prepare(`SELECT id FROM zoo_news WHERE zoo_id = ? AND url = ?`)
+      .bind(zooId, item.url)
+      .first<{ id: number }>();
+    if (!row) continue;
+    const text = `${item.title} ${item.body ?? ""}`;
+    for (const name of extractAnimalNamesFromText(text, allAnimalNames)) {
+      animalInserts.push(
+        db
+          .prepare(`INSERT OR IGNORE INTO zoo_news_animals (news_id, animal_name) VALUES (?, ?)`)
+          .bind(row.id, name)
+      );
+    }
+  }
+  if (animalInserts.length > 0) await db.batch(animalInserts);
+}
+
+async function loadAnimalNews(
+  db: D1Database,
+  displayName: string,
+  canonicalName: string | null,
+  limit = 5
+): Promise<AnimalNewsRow[]> {
+  const names = [displayName];
+  if (canonicalName && canonicalName !== displayName) names.push(canonicalName);
+  const placeholders = names.map(() => "?").join(", ");
+  const rows = await db
+    .prepare(
+      `SELECT DISTINCT n.id as news_id, n.zoo_id, n.title, n.url, n.published_at
+       FROM zoo_news n
+       JOIN zoo_news_animals a ON a.news_id = n.id
+       WHERE a.animal_name IN (${placeholders})
+       ORDER BY CASE WHEN n.published_at IS NULL THEN 1 ELSE 0 END, n.published_at DESC
+       LIMIT ?`
+    )
+    .bind(...names, limit)
+    .all<AnimalNewsRow>();
+  return rows.results ?? [];
 }
 
 async function refreshAllZooNews(db: D1Database): Promise<void> {
+  const allAnimalNames = await loadAllZooAnimalNames(db);
   for (const zoo of zoos) {
     const items = await scrapeZooNews(zoo.id);
-    await saveZooNews(db, zoo.id, items);
+    await saveZooNews(db, zoo.id, items, allAnimalNames);
   }
 }
 
@@ -5280,7 +5356,8 @@ function renderZooAnimalDetailHtml(
   image?: AnimalImageRecord,
   relatedAnimals: AnimalListItem[] = [],
   relatedDisplayNames: Array<{ displayName: string; zoos: Zoo[] }> = [],
-  imageKeys: AnimalImageVersionIndex = new Map()
+  imageKeys: AnimalImageVersionIndex = new Map(),
+  animalNews: AnimalNewsRow[] = []
 ): string {
   const escapedDisplayName = escapeHtml(detail.displayName);
   const title = detail.canonicalName && detail.canonicalName !== detail.displayName
@@ -5443,6 +5520,12 @@ function renderZooAnimalDetailHtml(
     .related-zoo-links { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; }
     .related-zoo-links a { font-size: 0.7rem; padding: 0.15rem 0.4rem; }
     .related-more-zoos { color: #999; font-size: 0.68rem; }
+    .animal-news-list { list-style: none; display: grid; gap: 0.5rem; }
+    .animal-news-list li { display: grid; grid-template-columns: auto auto 1fr; gap: 0.5rem; align-items: baseline; }
+    .animal-news-zoo { color: #1f5b45; font-size: 0.78rem; font-weight: bold; flex: 0 0 auto; }
+    .animal-news-date { color: #777; font-size: 0.78rem; flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+    .animal-news-list a { color: #222; text-decoration: none; font-size: 0.88rem; overflow-wrap: anywhere; }
+    .animal-news-list a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; border-top: 1px solid #eee; }
     @media (max-width: 640px) {
       .hero { grid-template-columns: 1fr; padding: 1rem 0.75rem; gap: 1rem; }
@@ -5489,6 +5572,25 @@ ${renderGlobalNav("/animals")}
     </section>
     ${relatedDisplaySection}
     ${relatedSection}
+    ${
+      animalNews.length > 0
+        ? `<section>
+        <h2>お知らせ（このどうぶつを含む）</h2>
+        <ul class="animal-news-list">
+          ${animalNews
+            .map((item) => {
+              const zoo = zoos.find((z) => z.id === item.zoo_id);
+              return `<li>
+                ${zoo ? `<span class="animal-news-zoo">${escapeHtml(zoo.name)}</span>` : ""}
+                ${item.published_at ? `<span class="animal-news-date">${escapeHtml(item.published_at)}</span>` : ""}
+                <a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a>
+              </li>`;
+            })
+            .join("")}
+        </ul>
+      </section>`
+        : ""
+    }
   </main>
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
   <script src="/favorites.js" defer></script>
@@ -7632,10 +7734,11 @@ export default {
         loadAnimalImage(env.DB, displayName),
       ]);
       if (!detail) return notFound(`動物 '${displayName}' が見つかりません`);
-      const [relatedAnimals, relatedDisplayNames, imageKeys] = await Promise.all([
+      const [relatedAnimals, relatedDisplayNames, imageKeys, animalNews] = await Promise.all([
         loadRelatedAnimals(env.DB, detail),
         loadRelatedDisplayNames(env.DB, detail, activePref),
         loadAnimalImageKeys(env.DB),
+        loadAnimalNews(env.DB, detail.displayName, detail.canonicalName ?? null),
       ]);
       const llmStatus = url.searchParams.get("llm");
       const notice =
@@ -7658,7 +7761,8 @@ export default {
         image ?? undefined,
         relatedAnimals,
         relatedDisplayNames,
-        imageKeys
+        imageKeys,
+        animalNews
       );
       return htmlResponse(html, url, activePref);
     }

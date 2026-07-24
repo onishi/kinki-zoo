@@ -275,6 +275,7 @@ export interface NewsItem {
   title: string;
   url: string;
   publishedAt: string | null;
+  body?: string;
 }
 
 interface NewsScraperConfig {
@@ -351,8 +352,13 @@ function parseRssItems(xml: string, limit = 20): NewsItem[] {
       "";
     const pubDateRaw =
       body.match(/<pubDate>([\s\S]*?)<\/pubDate>/i)?.[1]?.trim() ?? "";
+    const descRaw =
+      body.match(/<description>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/description>/i)?.[1]?.trim() ?? "";
+    const bodyText = descRaw
+      ? descRaw.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() || undefined
+      : undefined;
     if (title && link) {
-      items.push({ title, url: link, publishedAt: parseNewsDate(pubDateRaw) });
+      items.push({ title, url: link, publishedAt: parseNewsDate(pubDateRaw), body: bodyText });
     }
   }
   return items;

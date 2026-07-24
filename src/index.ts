@@ -3735,6 +3735,73 @@ const COMMON_STYLES = `
     .ui-btn:focus-visible, .ui-card-link:focus-visible, .ui-chip:focus-visible { outline: 2px solid #1f5b45; outline-offset: 2px; }
     .ui-thumb { display: block; object-fit: cover; flex-shrink: 0; border-radius: 2px; background: #f0f0f0; }
     .ui-thumb--36 { width: 36px; height: 36px; }
+    .ui-animal-placeholder {
+      --animal-placeholder-gap: 0.28rem;
+      --animal-placeholder-padding: 0.4rem;
+      --animal-placeholder-font-size: clamp(0.52rem, 1.3vw, 0.82rem);
+      display: grid;
+      align-content: center;
+      justify-items: center;
+      gap: var(--animal-placeholder-gap);
+      padding: var(--animal-placeholder-padding);
+      border: 1px dashed #cfd9d3;
+      background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.4), rgba(236, 243, 239, 0.96)),
+        repeating-linear-gradient(135deg, rgba(141, 163, 151, 0.08) 0 8px, rgba(141, 163, 151, 0.14) 8px 16px);
+      color: #66786e;
+      text-align: center;
+      line-height: 1.35;
+      overflow: hidden;
+    }
+    .ui-animal-placeholder--compact {
+      --animal-placeholder-gap: 0.16rem;
+      --animal-placeholder-padding: 0.22rem;
+      --animal-placeholder-font-size: clamp(0.46rem, 1vw, 0.64rem);
+    }
+    .ui-animal-placeholder-icon {
+      width: min(42%, 2.25rem);
+      aspect-ratio: 1;
+      border: 1.5px solid currentColor;
+      border-radius: 4px;
+      position: relative;
+      opacity: 0.55;
+    }
+    .ui-animal-placeholder-icon::before {
+      content: "";
+      position: absolute;
+      top: 18%;
+      right: 18%;
+      width: 24%;
+      aspect-ratio: 1;
+      border-radius: 50%;
+      background: currentColor;
+      opacity: 0.7;
+    }
+    .ui-animal-placeholder-icon::after {
+      content: "";
+      position: absolute;
+      left: 14%;
+      right: 14%;
+      bottom: 18%;
+      height: 34%;
+      background:
+        linear-gradient(135deg, transparent 0 18%, currentColor 18% 34%, transparent 34% 100%),
+        linear-gradient(45deg, transparent 0 44%, currentColor 44% 62%, transparent 62% 100%);
+      opacity: 0.5;
+    }
+    .ui-animal-placeholder strong {
+      max-width: 100%;
+      font-size: var(--animal-placeholder-font-size);
+      font-weight: bold;
+      letter-spacing: 0.04em;
+      overflow-wrap: anywhere;
+    }
+    .ui-animal-placeholder small {
+      max-width: 16em;
+      font-size: calc(var(--animal-placeholder-font-size) - 0.08rem);
+      color: #6f8077;
+      overflow-wrap: anywhere;
+    }
     .ui-touch-target { min-height: 40px; }
     .fav-toggle { border: 1px solid #d8c98a; background: #fff; color: #b8930b; cursor: pointer; }
     .fav-toggle:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -3853,6 +3920,37 @@ function buildAnimalImageItemId(animalKey: string): string {
 function buildAnimalImageUrl(displayName: string, version?: number | null): string {
   const url = `/animal-images/${encodeURIComponent(displayName)}`;
   return version ? `${url}?v=${encodeURIComponent(String(version))}` : url;
+}
+
+function renderAnimalImagePlaceholder(
+  className: string,
+  options: {
+    label?: string;
+    detail?: string;
+    compact?: boolean;
+    ariaHidden?: boolean;
+  } = {}
+): string {
+  const {
+    label = "準備中",
+    detail,
+    compact = false,
+    ariaHidden = false,
+  } = options;
+  const classes = [
+    className,
+    "ui-animal-placeholder",
+    compact ? "ui-animal-placeholder--compact" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const textHtml = `<strong>${escapeHtml(label)}</strong>`;
+  const detailHtml = detail ? `<small>${escapeHtml(detail)}</small>` : "";
+  return `<div class="${classes}"${ariaHidden ? ' aria-hidden="true"' : ""}>
+    <span class="ui-animal-placeholder-icon"></span>
+    ${textHtml}
+    ${detailHtml}
+  </div>`;
 }
 
 const ADMIN_BREADCRUMB_CSS = `
@@ -4837,7 +4935,7 @@ function renderSearchAnimalCards(
       const imageVersion = imageDisplayName ? imageKeys.get(normalizeAnimalImageKey(imageDisplayName)) : null;
       const thumb = imageDisplayName
         ? `<img src="${buildAnimalImageUrl(imageDisplayName, imageVersion)}" alt="" class="search-animal-thumb ui-thumb" loading="lazy" width="56" height="56">`
-        : `<span class="search-animal-thumb search-animal-thumb--empty" aria-hidden="true"></span>`;
+        : renderAnimalImagePlaceholder("search-animal-thumb", { compact: true, ariaHidden: true });
       const taxonomy = [item.className, item.orderName, item.familyName].filter(Boolean).join(" / ");
       const aliases = item.displayNames.filter((name) => name !== title).slice(0, 3);
       const aliasText = aliases.length > 0 ? `<p class="search-alias">別名: ${aliases.map(escapeHtml).join("、")}</p>` : "";
@@ -4950,8 +5048,8 @@ function renderSearchHtml(
     .search-animal-main strong { display: block; overflow-wrap: anywhere; }
     .search-animal-main small { display: block; margin-top: 0.15rem; color: #66756b; font-size: 0.76rem; }
     .search-animal-main:hover strong { text-decoration: underline; text-underline-offset: 0.2em; }
-    .search-animal-thumb { width: 56px; height: 56px; object-fit: cover; background: #f0f0f0; }
-    .search-animal-thumb--empty { display: block; border: 1px solid #e1e1e1; }
+    .search-animal-thumb { width: 56px; height: 56px; }
+    img.search-animal-thumb { object-fit: cover; background: #f0f0f0; }
     .search-taxonomy, .search-alias { color: #555; font-size: 0.8rem; line-height: 1.45; }
     .search-zoo-links { display: flex; flex-wrap: wrap; gap: 0.35rem; }
     .search-zoo-links a { font-size: 0.76rem; }
@@ -5243,7 +5341,7 @@ function renderAnimalCards(animals: AnimalListItem[], imageKeys: AnimalImageVers
       const imageVersion = imageDisplayName ? imageKeys.get(normalizeAnimalImageKey(imageDisplayName)) : null;
       const thumbHtml = imageDisplayName
         ? `<img src="${buildAnimalImageUrl(imageDisplayName, imageVersion)}" alt="" class="animal-thumb ui-thumb ui-thumb--36" loading="lazy" width="36" height="36">`
-        : "";
+        : renderAnimalImagePlaceholder("animal-thumb ui-thumb--36", { compact: true, ariaHidden: true });
       const taxonomyDetails = buildTaxonomyDisplayParts([
         ["類", item.className],
         ["目", item.orderName],
@@ -5332,10 +5430,10 @@ function renderZooAnimalDetailHtml(
 
   const imageHtml = image
     ? `<img src="${buildAnimalImageUrl(detail.displayName, image.selectedGenerationId)}" alt="${escapedDisplayName}" class="animal-image" width="320" height="320">`
-    : `<div class="animal-image animal-image--empty">
-        <span>画像未生成</span>
-        <a href="${buildAnimalImageManageUrl(detail.displayName)}">画像管理で生成</a>
-      </div>`;
+    : renderAnimalImagePlaceholder("animal-image animal-image--empty", {
+        label: "画像準備中",
+        detail: "現在この動物の画像はありません",
+      });
 
   const relatedDisplaySection = relatedDisplayNames.length > 0 ? `
     <section>
@@ -5365,7 +5463,7 @@ function renderZooAnimalDetailHtml(
     const imageVersion = displayKey ? imageKeys.get(normalizeAnimalImageKey(displayKey)) : null;
     const thumb = displayKey
       ? `<img src="${buildAnimalImageUrl(displayKey, imageVersion)}" alt="" class="related-thumb" loading="lazy" width="72" height="72">`
-      : `<div class="related-thumb related-thumb--empty"></div>`;
+      : renderAnimalImagePlaceholder("related-thumb related-thumb--empty", { compact: true, ariaHidden: true });
     const label = item.canonicalName ?? name;
     const taxonomy = [item.className, item.orderName, item.familyName].filter(Boolean).join(" / ");
     const visibleZoos = item.zoos.slice(0, 2);
@@ -5403,9 +5501,9 @@ function renderZooAnimalDetailHtml(
     body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
     main { display: grid; gap: 0; max-width: 1040px; margin: 0 auto; }
     .hero { display: grid; grid-template-columns: minmax(240px, 320px) 1fr; gap: 1.5rem; align-items: start; padding: 1.25rem 1.5rem; }
-    .animal-image { display: block; width: 100%; max-width: 320px; aspect-ratio: 1; height: auto; object-fit: cover; background: #f7f7f7; border: 1px solid #e1e1e1; flex-shrink: 0; }
-    .animal-image--empty { display: grid; place-items: center; align-content: center; gap: 0.5rem; color: #777; font-size: 0.9rem; }
-    .animal-image--empty a { color: #1f5b45; font-size: 0.82rem; }
+    .animal-image { width: 100%; max-width: 320px; aspect-ratio: 1; border: 1px solid #e1e1e1; flex-shrink: 0; }
+    img.animal-image { display: block; height: auto; object-fit: cover; background: #f7f7f7; }
+    .animal-image--empty { border-style: dashed; }
     .hero-info { display: grid; gap: 0.75rem; }
     .hero-name-row { display: flex; align-items: center; flex-wrap: wrap; gap: 0.75rem; }
     .hero-name { font-size: 1.5rem; font-weight: bold; overflow-wrap: anywhere; line-height: 1.3; }
@@ -5436,8 +5534,8 @@ function renderZooAnimalDetailHtml(
     .related-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 0.7rem; }
     .related-card { display: grid; gap: 0.35rem; padding: 0.55rem; min-width: 0; }
     .related-card-main { display: grid; gap: 0.35rem; color: inherit; text-decoration: none; }
-    .related-thumb { display: block; width: 100%; aspect-ratio: 1; height: auto; object-fit: cover; background: #f7f7f7; }
-    .related-thumb--empty { background: #f0f0f0; }
+    .related-thumb { width: 100%; aspect-ratio: 1; }
+    img.related-thumb { display: block; height: auto; object-fit: cover; background: #f7f7f7; }
     .related-name { font-size: 0.82rem; font-weight: bold; line-height: 1.35; overflow-wrap: anywhere; }
     .related-taxonomy { color: #777; font-size: 0.72rem; line-height: 1.35; }
     .related-zoo-links { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; }
@@ -5820,7 +5918,7 @@ function renderZooDetailHtml(
       const className = taxonomyByAnimal.get(animal) ?? "未分類";
       const thumb = imageKeys.has(animalKey)
         ? `<img src="${buildAnimalImageUrl(animal, imageKeys.get(animalKey))}" alt="" class="animal-thumb ui-thumb ui-thumb--36" loading="lazy" width="36" height="36">`
-        : `<span class="animal-thumb ui-thumb ui-thumb--36"></span>`;
+        : renderAnimalImagePlaceholder("animal-thumb ui-thumb--36", { compact: true, ariaHidden: true });
       return `<li data-class="${escapeHtml(className)}"><a href="${buildZooAnimalUrl(animal)}">${thumb}<span>${escapeHtml(animal)}</span><small>${escapeHtml(className)}</small></a></li>`;
     })
     .join("\n");

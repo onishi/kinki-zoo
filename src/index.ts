@@ -3212,6 +3212,22 @@ async function loadAnimalNews(
   return rows.results ?? [];
 }
 
+async function loadAllZooNews(db: D1Database, limit = 50): Promise<ZooNewsRow[]> {
+  const rows = await db
+    .prepare(
+      `SELECT n.id, n.zoo_id, n.title, n.url, n.published_at, n.fetched_at, n.body,
+              GROUP_CONCAT(a.animal_name) AS animal_names
+       FROM zoo_news n
+       LEFT JOIN zoo_news_animals a ON a.news_id = n.id
+       GROUP BY n.id
+       ORDER BY CASE WHEN n.published_at IS NULL THEN 1 ELSE 0 END, n.published_at DESC
+       LIMIT ?`
+    )
+    .bind(limit)
+    .all<ZooNewsRow>();
+  return rows.results ?? [];
+}
+
 async function refreshAllZooNews(db: D1Database): Promise<void> {
   const allAnimalNames = await loadAllZooAnimalNames(db);
   for (const zoo of zoos) {
@@ -3903,6 +3919,7 @@ function renderGlobalNav(activePath: string): string {
     ["/taxonomy", "分類から探す"],
     ["/map", "地図で見る"],
     ["/compare", "動物園を比較"],
+    ["/news", "お知らせ"],
     ["/favorites", "お気に入り"],
     ["/admin", "動物管理"],
   ];
@@ -4714,7 +4731,8 @@ function renderHtml(
   activePref: PrefectureCode | null,
   animal: string | null,
   featuredAnimals: FeaturedAnimal[] = [],
-  page: "home" | "zoos" = "zoos"
+  page: "home" | "zoos" = "zoos",
+  latestNews: ZooNewsRow[] = []
 ): string {
   const isHome = page === "home";
   const includeMatchSummary = Boolean(animal);
@@ -4826,6 +4844,20 @@ function renderHtml(
     .spotlight-zoo-card { display: grid; gap: 0.2rem; padding: 0.85rem; align-content: start; }
     .spotlight-zoo-card span { font-weight: bold; font-size: 0.9rem; }
     .spotlight-zoo-card small { color: #617469; font-size: 0.76rem; }
+    .latest-news-section { padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; display: grid; gap: 0.65rem; }
+    .latest-news-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+    .latest-news-heading h2 { font-size: 1.08rem; }
+    .latest-news-list { list-style: none; display: grid; gap: 0.5rem; }
+    .latest-news-list li { display: grid; gap: 0.18rem; }
+    .latest-news-list .news-item-top { display: flex; flex-wrap: wrap; gap: 0.3rem 0.6rem; align-items: baseline; }
+    .latest-news-list .news-date { color: #777; font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+    .latest-news-list .news-zoo-label { color: #1f5b45; font-size: 0.75rem; font-weight: bold; text-decoration: none; }
+    .latest-news-list .news-zoo-label:hover { text-decoration: underline; }
+    .latest-news-list .news-item-top > a:last-child { color: #222; text-decoration: none; font-size: 0.88rem; overflow-wrap: anywhere; }
+    .latest-news-list .news-item-top > a:last-child:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .latest-news-list .news-animals { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+    .latest-news-list .news-animals a { font-size: 0.7rem; color: #1f5b45; background: #f0f7f3; border: 1px solid #c5dece; padding: 0.08rem 0.4rem; text-decoration: none; }
+    .latest-news-list .news-animals a:hover { background: #e1f0e8; }
     .summary { padding: 0.75rem 1.5rem; font-size: 0.9rem; color: #666; }
     .zoo-list { padding: 1rem 1.5rem; overflow-x: auto; }
     .zoo-table { width: 100%; border-collapse: collapse; min-width: 960px; border: 1px solid #ddd; }
@@ -4893,6 +4925,29 @@ ${renderGlobalNav(isHome ? "/" : "/zoos")}
   </form>`}
   ${isHome ? renderExploreCards(activePref, count, totalAnimalCount) : ""}
   ${isHome ? renderSpotlightSection(featuredAnimals, featuredZoos, activePref) : ""}
+  ${isHome && latestNews.length > 0 ? `<section class="latest-news-section">
+    <div class="latest-news-heading">
+      <h2>最新のお知らせ</h2>
+      <a href="/news" class="section-link">すべて見る →</a>
+    </div>
+    <ul class="latest-news-list">
+      ${latestNews.map((item) => {
+        const zoo = zoos.find((z) => z.id === item.zoo_id);
+        const animals = item.animal_names ? item.animal_names.split(",").filter(Boolean) : [];
+        const animalsHtml = animals.length > 0
+          ? `<div class="news-animals">${animals.map((n) => `<a href="/animal/${encodeURIComponent(n)}">${escapeHtml(n)}</a>`).join("")}</div>`
+          : "";
+        return `<li>
+          <div class="news-item-top">
+            ${item.published_at ? `<span class="news-date">${escapeHtml(item.published_at)}</span>` : ""}
+            ${zoo ? `<a class="news-zoo-label" href="/zoos/${escapeHtml(zoo.id)}">${escapeHtml(zoo.name)}</a>` : ""}
+            <a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a>
+          </div>
+          ${animalsHtml}
+        </li>`;
+      }).join("")}
+    </ul>
+  </section>` : ""}
   ${
     isHome
       ? ""
@@ -6171,6 +6226,99 @@ ${renderGlobalNav("/zoos")}
       .bindPopup(${JSON.stringify(escapeHtml(zoo.name))})
       .addTo(map)
       .openPopup();
+  </script>
+</body>
+</html>`;
+}
+
+function renderNewsListHtml(news: ZooNewsRow[], activePref: PrefectureCode | null): string {
+  const zooIds = [...new Set(news.map((n) => n.zoo_id))];
+  const zooFilterHtml = zooIds.length > 1
+    ? `<div class="news-zoo-filters">
+        <button type="button" class="ui-chip ui-chip--active ui-touch-target" data-zoo-filter="all" aria-pressed="true">すべて</button>
+        ${zooIds
+          .map((id) => {
+            const zoo = zoos.find((z) => z.id === id);
+            return zoo
+              ? `<button type="button" class="ui-chip ui-touch-target" data-zoo-filter="${escapeHtml(id)}" aria-pressed="false">${escapeHtml(zoo.name)}</button>`
+              : "";
+          })
+          .join("")}
+      </div>`
+    : "";
+
+  const itemsHtml = news.length > 0
+    ? news.map((item) => {
+        const zoo = zoos.find((z) => z.id === item.zoo_id);
+        const animals = item.animal_names ? item.animal_names.split(",").filter(Boolean) : [];
+        const animalsHtml = animals.length > 0
+          ? `<div class="news-animals">${animals.map((n) => `<a href="/animal/${encodeURIComponent(n)}">${escapeHtml(n)}</a>`).join("")}</div>`
+          : "";
+        return `<li data-zoo="${escapeHtml(item.zoo_id)}">
+          <div class="news-item-top">
+            ${item.published_at ? `<span class="news-date">${escapeHtml(item.published_at)}</span>` : ""}
+            ${zoo ? `<a class="news-zoo-label" href="/zoos/${escapeHtml(zoo.id)}">${escapeHtml(zoo.name)}</a>` : ""}
+            <a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a>
+          </div>
+          ${animalsHtml}
+        </li>`;
+      }).join("")
+    : `<li class="news-empty">お知らせはまだありません。</li>`;
+
+  return `<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>お知らせ一覧 | 近畿動物園情報</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
+    main { max-width: 900px; margin: 0 auto; padding: 1.5rem; }
+    h1 { font-size: 1.3rem; margin-bottom: 1rem; }
+    .news-zoo-filters { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1rem; }
+    .news-zoo-filters button { font: inherit; font-size: 0.82rem; }
+    .news-list { list-style: none; display: grid; gap: 0.75rem; }
+    .news-list li { display: grid; gap: 0.25rem; border-bottom: 1px solid #eee; padding-bottom: 0.65rem; }
+    .news-list li.is-hidden { display: none; }
+    .news-item-top { display: flex; flex-wrap: wrap; gap: 0.4rem 0.65rem; align-items: baseline; }
+    .news-date { flex: 0 0 auto; color: #777; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+    .news-zoo-label { flex: 0 0 auto; color: #1f5b45; font-size: 0.8rem; font-weight: bold; text-decoration: none; }
+    .news-zoo-label:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .news-item-top > a:last-child { color: #222; text-decoration: none; font-size: 0.92rem; overflow-wrap: anywhere; }
+    .news-item-top > a:last-child:hover { text-decoration: underline; text-underline-offset: 0.2em; color: #1f5b45; }
+    .news-animals { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+    .news-animals a { font-size: 0.72rem; color: #1f5b45; background: #f0f7f3; border: 1px solid #c5dece; padding: 0.1rem 0.45rem; text-decoration: none; }
+    .news-animals a:hover { background: #e1f0e8; }
+    .news-empty { color: #777; font-size: 0.9rem; }
+    @media (max-width: 640px) { main { padding: 0.75rem; } }
+  </style>
+</head>
+<body>
+${renderSiteHeader()}
+${renderGlobalNav("/news")}
+  <main>
+    <h1>お知らせ一覧</h1>
+    ${zooFilterHtml}
+    <ul class="news-list">${itemsHtml}</ul>
+  </main>
+  <script src="/favorites.js" defer></script>
+  <script>
+    var filterBtns = document.querySelectorAll('[data-zoo-filter]');
+    var newsItems = document.querySelectorAll('.news-list li[data-zoo]');
+    filterBtns.forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var active = btn.dataset.zooFilter;
+        filterBtns.forEach(function(b) {
+          var on = b === btn;
+          b.classList.toggle('ui-chip--active', on);
+          b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
+        newsItems.forEach(function(item) {
+          item.classList.toggle('is-hidden', active !== 'all' && item.dataset.zoo !== active);
+        });
+      });
+    });
   </script>
 </body>
 </html>`;
@@ -7676,6 +7824,12 @@ export default {
       return htmlResponse(html, url, activePref);
     }
 
+    // HTML: /news
+    if (pathname === "/news") {
+      const news = await loadAllZooNews(env.DB);
+      return htmlResponse(renderNewsListHtml(news, activePref), url, activePref);
+    }
+
     // HTML: /search
     if (pathname === "/search") {
       const query = normalizeSearchTerm(url.searchParams.get("q"));
@@ -7929,11 +8083,12 @@ export default {
         destination.search = url.search;
         return Response.redirect(destination.toString(), 301);
       }
-      const [results, featuredAnimals] = await Promise.all([
+      const [results, featuredAnimals, latestNews] = await Promise.all([
         searchZoos(env.DB, activePref, null),
         loadFeaturedAnimals(env.DB, activePref),
+        loadAllZooNews(env.DB, 5),
       ]);
-      const html = renderHtml(results, activePref, null, featuredAnimals, "home");
+      const html = renderHtml(results, activePref, null, featuredAnimals, "home", latestNews);
       return htmlResponse(html, url, activePref);
     }
 

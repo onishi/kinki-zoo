@@ -2183,7 +2183,7 @@ async function loadRelatedDisplayNames(
 async function loadRelatedAnimals(
   db: D1Database,
   detail: ZooAnimalDetail,
-  limit = 30
+  limit = 12
 ): Promise<AnimalListItem[]> {
   const filterField = detail.orderName ? "order_name" : detail.className ? "class_name" : null;
   const filterValue = detail.orderName ?? detail.className ?? null;
@@ -2222,7 +2222,16 @@ async function loadRelatedAnimals(
     .bind(filterValue, detail.displayName, ...(detail.animalId ? [detail.animalId] : []))
     .all<AnimalListRow>();
 
-  return buildAnimalListItems(result.results ?? []).slice(0, limit);
+  const items = buildAnimalListItems(result.results ?? []);
+  // 同じ科を先頭に並べる
+  if (detail.familyName) {
+    items.sort((a, b) => {
+      const af = a.familyName === detail.familyName ? 0 : 1;
+      const bf = b.familyName === detail.familyName ? 0 : 1;
+      return af - bf;
+    });
+  }
+  return items.slice(0, limit);
 }
 
 async function loadTaxonomyOverview(

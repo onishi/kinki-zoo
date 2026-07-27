@@ -2183,7 +2183,7 @@ async function loadRelatedDisplayNames(
 async function loadRelatedAnimals(
   db: D1Database,
   detail: ZooAnimalDetail,
-  limit = 12
+  limit = 6
 ): Promise<AnimalListItem[]> {
   const filterField = detail.orderName ? "order_name" : detail.className ? "class_name" : null;
   const filterValue = detail.orderName ?? detail.className ?? null;

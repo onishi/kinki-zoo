@@ -6296,7 +6296,7 @@ ${renderGlobalNav("/zoos")}
 </html>`;
 }
 
-function renderNewsListHtml(news: ZooNewsRow[], activePref: PrefectureCode | null): string {
+function renderNewsListHtml(news: ZooNewsRow[], activePref: PrefectureCode | null, url?: URL): string {
   const zooIds = [...new Set(news.map((n) => n.zoo_id))];
   const zooFilterHtml = zooIds.length > 1
     ? `<div class="news-zoo-filters">
@@ -6368,6 +6368,7 @@ ${renderSiteHeader()}
 ${renderGlobalNav("/news")}
   <main>
     <h1>お知らせ一覧</h1>
+    ${url ? renderPrefectureSelector(url, activePref) : ""}
     ${zooFilterHtml}
     <ul class="news-list">${itemsHtml}</ul>
   </main>
@@ -7895,8 +7896,11 @@ export default {
 
     // HTML: /news
     if (pathname === "/news") {
-      const news = await loadAllZooNews(env.DB);
-      return htmlResponse(renderNewsListHtml(news, activePref), url, activePref);
+      const allNews = await loadAllZooNews(env.DB);
+      const news = activePref
+        ? allNews.filter((n) => zoos.find((z) => z.id === n.zoo_id)?.prefecture === activePref)
+        : allNews;
+      return htmlResponse(renderNewsListHtml(news, activePref, url), url, activePref);
     }
 
     // HTML: /search

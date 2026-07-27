@@ -335,6 +335,42 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
+const NEWS_CATEGORY_RULES: Array<{ label: string; bg: string; color: string; pattern: RegExp }> = [
+  { label: "誕生", bg: "#fff0f5", color: "#b84b7a", pattern: /誕生|生まれ|赤ちゃん|赤ちゃん|出産|子ども誕生/ },
+  { label: "訃報", bg: "#f5f5f5", color: "#555", pattern: /死亡|死去|なくなり|亡くなり|永眠/ },
+  { label: "休園", bg: "#fff8e5", color: "#9a5f00", pattern: /休園|臨時休業|閉園|お休み|臨時閉/ },
+  { label: "イベント", bg: "#f0f4ff", color: "#3a5fa0", pattern: /イベント|体験|教室|ツアー|開催|参加|ふれあい|工作/ },
+  { label: "新展示", bg: "#f0fbf5", color: "#1f6b3d", pattern: /新展示|新しい仲間|来園|やってき|デビュー|初公開|仲間入り/ },
+];
+
+function detectNewsCategory(title: string): { label: string; bg: string; color: string } | null {
+  for (const rule of NEWS_CATEGORY_RULES) {
+    if (rule.pattern.test(title)) return rule;
+  }
+  return null;
+}
+
+function isNewNews(publishedAt: string | null): boolean {
+  if (!publishedAt) return false;
+  const pub = new Date(publishedAt);
+  if (isNaN(pub.getTime())) return false;
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 7);
+  return pub >= cutoff;
+}
+
+function renderNewsItemBadges(title: string, publishedAt: string | null): string {
+  const parts: string[] = [];
+  if (isNewNews(publishedAt)) {
+    parts.push(`<span class="news-badge news-badge--new">NEW</span>`);
+  }
+  const cat = detectNewsCategory(title);
+  if (cat) {
+    parts.push(`<span class="news-badge" style="background:${cat.bg};color:${cat.color}">${cat.label}</span>`);
+  }
+  return parts.join("");
+}
+
 function renderFavoriteButton(
   type: "zoo" | "animal",
   id: string,
@@ -3832,6 +3868,8 @@ const COMMON_STYLES = `
     .ui-thumb { display: block; object-fit: cover; flex-shrink: 0; border-radius: 2px; background: #f0f0f0; }
     .ui-thumb--36 { width: 36px; height: 36px; }
     .ui-touch-target { min-height: 40px; }
+    .news-badge { display: inline-flex; align-items: center; font-size: 0.68rem; font-weight: bold; padding: 0.05rem 0.35rem; border-radius: 2px; flex-shrink: 0; }
+    .news-badge--new { background: #dc2626; color: #fff; }
     .fav-toggle { border: 1px solid #d8c98a; background: #fff; color: #b8930b; cursor: pointer; }
     .fav-toggle:disabled { opacity: 0.4; cursor: not-allowed; }
     .fav-toggle--icon { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; width: 1.9rem; height: 1.9rem; padding: 0; font-size: 1.05rem; border-radius: 4px; margin-left: auto; }
@@ -4844,17 +4882,21 @@ function renderHtml(
     .spotlight-zoo-card { display: grid; gap: 0.2rem; padding: 0.85rem; align-content: start; }
     .spotlight-zoo-card span { font-weight: bold; font-size: 0.9rem; }
     .spotlight-zoo-card small { color: #617469; font-size: 0.76rem; }
-    .latest-news-section { padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; display: grid; gap: 0.65rem; }
+    .latest-news-section { padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; display: grid; gap: 0.65rem; background: #fafcfb; }
     .latest-news-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
     .latest-news-heading h2 { font-size: 1.08rem; }
-    .latest-news-list { list-style: none; display: grid; gap: 0.5rem; }
-    .latest-news-list li { display: grid; gap: 0.18rem; }
-    .latest-news-list .news-item-top { display: flex; flex-wrap: wrap; gap: 0.3rem 0.6rem; align-items: baseline; }
-    .latest-news-list .news-date { color: #777; font-size: 0.75rem; font-variant-numeric: tabular-nums; }
-    .latest-news-list .news-zoo-label { color: #1f5b45; font-size: 0.75rem; font-weight: bold; text-decoration: none; }
-    .latest-news-list .news-zoo-label:hover { text-decoration: underline; }
-    .latest-news-list .news-item-top > a:last-child { color: #222; text-decoration: none; font-size: 0.88rem; overflow-wrap: anywhere; }
-    .latest-news-list .news-item-top > a:last-child:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .section-link { font-size: 0.8rem; color: #1f5b45; text-decoration: none; white-space: nowrap; }
+    .section-link:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .latest-news-list { list-style: none; display: grid; gap: 0; }
+    .latest-news-list li { display: grid; gap: 0.25rem; padding: 0.65rem 0.5rem; border-bottom: 1px solid #e5eee8; }
+    .latest-news-list li:first-child { border-top: 1px solid #e5eee8; }
+    .latest-news-list li:hover { background: #f2f8f4; }
+    .news-meta { display: flex; flex-wrap: wrap; gap: 0.3rem 0.5rem; align-items: center; }
+    .news-date { color: #888; font-size: 0.74rem; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+    .news-zoo-label { color: #1f5b45; font-size: 0.76rem; font-weight: bold; text-decoration: none; flex-shrink: 0; }
+    .news-zoo-label:hover { text-decoration: underline; }
+    .news-title { color: #1a1a1a; text-decoration: none; font-size: 0.9rem; line-height: 1.5; overflow-wrap: anywhere; }
+    .news-title:hover { color: #1f5b45; text-decoration: underline; text-underline-offset: 0.2em; }
     .latest-news-list .news-animals { display: flex; flex-wrap: wrap; gap: 0.25rem; }
     .latest-news-list .news-animals a { font-size: 0.7rem; color: #1f5b45; background: #f0f7f3; border: 1px solid #c5dece; padding: 0.08rem 0.4rem; text-decoration: none; }
     .latest-news-list .news-animals a:hover { background: #e1f0e8; }
@@ -4924,10 +4966,9 @@ ${renderGlobalNav(isHome ? "/" : "/zoos")}
     ${animal ? `<a href="${buildBrowseUrl(activePref, null)}" class="ui-btn ui-btn--secondary ui-touch-target">クリア</a>` : ""}
   </form>`}
   ${isHome ? renderExploreCards(activePref, count, totalAnimalCount) : ""}
-  ${isHome ? renderSpotlightSection(featuredAnimals, featuredZoos, activePref) : ""}
   ${isHome && latestNews.length > 0 ? `<section class="latest-news-section">
     <div class="latest-news-heading">
-      <h2>最新のお知らせ</h2>
+      <h2>📢 最新のお知らせ</h2>
       <a href="/news" class="section-link">すべて見る →</a>
     </div>
     <ul class="latest-news-list">
@@ -4937,17 +4978,20 @@ ${renderGlobalNav(isHome ? "/" : "/zoos")}
         const animalsHtml = animals.length > 0
           ? `<div class="news-animals">${animals.map((n) => `<a href="/animal/${encodeURIComponent(n)}">${escapeHtml(n)}</a>`).join("")}</div>`
           : "";
+        const badges = renderNewsItemBadges(item.title, item.published_at);
         return `<li>
-          <div class="news-item-top">
+          <div class="news-meta">
             ${item.published_at ? `<span class="news-date">${escapeHtml(item.published_at)}</span>` : ""}
             ${zoo ? `<a class="news-zoo-label" href="/zoos/${escapeHtml(zoo.id)}">${escapeHtml(zoo.name)}</a>` : ""}
-            <a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a>
+            ${badges}
           </div>
+          <a class="news-title" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a>
           ${animalsHtml}
         </li>`;
       }).join("")}
     </ul>
   </section>` : ""}
+  ${isHome ? renderSpotlightSection(featuredAnimals, featuredZoos, activePref) : ""}
   ${
     isHome
       ? ""
@@ -5579,12 +5623,14 @@ function renderZooAnimalDetailHtml(
     .related-zoo-links { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; }
     .related-zoo-links a { font-size: 0.7rem; padding: 0.15rem 0.4rem; }
     .related-more-zoos { color: #999; font-size: 0.68rem; }
-    .animal-news-list { list-style: none; display: grid; gap: 0.5rem; }
-    .animal-news-list li { display: grid; grid-template-columns: auto auto 1fr; gap: 0.5rem; align-items: baseline; }
+    .animal-news-list { list-style: none; display: grid; gap: 0; }
+    .animal-news-list li { display: grid; gap: 0.28rem; padding: 0.6rem 0; border-bottom: 1px solid #eee; }
+    .animal-news-list li:last-child { border-bottom: 0; }
+    .animal-news-meta { display: flex; flex-wrap: wrap; gap: 0.3rem 0.5rem; align-items: center; }
     .animal-news-zoo { color: #1f5b45; font-size: 0.78rem; font-weight: bold; flex: 0 0 auto; }
-    .animal-news-date { color: #777; font-size: 0.78rem; flex: 0 0 auto; font-variant-numeric: tabular-nums; }
-    .animal-news-list a { color: #222; text-decoration: none; font-size: 0.88rem; overflow-wrap: anywhere; }
-    .animal-news-list a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .animal-news-date { color: #888; font-size: 0.76rem; flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+    .animal-news-title { color: #1a1a1a; text-decoration: none; font-size: 0.9rem; line-height: 1.5; overflow-wrap: anywhere; }
+    .animal-news-title:hover { color: #1f5b45; text-decoration: underline; text-underline-offset: 0.2em; }
     footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; border-top: 1px solid #eee; }
     @media (max-width: 640px) {
       .hero { grid-template-columns: 1fr; padding: 1rem 0.75rem; gap: 1rem; }
@@ -5634,15 +5680,19 @@ ${renderGlobalNav("/animals")}
     ${
       animalNews.length > 0
         ? `<section>
-        <h2>お知らせ（このどうぶつを含む）</h2>
+        <h2>📢 お知らせ（このどうぶつを含む）</h2>
         <ul class="animal-news-list">
           ${animalNews
             .map((item) => {
               const zoo = zoos.find((z) => z.id === item.zoo_id);
+              const badges = renderNewsItemBadges(item.title, item.published_at);
               return `<li>
-                ${zoo ? `<span class="animal-news-zoo">${escapeHtml(zoo.name)}</span>` : ""}
-                ${item.published_at ? `<span class="animal-news-date">${escapeHtml(item.published_at)}</span>` : ""}
-                <a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a>
+                <div class="animal-news-meta">
+                  ${zoo ? `<span class="animal-news-zoo">${escapeHtml(zoo.name)}</span>` : ""}
+                  ${item.published_at ? `<span class="animal-news-date">${escapeHtml(item.published_at)}</span>` : ""}
+                  ${badges}
+                </div>
+                <a class="animal-news-title" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a>
               </li>`;
             })
             .join("")}
@@ -6081,12 +6131,16 @@ function renderZooDetailHtml(
     .animal-meta { color: #777; font-size: 0.78rem; margin-top: 0.85rem; }
     .error { color: #b00020; margin-bottom: 0.75rem; }
     .empty { color: #777; }
-    .zoo-news-list { list-style: none; display: grid; gap: 0.65rem; }
-    .zoo-news-list li { display: grid; gap: 0.2rem; }
-    .news-item-top { display: flex; gap: 0.75rem; align-items: baseline; }
-    .news-date { flex: 0 0 auto; color: #777; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
-    .news-item-top a { color: #1f5b45; text-decoration: none; font-size: 0.9rem; overflow-wrap: anywhere; }
-    .news-item-top a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .zoo-news-section { background: #fafcfb; border-left: 3px solid #1f5b45; }
+    .section-ext-link { font-size: 0.78rem; color: #1f5b45; text-decoration: none; }
+    .section-ext-link:hover { text-decoration: underline; }
+    .zoo-news-list { list-style: none; display: grid; gap: 0; }
+    .zoo-news-list li { display: grid; gap: 0.28rem; padding: 0.6rem 0; border-bottom: 1px solid #e5eee8; }
+    .zoo-news-list li:last-child { border-bottom: 0; }
+    .news-meta { display: flex; flex-wrap: wrap; gap: 0.3rem 0.45rem; align-items: center; }
+    .news-date { flex: 0 0 auto; color: #888; font-size: 0.76rem; font-variant-numeric: tabular-nums; }
+    .news-title { color: #1a1a1a; text-decoration: none; font-size: 0.9rem; line-height: 1.5; overflow-wrap: anywhere; }
+    .news-title:hover { color: #1f5b45; text-decoration: underline; text-underline-offset: 0.2em; }
     .news-animals { display: flex; flex-wrap: wrap; gap: 0.3rem; }
     .news-animals a { font-size: 0.72rem; color: #1f5b45; background: #f0f7f3; border: 1px solid #c5dece; padding: 0.1rem 0.45rem; text-decoration: none; }
     .news-animals a:hover { background: #e1f0e8; }
@@ -6148,13 +6202,12 @@ ${renderGlobalNav("/zoos")}
         </tbody>
       </table>
     </section>
-    ${featuredHtml}
     ${
       news.length > 0
-        ? `<section class="section" id="zoo-news">
+        ? `<section class="section zoo-news-section" id="zoo-news">
         <div class="section-heading">
-          <h3>お知らせ</h3>
-          <a href="${escapeHtml(zoo.website)}" target="_blank" rel="noopener noreferrer">公式サイトで見る</a>
+          <h3>📢 お知らせ</h3>
+          <a href="${escapeHtml(zoo.website)}" target="_blank" rel="noopener noreferrer" class="section-ext-link">公式サイトで見る ↗</a>
         </div>
         <ul class="zoo-news-list">
           ${news
@@ -6167,11 +6220,13 @@ ${renderGlobalNav("/zoos")}
                     .map((n) => `<a href="/animal/${encodeURIComponent(n)}">${escapeHtml(n)}</a>`)
                     .join("")}</div>`
                 : "";
+              const badges = renderNewsItemBadges(item.title, item.published_at);
               return `<li>
-                <div class="news-item-top">
+                <div class="news-meta">
                   ${item.published_at ? `<span class="news-date">${escapeHtml(item.published_at)}</span>` : ""}
-                  <a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a>
+                  ${badges}
                 </div>
+                <a class="news-title" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a>
                 ${animalsHtml}
               </li>`;
             })
@@ -6180,6 +6235,7 @@ ${renderGlobalNav("/zoos")}
       </section>`
         : ""
     }
+    ${featuredHtml}
     <section class="section" id="animals">
       <h3>見られる動物</h3>
       ${coverageHtml}
@@ -6254,12 +6310,14 @@ function renderNewsListHtml(news: ZooNewsRow[], activePref: PrefectureCode | nul
         const animalsHtml = animals.length > 0
           ? `<div class="news-animals">${animals.map((n) => `<a href="/animal/${encodeURIComponent(n)}">${escapeHtml(n)}</a>`).join("")}</div>`
           : "";
+        const badges = renderNewsItemBadges(item.title, item.published_at);
         return `<li data-zoo="${escapeHtml(item.zoo_id)}">
-          <div class="news-item-top">
+          <div class="news-meta">
             ${item.published_at ? `<span class="news-date">${escapeHtml(item.published_at)}</span>` : ""}
             ${zoo ? `<a class="news-zoo-label" href="/zoos/${escapeHtml(zoo.id)}">${escapeHtml(zoo.name)}</a>` : ""}
-            <a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a>
+            ${badges}
           </div>
+          <a class="news-title" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a>
           ${animalsHtml}
         </li>`;
       }).join("")
@@ -6278,20 +6336,22 @@ function renderNewsListHtml(news: ZooNewsRow[], activePref: PrefectureCode | nul
     h1 { font-size: 1.3rem; margin-bottom: 1rem; }
     .news-zoo-filters { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1rem; }
     .news-zoo-filters button { font: inherit; font-size: 0.82rem; }
-    .news-list { list-style: none; display: grid; gap: 0.75rem; }
-    .news-list li { display: grid; gap: 0.25rem; border-bottom: 1px solid #eee; padding-bottom: 0.65rem; }
+    .news-list { list-style: none; display: grid; gap: 0; }
+    .news-list li { display: grid; gap: 0.3rem; border-bottom: 1px solid #eee; padding: 0.85rem 0.65rem; }
+    .news-list li:first-child { border-top: 1px solid #eee; }
+    .news-list li:hover { background: #fafcfb; }
     .news-list li.is-hidden { display: none; }
-    .news-item-top { display: flex; flex-wrap: wrap; gap: 0.4rem 0.65rem; align-items: baseline; }
-    .news-date { flex: 0 0 auto; color: #777; font-size: 0.78rem; font-variant-numeric: tabular-nums; }
-    .news-zoo-label { flex: 0 0 auto; color: #1f5b45; font-size: 0.8rem; font-weight: bold; text-decoration: none; }
+    .news-meta { display: flex; flex-wrap: wrap; gap: 0.35rem 0.55rem; align-items: center; }
+    .news-date { flex: 0 0 auto; color: #888; font-size: 0.76rem; font-variant-numeric: tabular-nums; }
+    .news-zoo-label { flex: 0 0 auto; color: #1f5b45; font-size: 0.78rem; font-weight: bold; text-decoration: none; }
     .news-zoo-label:hover { text-decoration: underline; text-underline-offset: 0.2em; }
-    .news-item-top > a:last-child { color: #222; text-decoration: none; font-size: 0.92rem; overflow-wrap: anywhere; }
-    .news-item-top > a:last-child:hover { text-decoration: underline; text-underline-offset: 0.2em; color: #1f5b45; }
+    .news-title { color: #1a1a1a; text-decoration: none; font-size: 0.93rem; line-height: 1.5; overflow-wrap: anywhere; }
+    .news-title:hover { color: #1f5b45; text-decoration: underline; text-underline-offset: 0.2em; }
     .news-animals { display: flex; flex-wrap: wrap; gap: 0.3rem; }
     .news-animals a { font-size: 0.72rem; color: #1f5b45; background: #f0f7f3; border: 1px solid #c5dece; padding: 0.1rem 0.45rem; text-decoration: none; }
     .news-animals a:hover { background: #e1f0e8; }
     .news-empty { color: #777; font-size: 0.9rem; }
-    @media (max-width: 640px) { main { padding: 0.75rem; } }
+    @media (max-width: 640px) { main { padding: 0.75rem; } .news-list li { padding: 0.75rem 0.35rem; } }
   </style>
 </head>
 <body>

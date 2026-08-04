@@ -3709,7 +3709,7 @@ function buildCanonicalUrl(url: URL): string {
     }
   }
   const query = canonical.toString();
-  return `${url.origin}${url.pathname}${query ? `?${query}` : ""}`;
+  return `${url.origin}${withBase(url.pathname)}${query ? `?${query}` : ""}`;
 }
 
 function buildTaxonomyUrl(levels: TaxonomyPathLevel[], value: string): string {

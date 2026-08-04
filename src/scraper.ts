@@ -117,8 +117,8 @@ const SCRAPER_CONFIGS: Record<string, ZooScraperConfig> = {
     maxLength: 30,
   },
   "wakayama-castle-zoo": {
-    animalsUrl: "https://wakayamajo.jp/animal/map.html",
-    nameSelector: ".img_yoko p",
+    animalsUrl: "https://wakayamajo.jp/animal/",
+    nameSelector: ".animal-card-title",
     minLength: 2,
     maxLength: 20,
   },

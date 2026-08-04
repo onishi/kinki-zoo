@@ -308,6 +308,10 @@ const NEWS_SCRAPER_CONFIGS: Record<string, NewsScraperConfig> = {
     linkSelector: 'a[href^="/pickup/"]',
     titleChildSelector: "p",
   },
+  "himeji-central-park": { rssUrl: "https://www.central-park.co.jp/feed/" },
+  // 動物園専用のお知らせページが無く、和歌山城公園全体(茶道体験・フォトコンテスト等)の
+  // 「お知らせ」カテゴリフィードを使う。動物園に無関係な項目が混ざる可能性がある。
+  "wakayama-castle-zoo": { rssUrl: "https://wakayamajo.jp/category/info/feed/" },
 };
 
 function parseNewsDate(raw: string): string | null {

@@ -162,7 +162,7 @@ const curatedZoos: Zoo[] = [
     openingHours: "9:00〜17:30",
     closedDays: "12月29日〜1月1日",
     admission: "無料",
-    website: "https://wakayamajo.jp/animal/index.html",
+    website: "https://wakayamajo.jp/zoo/",
     wikipediaUrl: "https://ja.wikipedia.org/wiki/%E5%92%8C%E6%AD%8C%E5%B1%B1%E5%9F%8E%E5%8B%95%E7%89%A9%E5%9C%92",
     features: ["白いライオン", "白いトラ", "和歌山城隣接"],
   },

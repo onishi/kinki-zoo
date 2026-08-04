@@ -7582,6 +7582,7 @@ function isAdminPath(pathname: string): boolean {
     pathname.startsWith("/admin") ||
     pathname === "/api/animal-images/generate" ||
     pathname === "/api/animals/refresh" ||
+    pathname === "/api/news/refresh" ||
     pathname === "/api/animals/classify" ||
     pathname === "/api/animals/suggest-taxonomy" ||
     pathname === "/api/animals/taxonomy-candidates" ||
@@ -7655,6 +7656,16 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
       }
       const results = await refreshAllAnimalCache(env.DB);
       return jsonResponse({ refreshed: results.length, results });
+    }
+
+    // JSON API: refresh all zoo news caches
+    if (pathname === "/api/news/refresh") {
+      if (request.method !== "POST") {
+        return jsonResponse({ error: "POST を使用してください" }, 405);
+      }
+      await refreshAllZooNews(env.DB);
+      const status = await loadScrapeStatus(env.DB);
+      return jsonResponse({ status });
     }
 
     // JSON API: classify cached zoo animal display names

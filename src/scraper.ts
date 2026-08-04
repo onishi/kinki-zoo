@@ -303,6 +303,11 @@ const NEWS_SCRAPER_CONFIGS: Record<string, NewsScraperConfig> = {
     linkSelector: "ul li a[href]",
     titleChildSelector: "h3",
   },
+  "kobe-animal-kingdom": {
+    newsUrl: "https://www.kobe-oukoku.com/pickup",
+    linkSelector: 'a[href^="/pickup/"]',
+    titleChildSelector: "p",
+  },
 };
 
 function parseNewsDate(raw: string): string | null {

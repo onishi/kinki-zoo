@@ -3,6 +3,7 @@ import { zoos } from "./data";
 import { findAnimalTaxonomy, type AnimalTaxonomy } from "./animal-taxonomy";
 import type { ScrapeResult, NewsItem } from "./scraper";
 import { scrapeAnimals, scrapeZooNews } from "./scraper";
+import { getBasePath, normalizeBasePath, runWithBasePath, withBase } from "./request-context";
 
 const PREF_LABELS: Record<PrefectureCode, string> = {
   osaka: "大阪府",
@@ -380,7 +381,10 @@ function renderFavoriteButton(
 ): string {
   const escId = escapeHtml(id);
   const escLabel = escapeHtml(label);
-  const escHref = escapeHtml(href);
+  // お気に入りは localStorage に保存され、後で /favorites がクライアント側で
+  // このURLから <a href> を組み立てる(HTMLRewriter を経由しない)ため、
+  // ここで basePath を確定させておく。
+  const escHref = escapeHtml(withBase(href));
   const attrs = `data-fav-type="${type}" data-fav-id="${escId}" data-fav-name="${escLabel}" data-fav-href="${escHref}" aria-pressed="false"`;
   if (variant === "large") {
     return `<button type="button" class="fav-toggle fav-toggle--large ui-btn ui-btn--secondary ui-touch-target" ${attrs}><span class="fav-toggle-icon" aria-hidden="true">☆</span><span class="fav-toggle-text">お気に入りに追加</span></button>`;
@@ -397,6 +401,15 @@ function jsonResponse(data: unknown, status = 200): Response {
 
 function notFound(message: string): Response {
   return jsonResponse({ error: message }, 404);
+}
+
+/**
+ * サイト内パスへの redirect を返す。Location はホスト名を含まない
+ * (basePath 付きの)相対パスにすることで、直アクセス/リバースプロキシ経由の
+ * どちらでもブラウザが現在のオリジンを保ったまま正しく遷移できる。
+ */
+function redirectResponse(path: string, status: number): Response {
+  return new Response(null, { status, headers: { Location: withBase(path) } });
 }
 
 function findMatches(values: string[], searchKeyword: string): string[] {
@@ -3273,6 +3286,32 @@ async function loadAllZooNews(db: D1Database, limit = 50): Promise<ZooNewsRow[]>
   return rows.results ?? [];
 }
 
+interface ScrapeStatusRow {
+  zoo_id: string;
+  animal_scraped_at: string | null;
+  news_fetched_at: string | null;
+  news_count: number;
+}
+
+async function loadScrapeStatus(db: D1Database): Promise<ScrapeStatusRow[]> {
+  const rows = await db.prepare(
+    `SELECT
+       z.zoo_id,
+       r.scraped_at AS animal_scraped_at,
+       n.last_fetched AS news_fetched_at,
+       COALESCE(n.cnt, 0) AS news_count
+     FROM (SELECT DISTINCT zoo_id FROM animal_scrape_results) z
+     LEFT JOIN (
+       SELECT zoo_id, MAX(scraped_at) AS scraped_at FROM animal_scrape_results GROUP BY zoo_id
+     ) r ON r.zoo_id = z.zoo_id
+     LEFT JOIN (
+       SELECT zoo_id, MAX(fetched_at) AS last_fetched, COUNT(*) AS cnt FROM zoo_news GROUP BY zoo_id
+     ) n ON n.zoo_id = z.zoo_id
+     ORDER BY z.zoo_id`
+  ).all<ScrapeStatusRow>();
+  return rows.results ?? [];
+}
+
 async function refreshAllZooNews(db: D1Database): Promise<void> {
   const allAnimalNames = await loadAllZooAnimalNames(db);
   for (const zoo of zoos) {
@@ -3760,10 +3799,15 @@ function renderHeaderSearch(url: URL, activePref: PrefectureCode | null): string
 
 function htmlResponse(html: string, url: URL, activePref: PrefectureCode | null): Response {
   const canonicalUrl = escapeHtml(buildCanonicalUrl(url));
+  const basePath = getBasePath();
   let rewriter = new HTMLRewriter()
     .on("head", {
       element(element) {
-        element.prepend(`<link rel="canonical" href="${canonicalUrl}">`, { html: true });
+        element.prepend(
+          `<script>window.__BASE_PATH__=${JSON.stringify(basePath)};</script>` +
+            `<link rel="canonical" href="${canonicalUrl}">`,
+          { html: true }
+        );
       },
     })
     .on(".site-header", {
@@ -3775,8 +3819,24 @@ function htmlResponse(html: string, url: URL, activePref: PrefectureCode | null)
     .on("a[href]", {
       element(element) {
         const href = element.getAttribute("href");
-        if (href) {
-          element.setAttribute("href", addPrefectureToInternalUrl(href, activePref));
+        if (href && href.startsWith("/") && !href.startsWith("//")) {
+          element.setAttribute("href", withBase(addPrefectureToInternalUrl(href, activePref)));
+        }
+      },
+    })
+    .on("img[src]", {
+      element(element) {
+        const src = element.getAttribute("src");
+        if (src && src.startsWith("/") && !src.startsWith("//")) {
+          element.setAttribute("src", withBase(src));
+        }
+      },
+    })
+    .on("script[src]", {
+      element(element) {
+        const src = element.getAttribute("src");
+        if (src && src.startsWith("/") && !src.startsWith("//")) {
+          element.setAttribute("src", withBase(src));
         }
       },
     });
@@ -4018,6 +4078,63 @@ function renderAdminBreadcrumb(crumbs: { href?: string; label: string }[]): stri
   return `<nav class="admin-breadcrumb" aria-label="管理パンくず">${parts.join("")}</nav>`;
 }
 
+function renderScrapeStatusHtml(rows: ScrapeStatusRow[]): string {
+  const now = new Date();
+  const fmt = (iso: string | null) => {
+    if (!iso) return `<span class="status-none">未取得</span>`;
+    const d = new Date(iso);
+    const hoursAgo = (now.getTime() - d.getTime()) / 3600000;
+    const label = iso.slice(0, 16).replace("T", " ");
+    const cls = hoursAgo > 30 ? "status-stale" : "status-ok";
+    return `<span class="${cls}">${label}</span>`;
+  };
+
+  const rowsHtml = rows.map((row) => {
+    const zoo = zoos.find((z) => z.id === row.zoo_id);
+    return `<tr>
+      <td><a href="/zoos/${escapeHtml(row.zoo_id)}">${escapeHtml(zoo?.name ?? row.zoo_id)}</a></td>
+      <td>${fmt(row.animal_scraped_at)}</td>
+      <td>${fmt(row.news_fetched_at)}</td>
+      <td>${row.news_count}</td>
+    </tr>`;
+  }).join("");
+
+  return `<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>スクレイプ状況 | 動物管理</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
+    main { max-width: 900px; margin: 0 auto; padding: 1.5rem; display: grid; gap: 1.5rem; }
+    h1 { font-size: 1.2rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+    th, td { border: 1px solid #ddd; padding: 0.5rem 0.75rem; text-align: left; vertical-align: middle; }
+    thead th { background: #f5f5f5; font-weight: bold; }
+    a { color: #1f5b45; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .status-ok { color: #1f6b3d; }
+    .status-stale { color: #b36a00; font-weight: bold; }
+    .status-none { color: #999; }${ADMIN_BREADCRUMB_CSS}
+  </style>
+</head>
+<body>
+${renderSiteHeader()}
+${renderGlobalNav("/admin")}
+  <main>
+    ${renderAdminBreadcrumb([{ label: "スクレイプ状況" }])}
+    <h1>スクレイプ状況</h1>
+    <table>
+      <thead><tr><th>動物園</th><th>動物 最終取得</th><th>お知らせ 最終取得</th><th>お知らせ件数</th></tr></thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+  </main>
+</body>
+</html>`;
+}
+
 function renderAdminTopHtml(): string {
   return `<!DOCTYPE html>
 <html lang="ja">
@@ -4053,6 +4170,12 @@ ${renderGlobalNav("/admin")}
         <a href="/admin/animal-images">
           画像管理
           <small>動物画像の生成・選択を管理する</small>
+        </a>
+      </li>
+      <li>
+        <a href="/admin/scrape-status">
+          スクレイプ状況
+          <small>動物・お知らせの最終取得日時と件数を確認する</small>
         </a>
       </li>
       <li>
@@ -4436,7 +4559,7 @@ ${renderGlobalNav("/admin")}
       var row = btn.closest('tr');
       row.classList.add('classifying');
       try {
-        var res = await fetch('/animal/' + encodeURIComponent(name) + '/classify', {method: 'POST'});
+        var res = await fetch((window.__BASE_PATH__ || '') + '/animal/' + encodeURIComponent(name) + '/classify', {method: 'POST'});
         var finalUrl = new URL(res.url);
         var status = finalUrl.searchParams.get('llm') || 'done';
         row.classList.remove('classifying');
@@ -6609,7 +6732,7 @@ ${renderGlobalNav("/compare")}
       if (checked.length >= 2) {
         var keys = ['a', 'b', 'c'];
         var params = checked.map(function(c, i) { return keys[i] + '=' + encodeURIComponent(c.id); }).join('&');
-        location.href = '/compare?' + params;
+        location.href = (window.__BASE_PATH__ || '') + '/compare?' + params;
       }
     });
 
@@ -7477,6 +7600,20 @@ function checkAdminAuth(request: Request, adminPassword: string): boolean {
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const basePath = normalizeBasePath(request.headers.get("x-forwarded-prefix"));
+    return runWithBasePath(basePath, () => handleFetch(request, env, ctx));
+  },
+  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(
+      (async () => {
+        await refreshAllAnimalCache(env.DB);
+        await refreshAllZooNews(env.DB);
+      })()
+    );
+  },
+};
+
+async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const pathname = url.pathname;
     const prefParam = url.searchParams.get("pref");
@@ -7664,10 +7801,7 @@ export default {
           destination.searchParams.set("message", message.slice(0, 180));
         }
         const href = `${destination.pathname}${destination.search}${destination.hash}`;
-        return Response.redirect(
-          `${url.origin}${addPrefectureToInternalUrl(href, activePref)}`,
-          303
-        );
+        return redirectResponse(addPrefectureToInternalUrl(href, activePref), 303);
       };
       if (!displayName) return redirectTo("error", null);
       if (!env.GEMINI_API_KEY) return redirectTo("missing-key");
@@ -7719,7 +7853,7 @@ export default {
       }
       destination.searchParams.set("image", status);
       const href = `${destination.pathname}${destination.search}${destination.hash}`;
-      return Response.redirect(`${url.origin}${addPrefectureToInternalUrl(href, activePref)}`, 303);
+      return redirectResponse(addPrefectureToInternalUrl(href, activePref), 303);
     }
 
     // HTML: /admin/animal-images/manage/:displayName
@@ -7729,7 +7863,7 @@ export default {
       const destination = new URL("/admin/animal-images", url.origin);
       destination.searchParams.set("q", displayName);
       destination.hash = buildAnimalImageItemId(normalizeAnimalImageKey(displayName));
-      return Response.redirect(destination.toString(), 301);
+      return redirectResponse(`${destination.pathname}${destination.search}${destination.hash}`, 301);
     }
 
     // Image: generated image history
@@ -7873,6 +8007,12 @@ export default {
       return htmlResponse(renderAdminTopHtml(), url, activePref);
     }
 
+    // HTML: /admin/scrape-status
+    if (pathname === "/admin/scrape-status") {
+      const rows = await loadScrapeStatus(env.DB);
+      return htmlResponse(renderScrapeStatusHtml(rows), url, activePref);
+    }
+
     // HTML: /admin/scrape-health
     if (pathname === "/admin/scrape-health") {
       const items = await loadScrapeHealth(env.DB);
@@ -7945,11 +8085,11 @@ export default {
       const detail = await loadZooAnimalDetail(env.DB, displayName, activePref);
       if (!detail) return notFound(`動物 '${displayName}' が見つかりません`);
       const redirectTo = (status: string) =>
-        Response.redirect(
-          `${url.origin}${addPrefectureToInternalUrl(
+        redirectResponse(
+          addPrefectureToInternalUrl(
             `${buildZooAnimalUrl(displayName)}?llm=${encodeURIComponent(status)}`,
             activePref
-          )}`,
+          ),
           303
         );
 
@@ -8031,7 +8171,7 @@ export default {
         if (!canonicalPath) return notFound(`分類 '${value}' に該当する動物が見つかりません`);
         const destination = new URL(buildTaxonomyPathUrl(canonicalPath), url.origin);
         if (activePref) destination.searchParams.set("pref", activePref);
-        return Response.redirect(destination.toString(), 301);
+        return redirectResponse(`${destination.pathname}${destination.search}`, 301);
       }
     }
 
@@ -8081,7 +8221,7 @@ export default {
       const destination = new URL(`/zoos/${encodeURIComponent(id)}`, url.origin);
       if (activePref) destination.searchParams.set("pref", activePref);
       destination.hash = "animals";
-      return Response.redirect(destination.toString(), 301);
+      return redirectResponse(`${destination.pathname}${destination.search}${destination.hash}`, 301);
     }
 
     // HTML: /zoos/:id
@@ -8153,7 +8293,7 @@ export default {
       if (animal) {
         const destination = new URL("/zoos", url.origin);
         destination.search = url.search;
-        return Response.redirect(destination.toString(), 301);
+        return redirectResponse(`${destination.pathname}${destination.search}`, 301);
       }
       const [results, featuredAnimals, latestNews] = await Promise.all([
         searchZoos(env.DB, activePref, null),
@@ -8165,13 +8305,4 @@ export default {
     }
 
     return notFound("ページが見つかりません");
-  },
-  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(
-      (async () => {
-        await refreshAllAnimalCache(env.DB);
-        await refreshAllZooNews(env.DB);
-      })()
-    );
-  },
-};
+}

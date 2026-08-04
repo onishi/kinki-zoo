@@ -1,6 +1,7 @@
 name = "kinki-zoo"
 main = "src/index.ts"
 compatibility_date = "2024-01-01"
+workers_dev = true
 
 [[d1_databases]]
 binding = "DB"
@@ -11,6 +12,10 @@ migrations_dir = "migrations"
 [[r2_buckets]]
 binding = "IMAGES"
 bucket_name = "kinki-zoo-images"
+
+[[routes]]
+pattern = "kinki-zoo.wagaya.org/*"
+zone_name = "wagaya.org"
 
 [triggers]
 crons = ["0 18 * * *"]

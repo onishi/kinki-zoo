@@ -284,6 +284,16 @@ interface NewsScraperConfig {
   linkSelector?: string;
   titleChildSelector?: string;
   dateChildSelector?: string;
+  /**
+   * 日付・タイトル・リンクがそれぞれ兄弟要素になっていて、リンクの中に
+   * タイトル/日付が入っていないサイト向け。itemSelector で囲まれた
+   * ブロック単位で、その中から itemTitleSelector / itemDateSelector /
+   * itemLinkSelector を探す。
+   */
+  itemSelector?: string;
+  itemTitleSelector?: string;
+  itemDateSelector?: string;
+  itemLinkSelector?: string;
 }
 
 const NEWS_SCRAPER_CONFIGS: Record<string, NewsScraperConfig> = {
@@ -312,6 +322,13 @@ const NEWS_SCRAPER_CONFIGS: Record<string, NewsScraperConfig> = {
   // 動物園専用のお知らせページが無く、和歌山城公園全体(茶道体験・フォトコンテスト等)の
   // 「お知らせ」カテゴリフィードを使う。動物園に無関係な項目が混ざる可能性がある。
   "wakayama-castle-zoo": { rssUrl: "https://wakayamajo.jp/category/info/feed/" },
+  "kobe-oji-zoo": {
+    newsUrl: "https://www.kobe-ojizoo.jp/info/",
+    itemSelector: ".bxAin",
+    itemTitleSelector: "h2",
+    itemDateSelector: "p.date",
+    itemLinkSelector: "p.b a",
+  },
 };
 
 function parseNewsDate(raw: string): string | null {
@@ -336,7 +353,21 @@ function parseNewsDate(raw: string): string | null {
   return null;
 }
 
-function unescapeXmlEntities(s: string): string {
+// XML標準の5つに加え、日本語ニュースページでよく見かける名前付きエンティティ。
+// HTMLRewriter の text チャンクは "&times;" のような名前付きエンティティを
+// 未デコードのまま渡してくることがあるため、タイトル/日付として保存する前に
+// このデコードを通す。
+const NAMED_HTML_ENTITIES: Record<string, string> = {
+  nbsp: " ",
+  times: "×",
+  middot: "·",
+  hellip: "…",
+  mdash: "—",
+  ndash: "–",
+  copy: "©",
+};
+
+function unescapeHtmlEntities(s: string): string {
   return s
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
@@ -344,7 +375,8 @@ function unescapeXmlEntities(s: string): string {
     .replace(/&quot;/g, '"')
     .replace(/&apos;/g, "'")
     .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)));
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&([a-zA-Z]+);/g, (full, name) => NAMED_HTML_ENTITIES[name] ?? full);
 }
 
 function parseRssItems(xml: string, limit = 20): NewsItem[] {
@@ -354,7 +386,7 @@ function parseRssItems(xml: string, limit = 20): NewsItem[] {
     const body = m[1];
     const rawTitle =
       body.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/i)?.[1]?.trim() ?? "";
-    const title = unescapeXmlEntities(rawTitle);
+    const title = unescapeHtmlEntities(rawTitle);
     const link =
       body.match(/<link>(https?:\/\/[^\s<]+)<\/link>/i)?.[1]?.trim() ??
       body.match(/<guid[^>]*>(https?:\/\/[^\s<]+)<\/guid>/i)?.[1]?.trim() ??
@@ -389,7 +421,7 @@ class NewsHtmlCollector {
     this.current = { titleParts: [], dateParts: [], url: resolved };
     element.onEndTag(() => {
       if (!this.current) return;
-      const title = this.current.titleParts.join("").trim();
+      const title = unescapeHtmlEntities(this.current.titleParts.join("").trim());
       if (title && this.current.url) {
         this.items.push({
           title,
@@ -444,6 +476,83 @@ async function scrapeNewsFromHtml(config: NewsScraperConfig): Promise<NewsItem[]
   return collector.items.slice(0, 20);
 }
 
+class NewsBlockCollector {
+  readonly items: NewsItem[] = [];
+  private current: { titleParts: string[]; dateParts: string[]; url: string | null } | null = null;
+
+  onItemStart(element: Element): void {
+    this.current = { titleParts: [], dateParts: [], url: null };
+    element.onEndTag(() => {
+      if (!this.current) return;
+      const title = unescapeHtmlEntities(this.current.titleParts.join("").trim());
+      if (title && this.current.url) {
+        this.items.push({
+          title,
+          url: this.current.url,
+          publishedAt: parseNewsDate(this.current.dateParts.join("").trim()),
+        });
+      }
+      this.current = null;
+    });
+  }
+
+  onTitle(chunk: Text): void {
+    if (this.current) this.current.titleParts.push(chunk.text);
+  }
+
+  onDate(chunk: Text): void {
+    if (this.current) this.current.dateParts.push(chunk.text);
+  }
+
+  onLink(element: Element, baseUrl: string): void {
+    // ブロック内で最初に見つかったリンクを採用する。
+    if (!this.current || this.current.url) return;
+    const href = element.getAttribute("href");
+    if (!href || href.startsWith("#") || href.startsWith("javascript:")) return;
+    try {
+      this.current.url = new URL(href, baseUrl).toString();
+    } catch {
+      this.current.url = href;
+    }
+  }
+}
+
+async function scrapeNewsFromHtmlBlocks(config: NewsScraperConfig): Promise<NewsItem[]> {
+  if (!config.newsUrl || !config.itemSelector || !config.itemTitleSelector || !config.itemLinkSelector) {
+    return [];
+  }
+  let response: Response;
+  try {
+    response = await fetch(config.newsUrl, {
+      headers: {
+        "User-Agent": "kinki-zoo-bot/1.0 (+https://github.com/onishi/kinki-zoo)",
+        Accept: "text/html",
+      },
+    });
+  } catch {
+    return [];
+  }
+  if (!response.ok) return [];
+
+  const baseUrl = config.newsUrl;
+  const collector = new NewsBlockCollector();
+  let rewriter = new HTMLRewriter()
+    .on(config.itemSelector, { element: (el) => collector.onItemStart(el) })
+    .on(`${config.itemSelector} ${config.itemTitleSelector}`, {
+      text: (chunk) => collector.onTitle(chunk),
+    })
+    .on(`${config.itemSelector} ${config.itemLinkSelector}`, {
+      element: (el) => collector.onLink(el, baseUrl),
+    });
+  if (config.itemDateSelector) {
+    rewriter = rewriter.on(`${config.itemSelector} ${config.itemDateSelector}`, {
+      text: (chunk) => collector.onDate(chunk),
+    });
+  }
+  await rewriter.transform(response).arrayBuffer();
+  return collector.items.slice(0, 20);
+}
+
 export async function scrapeZooNews(zooId: string): Promise<NewsItem[]> {
   const config = NEWS_SCRAPER_CONFIGS[zooId];
   if (!config) return [];
@@ -458,6 +567,9 @@ export async function scrapeZooNews(zooId: string): Promise<NewsItem[]> {
       if (!response.ok) return [];
       const xml = await response.text();
       return parseRssItems(xml);
+    }
+    if (config.itemSelector) {
+      return await scrapeNewsFromHtmlBlocks(config);
     }
     return await scrapeNewsFromHtml(config);
   } catch (err) {

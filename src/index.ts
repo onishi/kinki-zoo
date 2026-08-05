@@ -3772,7 +3772,7 @@ function renderPrefectureSelector(url: URL, activePref: PrefectureCode | null): 
     ),
   ].join("");
 
-  return `<form class="pref-selector" action="${escapeHtml(url.pathname)}" method="get">
+  return `<form class="pref-selector" action="${escapeHtml(withBase(url.pathname))}" method="get">
     ${hiddenInputs}
     <label for="prefecture-select">地域</label>
     <select id="prefecture-select" name="pref" onchange="this.form.submit()">${options}</select>
@@ -3789,7 +3789,7 @@ function renderHeaderSearch(url: URL, activePref: PrefectureCode | null): string
   const prefInput = activePref
     ? `<input type="hidden" name="pref" value="${escapeHtml(activePref)}">`
     : "";
-  return `<form class="header-search" action="/search" method="get" role="search">
+  return `<form class="header-search" action="${withBase("/search")}" method="get" role="search">
     ${prefInput}
     <label for="header-search-input">サイト内検索</label>
     <input id="header-search-input" type="search" name="q" value="${escapeHtml(value)}" placeholder="動物・動物園を検索" autocomplete="off">
@@ -3837,6 +3837,14 @@ function htmlResponse(html: string, url: URL, activePref: PrefectureCode | null)
         const src = element.getAttribute("src");
         if (src && src.startsWith("/") && !src.startsWith("//")) {
           element.setAttribute("src", withBase(src));
+        }
+      },
+    })
+    .on("form[action]", {
+      element(element) {
+        const action = element.getAttribute("action");
+        if (action && action.startsWith("/") && !action.startsWith("//")) {
+          element.setAttribute("action", withBase(action));
         }
       },
     });
@@ -3917,7 +3925,7 @@ function renderPrefTab(
 }
 
 const COMMON_STYLES = `
-    html { -webkit-text-size-adjust: 100%; }
+    html { -webkit-text-size-adjust: 100%; scrollbar-gutter: stable; }
     body { min-width: 0; overflow-wrap: anywhere; }
     img, svg { max-width: 100%; }
     button, input, select { font: inherit; }

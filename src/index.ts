@@ -3515,51 +3515,30 @@ function renderHomeOverview(
   activePref: PrefectureCode | null,
   facilityCount: number,
   totalAnimalCount: number,
-  featuredZoos: ZooSearchResult[]
 ): string {
   const prefLabel = activePref ? PREF_LABELS[activePref] : "近畿一円";
   const prefectureCount = activePref ? 1 : new Set(zoos.map((zoo) => zoo.prefecture)).size;
-  const topZoo = featuredZoos[0];
   const stats = [
     { label: "掲載施設", value: `${facilityCount}`, unit: "施設" },
     { label: "登録動物", value: `${totalAnimalCount}`, unit: "件" },
-    { label: "対象地域", value: `${prefectureCount}`, unit: activePref ? "府県" : "府県" },
+    { label: "対象地域", value: `${prefectureCount}`, unit: "府県" },
   ];
-  const topZooHtml = topZoo
-    ? `<a class="home-featured-link" href="/zoos/${encodeURIComponent(topZoo.zoo.id)}">
-        <span>${escapeHtml(topZoo.zoo.name)}</span>
-        <small>${topZoo.animalCount} 種</small>
-      </a>`
-    : `<span class="home-featured-empty">集計中</span>`;
 
   return `
   <section class="home-overview" aria-labelledby="home-overview-title">
-    <div class="home-overview-main">
-      <p class="home-kicker">${escapeHtml(prefLabel)}</p>
-      <h2 id="home-overview-title">動物園・動物・分類をまとめて探す</h2>
-      <p class="home-lead">施設一覧、地図、動物名、分類から近畿の動物園情報を確認できます。</p>
-      <div class="home-primary-actions">
-        <a href="${buildBrowseUrl(activePref, null)}" class="ui-btn ui-btn--primary ui-touch-target">動物園一覧</a>
-        <a href="${buildMapUrl(activePref, null)}" class="ui-btn ui-btn--secondary ui-touch-target">地図で見る</a>
-      </div>
+    <p class="home-kicker">${escapeHtml(prefLabel)}</p>
+    <h2 id="home-overview-title">動物園・動物・分類をまとめて探す</h2>
+    <div class="home-primary-actions">
+      <a href="${buildBrowseUrl(activePref, null)}" class="ui-btn ui-btn--primary ui-touch-target">動物園一覧</a>
+      <a href="${buildMapUrl(activePref, null)}" class="ui-btn ui-btn--secondary ui-touch-target">地図で見る</a>
     </div>
-    <div class="home-overview-side" aria-label="掲載状況">
-      <dl class="home-stats">
-        ${stats
-          .map(
-            (stat) => `
-        <div>
-          <dt>${escapeHtml(stat.label)}</dt>
-          <dd><strong>${escapeHtml(stat.value)}</strong><span>${escapeHtml(stat.unit)}</span></dd>
-        </div>`
-          )
-          .join("")}
-      </dl>
-      <div class="home-featured-zoo">
-        <span>動物掲載数が多い施設</span>
-        ${topZooHtml}
-      </div>
-    </div>
+    <dl class="home-stats">
+      ${stats.map((stat) => `
+      <div>
+        <dt>${escapeHtml(stat.label)}</dt>
+        <dd><strong>${escapeHtml(stat.value)}</strong><span>${escapeHtml(stat.unit)}</span></dd>
+      </div>`).join("")}
+    </dl>
   </section>`;
 }
 
@@ -5099,13 +5078,12 @@ function renderHtml(
 <body>
 ${renderSiteHeader()}
 ${renderGlobalNav(isHome ? "/" : "/zoos")}
-  ${isHome ? renderHomeOverview(activePref, count, totalAnimalCount, featuredZoos) : ""}
+  ${isHome ? renderHomeOverview(activePref, count, totalAnimalCount) : ""}
   ${isHome ? "" : `<form class="search-form" action="/zoos" method="get">
     <input type="search" name="animal" value="${escapedAnimal}" placeholder="動物名で検索（例: パンダ）" aria-label="動物名で検索">
     <button type="submit" class="ui-btn ui-btn--primary ui-touch-target">検索</button>
     ${animal ? `<a href="${buildBrowseUrl(activePref, null)}" class="ui-btn ui-btn--secondary ui-touch-target">クリア</a>` : ""}
   </form>`}
-  ${isHome ? renderExploreCards(activePref, count, totalAnimalCount) : ""}
   ${isHome && latestNews.length > 0 ? `<section class="latest-news-section">
     <div class="latest-news-heading">
       <h2>📢 最新のお知らせ</h2>
@@ -5131,7 +5109,6 @@ ${renderGlobalNav(isHome ? "/" : "/zoos")}
       }).join("")}
     </ul>
   </section>` : ""}
-  ${isHome ? renderSpotlightSection(featuredAnimals, featuredZoos, activePref) : ""}
   ${
     isHome
       ? ""
@@ -8314,12 +8291,11 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
         destination.search = url.search;
         return redirectResponse(`${destination.pathname}${destination.search}`, 301);
       }
-      const [results, featuredAnimals, latestNews] = await Promise.all([
+      const [results, latestNews] = await Promise.all([
         searchZoos(env.DB, activePref, null),
-        loadFeaturedAnimals(env.DB, activePref),
-        loadAllZooNews(env.DB, 5),
+        loadAllZooNews(env.DB, 10),
       ]);
-      const html = renderHtml(results, activePref, null, featuredAnimals, "home", latestNews);
+      const html = renderHtml(results, activePref, null, [], "home", latestNews);
       return htmlResponse(html, url, activePref);
     }
 

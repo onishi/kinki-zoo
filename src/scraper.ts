@@ -72,13 +72,8 @@ const SCRAPER_CONFIGS: Record<string, ZooScraperConfig> = {
     maxLength: 30,
   },
   "himeji-central-park": {
-    animalsUrls: [
-      "https://www.central-park.co.jp/safari/drivethrough/animals.html",
-      "https://www.central-park.co.jp/safari/walking/animals.html",
-      "https://www.central-park.co.jp/safari/childs-farm/animals.html",
-    ],
-    nameSelector: ".scraper-animal-name",
-    attributeSelector: "#Main .sec .box li img[alt]",
+    animalsUrl: "https://www.central-park.co.jp/safari/animals/",
+    nameSelector: ".p-safariAnimalsArchive__title",
     minLength: 2,
     maxLength: 30,
   },

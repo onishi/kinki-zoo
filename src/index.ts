@@ -4007,7 +4007,6 @@ function renderSiteHeader(): string {
 function renderGlobalNav(activePath: string): string {
   const navItems: [string, string][] = [
     ["/", "トップ"],
-    ["/search", "検索"],
     ["/zoos", "動物園一覧"],
     ["/animals", "動物一覧"],
     ["/taxonomy", "分類から探す"],

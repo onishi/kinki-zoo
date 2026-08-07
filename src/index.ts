@@ -97,7 +97,13 @@ interface ZooAnimalTaxonomyRow {
 }
 
 type ScrapeDiffType = "added" | "removed" | "renamed";
-type ScrapeWarningType = "scrape_error" | "empty_result" | "below_minimum" | "sharp_drop" | "high_removal_count";
+type ScrapeWarningType =
+  | "scrape_error"
+  | "empty_result"
+  | "below_minimum"
+  | "sharp_drop"
+  | "high_removal_count"
+  | "update_held_back";
 
 interface ScrapeDiffRecord {
   type: ScrapeDiffType;
@@ -290,6 +296,9 @@ const VERSIONED_IMAGE_CACHE_CONTROL = "public, max-age=31536000, immutable";
 const UNVERSIONED_IMAGE_CACHE_CONTROL = "public, max-age=86400";
 const SCRAPE_DROP_RATIO_WARNING = 0.2;
 const SCRAPE_REMOVAL_COUNT_WARNING = 10;
+// 前回から50%を超えて減少した場合は、スクレイパー側の不具合(セレクタ崩れ等)を
+// 疑って自動反映を見送り、既存データを保持する。
+const SCRAPE_HALT_DROP_RATIO = 0.5;
 const SCRAPE_MIN_COUNTS: Partial<Record<string, number>> = {
   "tennoji-zoo": 80,
 };
@@ -572,6 +581,21 @@ function buildScrapeWarnings(
   }
 
   return warnings;
+}
+
+/**
+ * 取得結果が明らかにスクレイパー側の不具合(セレクタ崩れ・サイト構造変更等)を
+ * 疑うべき内容の場合、既存データを上書きせず反映を見送るべきかどうかを判定する。
+ */
+function shouldHaltScrapeApply(
+  result: ScrapeResult,
+  previousCount: number,
+  currentCount: number
+): boolean {
+  if (result.error) return true;
+  if (previousCount === 0) return false;
+  if (currentCount === 0) return true;
+  return currentCount < previousCount * (1 - SCRAPE_HALT_DROP_RATIO);
 }
 
 function uniqueTaxonomies(taxonomies: AnimalTaxonomy[]): AnimalTaxonomy[] {
@@ -2960,11 +2984,27 @@ async function saveScrapeResult(db: D1Database, result: ScrapeResult): Promise<v
   const previousAnimals = (previousRows.results ?? []).map((row) => row.display_name);
   const diffs = buildScrapeDiffs(previousAnimals, result.animals);
   const warnings = buildScrapeWarnings(result.zooId, result, previousAnimals, diffs);
-  const taxonomies = result.animals.flatMap((animal) => {
-    const taxonomy = findAnimalTaxonomy(animal);
-    return taxonomy ? [taxonomy] : [];
-  });
-  await upsertAnimalMasters(db, taxonomies);
+
+  const previousCount = uniqueDisplayNames(previousAnimals).length;
+  const currentCount = uniqueDisplayNames(result.animals).length;
+  const halted = shouldHaltScrapeApply(result, previousCount, currentCount);
+  if (halted) {
+    warnings.push({
+      type: "update_held_back",
+      message: "変化が大きすぎるため、今回の取得結果の反映を見送り既存データを保持しました",
+      previousCount,
+      currentCount,
+      thresholdCount: null,
+    });
+  }
+
+  if (!halted) {
+    const taxonomies = result.animals.flatMap((animal) => {
+      const taxonomy = findAnimalTaxonomy(animal);
+      return taxonomy ? [taxonomy] : [];
+    });
+    await upsertAnimalMasters(db, taxonomies);
+  }
 
   const statements = [
     db
@@ -2976,21 +3016,25 @@ async function saveScrapeResult(db: D1Database, result: ScrapeResult): Promise<v
            error = excluded.error`
       )
       .bind(result.zooId, result.scrapedAt, result.error ?? null),
-    db.prepare("DELETE FROM zoo_animals WHERE zoo_id = ?").bind(result.zooId),
-    ...result.animals.map((animal) => {
-      const taxonomy = findAnimalTaxonomy(animal);
-      return db
-        .prepare(
-          `INSERT INTO zoo_animals (zoo_id, display_name, normalized_display_name, animal_id)
-           VALUES (?, ?, ?, ?)`
-        )
-        .bind(
-          result.zooId,
-          animal,
-          normalizeAnimalNameForSearch(animal),
-          taxonomy?.id ?? null
-        );
-    }),
+    ...(halted
+      ? []
+      : [
+          db.prepare("DELETE FROM zoo_animals WHERE zoo_id = ?").bind(result.zooId),
+          ...result.animals.map((animal) => {
+            const taxonomy = findAnimalTaxonomy(animal);
+            return db
+              .prepare(
+                `INSERT INTO zoo_animals (zoo_id, display_name, normalized_display_name, animal_id)
+                 VALUES (?, ?, ?, ?)`
+              )
+              .bind(
+                result.zooId,
+                animal,
+                normalizeAnimalNameForSearch(animal),
+                taxonomy?.id ?? null
+              );
+          }),
+        ]),
     ...diffs.map((diff) =>
       db
         .prepare(

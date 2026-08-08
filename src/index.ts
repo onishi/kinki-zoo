@@ -427,12 +427,20 @@ function findMatches(values: string[], searchKeyword: string): string[] {
   );
 }
 
+function hiraganaToKatakana(value: string): string {
+  return value.replace(/[ぁ-ん]/g, (char) => String.fromCharCode(char.charCodeAt(0) + 0x60));
+}
+
 function normalizeTextForSearchIndex(value: string): string {
-  return value
-    .normalize("NFKC")
-    .replace(/[ぁ-ん]/g, (char) => String.fromCharCode(char.charCodeAt(0) + 0x60))
+  return hiraganaToKatakana(value.normalize("NFKC"))
     .toLocaleLowerCase("ja-JP")
     .replace(/[\s　・･]/g, "");
+}
+
+// ひらがな→カタカナ変換のみ行い、SQLite の BINARY 照合でも
+// ひらがな/カタカナ表記ゆれに関わらず同じ位置に並ぶようにする（漢字の読み順までは保証しない）。
+function buildSortKey(value: string): string {
+  return hiraganaToKatakana(value.normalize("NFKC"));
 }
 
 function matchesSearchQuery(values: Array<string | null | undefined>, query: string): boolean {
@@ -2941,9 +2949,10 @@ async function upsertAnimalMasters(db: D1Database, taxonomies: AnimalTaxonomy[])
              genus_name,
              species_name,
              notes,
-             updated_at
+             updated_at,
+             sort_key
            )
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET
              canonical_name = excluded.canonical_name,
              normalized_name = excluded.normalized_name,
@@ -2965,7 +2974,8 @@ async function upsertAnimalMasters(db: D1Database, taxonomies: AnimalTaxonomy[])
           taxonomy.genusName,
           taxonomy.speciesName,
           taxonomy.notes ?? null,
-          updatedAt
+          updatedAt,
+          buildSortKey(taxonomy.canonicalName)
         );
     })
   );
@@ -2974,14 +2984,17 @@ async function upsertAnimalMasters(db: D1Database, taxonomies: AnimalTaxonomy[])
 async function saveScrapeResult(db: D1Database, result: ScrapeResult): Promise<void> {
   const previousRows = await db
     .prepare(
-      `SELECT display_name
+      `SELECT display_name, sort_key
        FROM zoo_animals
        WHERE zoo_id = ?
        ORDER BY display_name`
     )
     .bind(result.zooId)
-    .all<{ display_name: string }>();
+    .all<{ display_name: string; sort_key: string | null }>();
   const previousAnimals = (previousRows.results ?? []).map((row) => row.display_name);
+  const previousSortKeys = new Map(
+    (previousRows.results ?? []).map((row) => [row.display_name, row.sort_key])
+  );
   const diffs = buildScrapeDiffs(previousAnimals, result.animals);
   const warnings = buildScrapeWarnings(result.zooId, result, previousAnimals, diffs);
 
@@ -3022,16 +3035,18 @@ async function saveScrapeResult(db: D1Database, result: ScrapeResult): Promise<v
           db.prepare("DELETE FROM zoo_animals WHERE zoo_id = ?").bind(result.zooId),
           ...result.animals.map((animal) => {
             const taxonomy = findAnimalTaxonomy(animal);
+            const sortKey = previousSortKeys.get(animal) ?? buildSortKey(animal);
             return db
               .prepare(
-                `INSERT INTO zoo_animals (zoo_id, display_name, normalized_display_name, animal_id)
-                 VALUES (?, ?, ?, ?)`
+                `INSERT INTO zoo_animals (zoo_id, display_name, normalized_display_name, animal_id, sort_key)
+                 VALUES (?, ?, ?, ?, ?)`
               )
               .bind(
                 result.zooId,
                 animal,
                 normalizeAnimalNameForSearch(animal),
-                taxonomy?.id ?? null
+                taxonomy?.id ?? null,
+                sortKey
               );
           }),
         ]),

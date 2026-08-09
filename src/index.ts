@@ -6434,19 +6434,30 @@ ${renderGlobalNav("/zoos")}
   <script>
     var filterButtons = document.querySelectorAll('[data-class-filter]');
     var animalItems = document.querySelectorAll('#zoo-animal-list li[data-class]');
+    function applyClassFilter(value) {
+      var matched = false;
+      filterButtons.forEach(function(item) {
+        var isCurrent = item.dataset.classFilter === value;
+        if (isCurrent) matched = true;
+        item.classList.toggle('ui-chip--active', isCurrent);
+        item.setAttribute('aria-pressed', isCurrent ? 'true' : 'false');
+      });
+      if (!matched) return;
+      animalItems.forEach(function(item) {
+        item.classList.toggle('is-hidden', value !== 'all' && item.dataset.class !== value);
+      });
+    }
     filterButtons.forEach(function(button) {
       button.addEventListener('click', function() {
-        var active = button.dataset.classFilter;
-        filterButtons.forEach(function(item) {
-          var isCurrent = item === button;
-          item.classList.toggle('ui-chip--active', isCurrent);
-          item.setAttribute('aria-pressed', isCurrent ? 'true' : 'false');
-        });
-        animalItems.forEach(function(item) {
-          item.classList.toggle('is-hidden', active !== 'all' && item.dataset.class !== active);
-        });
+        applyClassFilter(button.dataset.classFilter);
       });
     });
+    var requestedClass = new URLSearchParams(location.search).get('class');
+    if (requestedClass) {
+      applyClassFilter(requestedClass);
+      var animalListEl = document.getElementById('zoo-animal-list');
+      if (animalListEl) animalListEl.scrollIntoView({ block: 'start' });
+    }
 
     var map = L.map('map').setView([${zoo.lat}, ${zoo.lon}], 15);
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -6917,9 +6928,15 @@ function renderCompareHtml(
       ...new Set([...ordGrpCommon.keys(), ...ordGrpExcl.flatMap((g) => [...g.keys()])]),
     ].sort((a, b) => (a === "不明" ? 1 : b === "不明" ? -1 : a.localeCompare(b, "ja")));
 
+    const zooClassUrl = (zooId: string) =>
+      `/zoos/${encodeURIComponent(zooId)}?class=${encodeURIComponent(cls)}`;
     const clsSummaryParts = [
       clsCommon.length ? `共通: ${clsCommon.length}` : "",
-      ...clsExcl.map((l, i) => (l.length ? `${selected[i].zoo.name.slice(0, 4)}: ${l.length}` : "")),
+      ...clsExcl.map((l, i) =>
+        l.length
+          ? `<a href="${zooClassUrl(selected[i].zoo.id)}">${escapeHtml(selected[i].zoo.name.slice(0, 4))}: ${l.length}</a>`
+          : ""
+      ),
     ].filter(Boolean).join(" · ");
 
     const orderSections = allOrders.map((ord) => {
@@ -6940,7 +6957,7 @@ function renderCompareHtml(
     }).join("");
 
     return `<section class="class-section">
-      <h2 class="class-heading">${escapeHtml(cls)}<span class="class-counts">${escapeHtml(clsSummaryParts)}</span></h2>
+      <h2 class="class-heading">${escapeHtml(cls)}<span class="class-counts">${clsSummaryParts}</span></h2>
       ${orderSections}
     </section>`;
   }).join("");
@@ -6978,6 +6995,8 @@ function renderCompareHtml(
     .class-section { border: 1px solid #ddd; border-top: none; }
     .class-heading { font-size: 0.82rem; font-weight: bold; color: #555; background: #f9f9f9; padding: 0.4rem 0.85rem; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: baseline; }
     .class-counts { font-size: 0.72rem; font-weight: normal; color: #aaa; }
+    .class-counts a { color: #1f5b45; text-decoration: none; }
+    .class-counts a:hover { text-decoration: underline; }
     .order-section { border-top: 1px solid #eee; }
     .order-section:first-child { border-top: none; }
     .order-heading { font-size: 0.78rem; color: #777; background: #fcfcfc; padding: 0.3rem 0.85rem 0.3rem 1.4rem; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: baseline; }

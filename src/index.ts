@@ -6863,6 +6863,22 @@ function renderCompareHtml(
     return map;
   };
 
+  // Column-local heat scale: each column (共通 + 各動物園) is colored relative to
+  // its own busiest 目 so a zoo's standout orders show up regardless of how the
+  // other selected zoos' collections compare in size.
+  const columnOrderCounts = [commonAnimals, ...exclusiveLists].map((rows) => groupByOrder(rows));
+  const columnMax = columnOrderCounts.map((grp) =>
+    Math.max(0, ...[...grp.values()].map((names) => names.length))
+  );
+  const heatStep = (count: number, max: number): number => {
+    if (count <= 0 || max <= 0) return 0;
+    const ratio = count / max;
+    if (ratio >= 0.75) return 4;
+    if (ratio >= 0.5) return 3;
+    if (ratio >= 0.25) return 2;
+    return 1;
+  };
+
   const allClasses = [
     ...new Set([
       ...commonAnimals.map((a) => a.class_name ?? "未分類"),
@@ -6913,11 +6929,12 @@ function renderCompareHtml(
         oCommon.length ? `共通: ${oCommon.length}` : "",
         ...oExcl.map((l, i) => (l.length ? `${selected[i].zoo.name.slice(0, 4)}: ${l.length}` : "")),
       ].filter(Boolean).join(" · ");
+      const commonHeat = heatStep(oCommon.length, columnMax[0]);
       return `<div class="order-section">
         <div class="order-heading">${escapeHtml(ord)}<span class="class-counts">${escapeHtml(ordSummary)}</span></div>
         <div class="compare-grid" style="grid-template-columns:${gridCols}">
-          <div class="compare-col compare-col--common"><ul class="col-list">${oCommon.map(animalLink).join("")}</ul></div>
-          ${oExcl.map((l) => `<div class="compare-col"><ul class="col-list">${l.map(animalLink).join("")}</ul></div>`).join("")}
+          <div class="compare-col compare-col--common heat-${commonHeat}"><ul class="col-list">${oCommon.map(animalLink).join("")}</ul></div>
+          ${oExcl.map((l, i) => `<div class="compare-col heat-${heatStep(l.length, columnMax[i + 1])}"><ul class="col-list">${l.map(animalLink).join("")}</ul></div>`).join("")}
         </div>
       </div>`;
     }).join("");
@@ -6968,11 +6985,23 @@ function renderCompareHtml(
     .compare-col { border-right: 1px solid #eee; min-height: 1px; }
     .compare-col:last-child { border-right: none; }
     .compare-col--common { background: #fafffe; }
+    .compare-col.heat-1 { background: #e4f1eb; }
+    .compare-col.heat-2 { background: #c9e3d8; }
+    .compare-col.heat-3 { background: #b7dacb; }
+    .compare-col.heat-4 { background: #a5d0be; }
     .col-list { list-style: none; }
     .col-list li { border-bottom: 1px solid #f5f5f5; }
     .col-list li:last-child { border-bottom: none; }
     .col-list a { display: block; padding: 0.28rem 0.85rem; font-size: 0.82rem; color: #1f5b45; text-decoration: none; }
     .col-list a:hover { background: #f5fbf8; }
+    .heat-legend { display: flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; color: #777; }
+    .heat-legend-scale { display: flex; }
+    .heat-legend-scale span { width: 1.1rem; height: 0.75rem; }
+    .heat-legend-scale span:nth-child(1) { background: #fff; border: 1px solid #eee; }
+    .heat-legend-scale span:nth-child(2) { background: #e4f1eb; }
+    .heat-legend-scale span:nth-child(3) { background: #c9e3d8; }
+    .heat-legend-scale span:nth-child(4) { background: #b7dacb; }
+    .heat-legend-scale span:nth-child(5) { background: #a5d0be; }
     @media (max-width: 640px) {
       main { padding: 0.75rem 0.75rem 2rem; gap: 1rem; }
       .compare-label { font-size: 0.68rem; padding: 0.45rem 0.35rem; }
@@ -6992,6 +7021,7 @@ ${renderGlobalNav("/compare")}
       ${zooOptions(selected[2]?.zoo.id ?? "", "c")}
       <button type="submit">比較する</button>
     </form>
+    <p class="heat-legend">各列内で展示数が多い「目」ほど濃い色: <span class="heat-legend-scale"><span></span><span></span><span></span><span></span><span></span></span> 少ない→多い</p>
     <div class="compare-header">${headerLabels}</div>
     ${classSections}
   </main>

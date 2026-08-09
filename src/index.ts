@@ -7186,7 +7186,8 @@ ${renderGlobalNav("/map")}
     var resultToggle = document.querySelector('.result-sheet-toggle');
     var mobileViewportQuery = window.matchMedia('(max-width: ${MAP_MOBILE_BREAKPOINT}px)');
     var reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
-    var isSheetOpen = !mobileViewportQuery.matches;
+    var hasSearchResults = ${showPanel ? "true" : "false"};
+    var isSheetOpen = !mobileViewportQuery.matches || hasSearchResults;
     var prevFocused = null;
     var prevMarker = null;
     var locationMarker = null;
@@ -7209,7 +7210,7 @@ ${renderGlobalNav("/map")}
       });
       setSheetOpen(isSheetOpen);
       var syncSheetToViewport = function(event) {
-        setSheetOpen(!event.matches);
+        setSheetOpen(!event.matches || hasSearchResults);
       };
       if (mobileViewportQuery.addEventListener) {
         mobileViewportQuery.addEventListener('change', syncSheetToViewport);

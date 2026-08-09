@@ -6497,7 +6497,7 @@ function renderNewsListHtml(news: ZooNewsRow[], activePref: PrefectureCode | nul
           ? `<div class="news-animals">${animals.map((n) => `<a href="/animal/${encodeURIComponent(n)}">${escapeHtml(n)}</a>`).join("")}</div>`
           : "";
         const badges = renderNewsItemBadges(item.title, item.published_at);
-        return `<li data-zoo="${escapeHtml(item.zoo_id)}">
+        return `<li data-zoo="${escapeHtml(item.zoo_id)}" data-animals="${escapeHtml(animals.join(","))}">
           <div class="news-meta">
             ${item.published_at ? `<span class="news-date">${escapeHtml(item.published_at)}</span>` : ""}
             ${zoo ? `<a class="news-zoo-label" href="/zoos/${escapeHtml(zoo.id)}">${escapeHtml(zoo.name)}</a>` : ""}
@@ -6522,6 +6522,10 @@ function renderNewsListHtml(news: ZooNewsRow[], activePref: PrefectureCode | nul
     h1 { font-size: 1.3rem; margin-bottom: 1rem; }
     .news-zoo-filters { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1rem; }
     .news-zoo-filters button { font: inherit; font-size: 0.82rem; }
+    .fav-news-toggle { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: #444; margin-bottom: 1rem; cursor: pointer; width: fit-content; }
+    .fav-news-toggle input { cursor: pointer; }
+    .fav-news-toggle.is-disabled { color: #aaa; cursor: default; }
+    .fav-news-toggle.is-disabled input { cursor: default; }
     .news-list { list-style: none; display: grid; gap: 0; }
     .news-list li { display: grid; gap: 0.3rem; border-bottom: 1px solid #eee; padding: 0.85rem 0.65rem; }
     .news-list li:first-child { border-top: 1px solid #eee; }
@@ -6546,25 +6550,55 @@ ${renderGlobalNav("/news")}
   <main>
     <h1>お知らせ一覧</h1>
     ${zooFilterHtml}
+    <label class="fav-news-toggle" id="fav-news-toggle-label">
+      <input type="checkbox" id="fav-news-only">
+      お気に入りの動物のお知らせだけ表示
+    </label>
     <ul class="news-list">${itemsHtml}</ul>
   </main>
   <script src="/favorites.js" defer></script>
-  <script>
+  <script defer>
     var filterBtns = document.querySelectorAll('[data-zoo-filter]');
     var newsItems = document.querySelectorAll('.news-list li[data-zoo]');
+    var favOnly = document.getElementById('fav-news-only');
+    var favLabel = document.getElementById('fav-news-toggle-label');
+    var activeZoo = 'all';
+
+    function applyFilters() {
+      var useFav = !!(favOnly && favOnly.checked);
+      newsItems.forEach(function(item) {
+        var zooMatch = activeZoo === 'all' || item.dataset.zoo === activeZoo;
+        var favMatch = true;
+        if (useFav) {
+          var names = (item.dataset.animals || '').split(',').filter(Boolean);
+          favMatch = window.KinkiZooFavorites ? window.KinkiZooFavorites.hasAnyFavoriteAnimal(names) : false;
+        }
+        item.classList.toggle('is-hidden', !(zooMatch && favMatch));
+      });
+    }
+
     filterBtns.forEach(function(btn) {
       btn.addEventListener('click', function() {
-        var active = btn.dataset.zooFilter;
+        activeZoo = btn.dataset.zooFilter;
         filterBtns.forEach(function(b) {
           var on = b === btn;
           b.classList.toggle('ui-chip--active', on);
           b.setAttribute('aria-pressed', on ? 'true' : 'false');
         });
-        newsItems.forEach(function(item) {
-          item.classList.toggle('is-hidden', active !== 'all' && item.dataset.zoo !== active);
-        });
+        applyFilters();
       });
     });
+
+    if (favOnly) {
+      if (!window.KinkiZooFavorites || !window.KinkiZooFavorites.hasStorage()) {
+        favOnly.disabled = true;
+        if (favLabel) {
+          favLabel.classList.add('is-disabled');
+          favLabel.title = 'このブラウザではお気に入りを利用できません（プライベートブラウズなど localStorage が無効な環境です）。';
+        }
+      }
+      favOnly.addEventListener('change', applyFilters);
+    }
   </script>
 </body>
 </html>`;
@@ -7622,6 +7656,19 @@ const FAVORITES_JS = `(function () {
     initButtons();
     renderFavoritesPage();
   });
+
+  window.KinkiZooFavorites = {
+    hasStorage: function () { return hasStorage; },
+    isFavoriteAnimal: function (name) {
+      return isFavorite(loadFavorites(), "animal", name);
+    },
+    hasAnyFavoriteAnimal: function (names) {
+      var data = loadFavorites();
+      return (names || []).some(function (name) {
+        return isFavorite(data, "animal", name);
+      });
+    }
+  };
 })();
 `;
 

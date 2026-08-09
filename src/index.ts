@@ -4073,7 +4073,7 @@ function renderGlobalNav(activePath: string): string {
     ["/compare", "動物園を比較"],
     ["/news", "お知らせ"],
     ["/favorites", "お気に入り"],
-    ["/admin", "動物管理"],
+    ["/admin", "管理"],
   ];
   const links = navItems
     .map(([href, label], i) => {
@@ -4112,7 +4112,7 @@ const ADMIN_BREADCRUMB_CSS = `
     .admin-breadcrumb [aria-current] { color: #555; }`;
 
 function renderAdminBreadcrumb(crumbs: { href?: string; label: string }[]): string {
-  const all = [{ href: "/admin" as string | undefined, label: "動物管理" }, ...crumbs];
+  const all = [{ href: "/admin" as string | undefined, label: "管理" }, ...crumbs];
   const parts = all.map((c, i) => {
     const isLast = i === all.length - 1;
     const el = isLast
@@ -4149,7 +4149,7 @@ function renderScrapeStatusHtml(rows: ScrapeStatusRow[]): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>スクレイプ状況 | 動物管理</title>
+  <title>スクレイプ状況 | 管理</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
@@ -4186,7 +4186,7 @@ function renderAdminTopHtml(): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>動物管理 | 近畿動物園情報</title>
+  <title>管理 | 近畿動物園情報</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
@@ -4203,7 +4203,7 @@ ${renderSiteHeader()}
 ${renderGlobalNav("/admin")}
   <main>
     ${renderAdminBreadcrumb([])}
-    <h1>動物管理</h1>
+    <h1>管理</h1>
     <ul class="admin-nav">
       <li>
         <a href="/admin/animal-taxonomy">
@@ -4718,7 +4718,7 @@ function renderAnimalImageManageListHtml(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>動物管理 | 近畿動物園情報</title>
+  <title>管理 | 近畿動物園情報</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}

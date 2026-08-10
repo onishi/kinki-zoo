@@ -9,8 +9,14 @@ interface ZooScraperConfig {
   /** URL(s) of pages listing animals */
   animalsUrl?: string;
   animalsUrls?: string[];
+  /** XML sitemap URL; when set, URLs are extracted from sitemap and each page title is scraped */
+  sitemapUrl?: string;
+  /** Regex to filter sitemap URLs (must include one capture group if extracting a name from the URL itself) */
+  sitemapUrlPattern?: string;
+  /** Regex with one capture group to extract animal name from each page's <title> tag */
+  pageTitlePattern?: string;
   /** CSS selectors (comma-separated) for elements containing animal names */
-  nameSelector: string;
+  nameSelector?: string;
   /** CSS selectors for elements whose attribute contains animal names */
   attributeSelector?: string;
   /** Attribute to read for attributeSelector (default: alt) */
@@ -27,14 +33,11 @@ interface ZooScraperConfig {
 
 const SCRAPER_CONFIGS: Record<string, ZooScraperConfig> = {
   "tennoji-zoo": {
-    animalsUrls: [
-      "https://www.tennojizoo.jp/picturebook/savanna/",
-      "https://www.tennojizoo.jp/picturebook/asia/",
-      "https://www.tennojizoo.jp/picturebook/fureai/",
-      "https://www.tennojizoo.jp/picturebook/bird/",
-    ],
-    nameSelector: ".l-picbook-category-item .anc",
-    minLength: 2,
+    sitemapUrl: "https://www.tennojizoo.jp/page-sitemap.xml",
+    sitemapUrlPattern:
+      "https://www\\.tennojizoo\\.jp/picturebook/(?:savanna|asia|fureai|bird)/[^/]+/",
+    pageTitlePattern: "動物図鑑（([^）]+)）",
+    minLength: 1,
     maxLength: 20,
   },
   "ikeda-zoo": {
@@ -194,10 +197,56 @@ export async function scrapeAnimals(zooId: string): Promise<ScrapeResult> {
     };
   }
 
-  const urls = config.animalsUrls ?? (config.animalsUrl ? [config.animalsUrl] : []);
   const errors: string[] = [];
   const texts: string[] = [];
 
+  if (config.sitemapUrl && config.pageTitlePattern) {
+    const titlePattern = new RegExp(config.pageTitlePattern);
+    const urlPattern = config.sitemapUrlPattern ? new RegExp(config.sitemapUrlPattern) : null;
+
+    let sitemapXml: string;
+    try {
+      const res = await fetch(config.sitemapUrl, {
+        headers: { "User-Agent": "kinki-zoo-bot/1.0 (+https://github.com/onishi/kinki-zoo)" },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      sitemapXml = await res.text();
+    } catch (err) {
+      return { zooId, animals: [], scrapedAt, error: `サイトマップ取得失敗: ${err}` };
+    }
+
+    const animalUrls = Array.from(sitemapXml.matchAll(/<loc>([^<]+)<\/loc>/g))
+      .map((m) => m[1].trim())
+      .filter((u) => (urlPattern ? urlPattern.test(u) : true));
+
+    const fetchPage = async (url: string): Promise<string | null> => {
+      try {
+        const res = await fetch(url, {
+          headers: {
+            "User-Agent": "kinki-zoo-bot/1.0 (+https://github.com/onishi/kinki-zoo)",
+            Accept: "text/html",
+          },
+        });
+        if (!res.ok) return null;
+        const html = await res.text();
+        const m = titlePattern.exec(html);
+        return m ? m[1] : null;
+      } catch {
+        return null;
+      }
+    };
+
+    const BATCH = 10;
+    for (let i = 0; i < animalUrls.length; i += BATCH) {
+      const batch = animalUrls.slice(i, i + BATCH);
+      const names = await Promise.all(batch.map(fetchPage));
+      for (const name of names) {
+        if (name) texts.push(name);
+      }
+    }
+  }
+
+  const urls = config.animalsUrls ?? (config.animalsUrl ? [config.animalsUrl] : []);
   for (const url of urls) {
     let response: Response;
     try {
@@ -226,22 +275,24 @@ export async function scrapeAnimals(zooId: string): Promise<ScrapeResult> {
       }
     }
 
-    const collector = new TextCollector();
-    let rewriter = new HTMLRewriter().on(config.nameSelector, collector);
-    if (config.breakSelector) {
-      rewriter = rewriter.on(config.breakSelector, new BreakCollector(collector));
-    }
+    if (config.nameSelector) {
+      const collector = new TextCollector();
+      let rewriter = new HTMLRewriter().on(config.nameSelector, collector);
+      if (config.breakSelector) {
+        rewriter = rewriter.on(config.breakSelector, new BreakCollector(collector));
+      }
 
-    let attributeCollector: AttributeCollector | undefined;
-    if (config.attributeSelector) {
-      attributeCollector = new AttributeCollector(config.attributeName ?? "alt");
-      rewriter = rewriter.on(config.attributeSelector, attributeCollector);
-    }
+      let attributeCollector: AttributeCollector | undefined;
+      if (config.attributeSelector) {
+        attributeCollector = new AttributeCollector(config.attributeName ?? "alt");
+        rewriter = rewriter.on(config.attributeSelector, attributeCollector);
+      }
 
-    const transformed = rewriter.transform(response);
-    await transformed.arrayBuffer();
-    texts.push(...collector.texts);
-    if (attributeCollector) texts.push(...attributeCollector.texts);
+      const transformed = rewriter.transform(response);
+      await transformed.arrayBuffer();
+      texts.push(...collector.texts);
+      if (attributeCollector) texts.push(...attributeCollector.texts);
+    }
   }
 
   // Filter by character length to remove navigation items, headings, etc.

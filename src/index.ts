@@ -6291,8 +6291,19 @@ function renderZooDetailHtml(
   coverage: ZooCoverageStats,
   imageKeys: AnimalImageVersionIndex = new Map(),
   taxonomyByAnimal: Map<string, string> = new Map(),
-  news: ZooNewsRow[] = []
+  news: ZooNewsRow[] = [],
+  pageUrl?: string
 ): string {
+  const structuredData = {
+    "@context": "https://schema.org",
+    "@type": "Zoo",
+    name: zoo.name,
+    ...(pageUrl ? { url: pageUrl } : {}),
+    address: zoo.address,
+    geo: { "@type": "GeoCoordinates", latitude: zoo.lat, longitude: zoo.lon },
+    sameAs: [zoo.website, zoo.wikipediaUrl].filter((value): value is string => Boolean(value)),
+  };
+  const structuredDataJson = JSON.stringify(structuredData).replace(/<\//g, "<\\/");
   const prefLabel = PREF_LABELS[zoo.prefecture];
   const classCounts = new Map<string, number>();
   for (const animal of scraped.animals) {
@@ -6393,6 +6404,7 @@ function renderZooDetailHtml(
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapeHtml(zoo.name)} | 近畿動物園情報</title>
+  <script type="application/ld+json">${structuredDataJson}</script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -7854,6 +7866,108 @@ ${renderGlobalNav("/favorites")}
 </html>`;
 }
 
+interface SitemapEntry {
+  path: string;
+  lastmod?: string;
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
+async function loadAllTaxonomyPaths(db: D1Database): Promise<string[][]> {
+  const result = await db
+    .prepare(
+      `SELECT DISTINCT a.class_name, a.order_name, a.family_name, a.genus_name, a.species_name
+       FROM animals a
+       JOIN zoo_animals za ON za.animal_id = a.id`
+    )
+    .all<{
+      class_name: string;
+      order_name: string;
+      family_name: string;
+      genus_name: string;
+      species_name: string;
+    }>();
+
+  const seen = new Set<string>();
+  const paths: string[][] = [];
+  for (const row of result.results ?? []) {
+    const values = [row.class_name, row.order_name, row.family_name, row.genus_name, row.species_name];
+    for (let index = 0; index < TAXONOMY_RANKS.length; index += 1) {
+      const pathValues = values.slice(0, index + 1);
+      const key = pathValues.join("/");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      paths.push(pathValues);
+    }
+  }
+  return paths;
+}
+
+async function loadSitemapEntries(db: D1Database): Promise<SitemapEntry[]> {
+  const [scrapeRows, animalRows, taxonomyPaths] = await Promise.all([
+    db
+      .prepare(`SELECT zoo_id, scraped_at FROM animal_scrape_results`)
+      .all<{ zoo_id: string; scraped_at: string }>(),
+    db
+      .prepare(
+        `SELECT za.display_name, MAX(r.scraped_at) AS last_scraped_at
+         FROM zoo_animals za
+         JOIN animal_scrape_results r ON r.zoo_id = za.zoo_id
+         GROUP BY za.display_name`
+      )
+      .all<{ display_name: string; last_scraped_at: string | null }>(),
+    loadAllTaxonomyPaths(db),
+  ]);
+
+  const scrapedAtByZoo = new Map((scrapeRows.results ?? []).map((row) => [row.zoo_id, row.scraped_at]));
+
+  const entries: SitemapEntry[] = [
+    { path: "/" },
+    { path: "/zoos" },
+    { path: "/animals" },
+    { path: "/taxonomy" },
+    { path: "/map" },
+    { path: "/compare" },
+    { path: "/news" },
+  ];
+
+  for (const zoo of zoos) {
+    const scrapedAt = scrapedAtByZoo.get(zoo.id);
+    entries.push({ path: `/zoos/${zoo.id}`, lastmod: scrapedAt?.slice(0, 10) });
+  }
+
+  for (const row of animalRows.results ?? []) {
+    entries.push({
+      path: `/animal/${encodeURIComponent(row.display_name)}`,
+      lastmod: row.last_scraped_at?.slice(0, 10),
+    });
+  }
+
+  for (const pathValues of taxonomyPaths) {
+    entries.push({ path: buildTaxonomyPathUrl(pathValues) });
+  }
+
+  return entries;
+}
+
+function renderSitemapXml(origin: string, entries: SitemapEntry[]): string {
+  const urlsXml = entries
+    .map((entry) => {
+      const loc = `${origin}${withBase(entry.path)}`;
+      const lastmodXml = entry.lastmod ? `<lastmod>${escapeXml(entry.lastmod)}</lastmod>` : "";
+      return `<url><loc>${escapeXml(loc)}</loc>${lastmodXml}</url>`;
+    })
+    .join("");
+  return `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urlsXml}</urlset>`;
+}
+
 function isAdminPath(pathname: string): boolean {
   return (
     pathname.startsWith("/admin") ||
@@ -7906,6 +8020,28 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
         headers: {
           "Content-Type": "application/javascript; charset=utf-8",
           "Cache-Control": "public, max-age=86400",
+        },
+      });
+    }
+
+    // Static: /sitemap.xml
+    if (pathname === "/sitemap.xml") {
+      const entries = await loadSitemapEntries(env.DB);
+      return new Response(renderSitemapXml(url.origin, entries), {
+        headers: {
+          "Content-Type": "application/xml; charset=utf-8",
+          "Cache-Control": "public, max-age=3600",
+        },
+      });
+    }
+
+    // Static: /robots.txt
+    if (pathname === "/robots.txt") {
+      const body = `User-agent: *\nDisallow: ${withBase("/admin")}\nSitemap: ${url.origin}${withBase("/sitemap.xml")}\n`;
+      return new Response(body, {
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Cache-Control": "public, max-age=3600",
         },
       });
     }
@@ -8535,7 +8671,8 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
         loadZooAnimalTaxonomyIndex(env.DB, id),
         loadZooNews(env.DB, id),
       ]);
-      const html = renderZooDetailHtml(zoo, scraped, coverage, imageKeys, taxonomyByAnimal, news);
+      const pageUrl = `${url.origin}${withBase(`/zoos/${zoo.id}`)}`;
+      const html = renderZooDetailHtml(zoo, scraped, coverage, imageKeys, taxonomyByAnimal, news, pageUrl);
       return htmlResponse(html, url, activePref);
     }
 

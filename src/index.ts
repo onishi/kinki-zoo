@@ -1165,17 +1165,23 @@ async function loadScrapeHealth(db: D1Database): Promise<ScrapeHealthItem[]> {
   });
 }
 
-async function loadScrapeHistory(db: D1Database, limit: number): Promise<ScrapeHistoryItem[]> {
+async function loadScrapeHistory(
+  db: D1Database,
+  limit: number,
+  zooId: string | null = null
+): Promise<ScrapeHistoryItem[]> {
   const safeLimit = Math.max(1, Math.min(limit, 100));
+  const zooFilter = zooId ? "AND zoo_id = ?" : "";
+  const zooBind = zooId ? [zooId] : [];
   const [scrapeRows, diffRows, warningRows] = await Promise.all([
     db
       .prepare(
         `WITH runs AS (
-           SELECT zoo_id, scraped_at FROM animal_scrape_results
+           SELECT zoo_id, scraped_at FROM animal_scrape_results WHERE 1=1 ${zooFilter}
            UNION
-           SELECT zoo_id, scraped_at FROM animal_scrape_diffs
+           SELECT zoo_id, scraped_at FROM animal_scrape_diffs WHERE 1=1 ${zooFilter}
            UNION
-           SELECT zoo_id, scraped_at FROM animal_scrape_warnings
+           SELECT zoo_id, scraped_at FROM animal_scrape_warnings WHERE 1=1 ${zooFilter}
          )
          SELECT
            runs.zoo_id,
@@ -1193,7 +1199,7 @@ async function loadScrapeHistory(db: D1Database, limit: number): Promise<ScrapeH
          ORDER BY runs.scraped_at DESC
          LIMIT ?`
       )
-      .bind(safeLimit)
+      .bind(...zooBind, ...zooBind, ...zooBind, safeLimit)
       .all<{ zoo_id: string; scraped_at: string; error: string | null; animal_count: number }>(),
     db
       .prepare(
@@ -1202,18 +1208,19 @@ async function loadScrapeHistory(db: D1Database, limit: number): Promise<ScrapeH
          WHERE scraped_at IN (
            SELECT scraped_at
            FROM (
-             SELECT scraped_at FROM animal_scrape_results
+             SELECT zoo_id, scraped_at FROM animal_scrape_results WHERE 1=1 ${zooFilter}
              UNION
-             SELECT scraped_at FROM animal_scrape_diffs
+             SELECT zoo_id, scraped_at FROM animal_scrape_diffs WHERE 1=1 ${zooFilter}
              UNION
-             SELECT scraped_at FROM animal_scrape_warnings
+             SELECT zoo_id, scraped_at FROM animal_scrape_warnings WHERE 1=1 ${zooFilter}
            )
            ORDER BY scraped_at DESC
            LIMIT ?
          )
+         ${zooFilter}
          ORDER BY id`
       )
-      .bind(safeLimit)
+      .bind(...zooBind, ...zooBind, ...zooBind, safeLimit, ...zooBind)
       .all<{
         zoo_id: string;
         scraped_at: string;
@@ -1228,18 +1235,19 @@ async function loadScrapeHistory(db: D1Database, limit: number): Promise<ScrapeH
          WHERE scraped_at IN (
            SELECT scraped_at
            FROM (
-             SELECT scraped_at FROM animal_scrape_results
+             SELECT zoo_id, scraped_at FROM animal_scrape_results WHERE 1=1 ${zooFilter}
              UNION
-             SELECT scraped_at FROM animal_scrape_diffs
+             SELECT zoo_id, scraped_at FROM animal_scrape_diffs WHERE 1=1 ${zooFilter}
              UNION
-             SELECT scraped_at FROM animal_scrape_warnings
+             SELECT zoo_id, scraped_at FROM animal_scrape_warnings WHERE 1=1 ${zooFilter}
            )
            ORDER BY scraped_at DESC
            LIMIT ?
          )
+         ${zooFilter}
          ORDER BY id`
       )
-      .bind(safeLimit)
+      .bind(...zooBind, ...zooBind, ...zooBind, safeLimit, ...zooBind)
       .all<{ zoo_id: string; scraped_at: string; message: string; current_count: number }>(),
   ]);
 
@@ -2186,6 +2194,43 @@ async function loadZooAnimalDetail(
     }),
     classificationStatus,
   };
+}
+
+interface AnimalPastZoo {
+  zoo: Zoo;
+  lastSeenMissingAt: string;
+}
+
+// 展示終了を断定せず、直近のスクレイピングで「表示名が消えた」と判定された
+// 施設を推定として一覧化する（名称変更による removed は diff_type で除外済み）。
+async function loadAnimalPastZoos(
+  db: D1Database,
+  displayName: string,
+  currentZooIds: string[],
+  pref: PrefectureCode | null = null
+): Promise<AnimalPastZoo[]> {
+  const zooIds = getZooIdsForPrefecture(pref);
+  const zooFilter = pref ? `AND zoo_id IN (${buildPlaceholders(zooIds)})` : "";
+  const result = await db
+    .prepare(
+      `SELECT zoo_id, MAX(scraped_at) AS last_seen_missing_at
+       FROM animal_scrape_diffs
+       WHERE diff_type = 'removed' AND previous_display_name = ?
+       ${zooFilter}
+       GROUP BY zoo_id`
+    )
+    .bind(displayName, ...(pref ? zooIds : []))
+    .all<{ zoo_id: string; last_seen_missing_at: string }>();
+
+  const currentSet = new Set(currentZooIds);
+  const zooById = new Map(zoos.map((zoo) => [zoo.id, zoo]));
+  return (result.results ?? [])
+    .filter((row) => !currentSet.has(row.zoo_id))
+    .flatMap((row) => {
+      const zoo = zooById.get(row.zoo_id);
+      return zoo ? [{ zoo, lastSeenMissingAt: row.last_seen_missing_at }] : [];
+    })
+    .sort((a, b) => b.lastSeenMissingAt.localeCompare(a.lastSeenMissingAt));
 }
 
 async function loadRelatedDisplayNames(
@@ -4347,7 +4392,19 @@ ${renderGlobalNav("/admin")}
 </html>`;
 }
 
-function renderScrapeHistoryAdminHtml(items: ScrapeHistoryItem[]): string {
+function renderScrapeHistoryAdminHtml(items: ScrapeHistoryItem[], zooId: string | null = null): string {
+  const zooFilterHtml = `<form class="zoo-history-filter" action="/admin/scrape-history" method="get">
+    <select name="zoo" onchange="this.form.submit()">
+      <option value="">すべての施設</option>
+      ${zoos
+        .map(
+          (zoo) =>
+            `<option value="${escapeHtml(zoo.id)}"${zoo.id === zooId ? " selected" : ""}>${escapeHtml(zoo.name)}</option>`
+        )
+        .join("")}
+    </select>
+    <noscript><button type="submit">絞り込む</button></noscript>
+  </form>`;
   const previewList = (values: string[], emptyLabel: string) => {
     if (values.length === 0) return `<span class="muted">${emptyLabel}</span>`;
     const visible = values.slice(0, 6);
@@ -4419,6 +4476,7 @@ function renderScrapeHistoryAdminHtml(items: ScrapeHistoryItem[]): string {
     .summary { color: #555; font-size: 0.9rem; }
     .admin-links { display: flex; flex-wrap: wrap; gap: 0.75rem; font-size: 0.86rem; }
     .admin-links a, h2 a { color: #1f5b45; }
+    .zoo-history-filter select { min-height: 38px; border: 1px solid #bbb; padding: 0.35rem 0.55rem; font-size: 0.86rem; max-width: 20rem; }
     .history-list { display: grid; gap: 0.85rem; }
     .history-item { border: 1px solid #ddd; padding: 0.9rem; display: grid; gap: 0.8rem; }
     .history-item.warning { background: #fffaf0; border-color: #eed89a; }
@@ -4457,6 +4515,7 @@ ${renderGlobalNav("/admin")}
     <h1>データ更新履歴</h1>
     <p class="summary">直近 ${items.length} 件のスクレイピング実行から、追加・削除・名称変更候補・警告を表示します。</p>
     <p class="admin-links"><a href="/admin/scrape-health">スクレイプ監視へ戻る</a></p>
+    ${zooFilterHtml}
     ${empty || `<div class="history-list">${rows}</div>`}
   </main>
 </body>
@@ -5635,7 +5694,8 @@ function renderZooAnimalDetailHtml(
   relatedAnimals: AnimalListItem[] = [],
   relatedDisplayNames: Array<{ displayName: string; zoos: Zoo[] }> = [],
   imageKeys: AnimalImageVersionIndex = new Map(),
-  animalNews: AnimalNewsRow[] = []
+  animalNews: AnimalNewsRow[] = [],
+  pastZoos: AnimalPastZoo[] = []
 ): string {
   const escapedDisplayName = escapeHtml(detail.displayName);
   const title = detail.canonicalName && detail.canonicalName !== detail.displayName
@@ -5684,6 +5744,23 @@ function renderZooAnimalDetailHtml(
         </li>`
     )
     .join("");
+
+  const pastZooSection = pastZoos.length > 0 ? `
+    <section>
+      <h2>過去に確認された施設</h2>
+      <p class="past-zoo-note">直近の取得で表示名が見つからなくなった施設です。展示終了と断定するものではありません。</p>
+      <ul class="zoo-list zoo-list--past">
+        ${pastZoos
+          .map(
+            (item) => `
+        <li>
+          <a href="/zoos/${item.zoo.id}">${escapeHtml(item.zoo.name)}</a>
+          <span>${escapeHtml(PREF_LABELS[item.zoo.prefecture])} / ${escapeHtml(item.lastSeenMissingAt.slice(0, 10))} 頃から未確認</span>
+        </li>`
+          )
+          .join("")}
+      </ul>
+    </section>` : "";
 
   const imageHtml = image
     ? `<img src="${buildAnimalImageUrl(detail.displayName, image.selectedGenerationId)}" alt="${escapedDisplayName}" class="animal-image" width="320" height="320">`
@@ -5784,6 +5861,9 @@ function renderZooAnimalDetailHtml(
     .zoo-list a { color: #1f5b45; font-weight: bold; text-decoration: none; }
     .zoo-list a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .zoo-list span { color: #777; font-size: 0.8rem; }
+    .zoo-list--past li { background: #fafafa; border-color: #e5e5e5; }
+    .zoo-list--past a { color: #6a746d; }
+    .past-zoo-note { color: #777; font-size: 0.82rem; margin-bottom: 0.5rem; }
     .alias-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.55rem; }
     .alias-card { display: grid; gap: 0.25rem; padding: 0.65rem 0.75rem; }
     .alias-card span { font-weight: bold; overflow-wrap: anywhere; }
@@ -5850,6 +5930,7 @@ ${renderGlobalNav("/animals")}
       <h2>見られる施設</h2>
       <ul class="zoo-list">${zooLinks}</ul>
     </section>
+    ${pastZooSection}
     ${relatedDisplaySection}
     ${relatedSection}
     ${
@@ -5878,6 +5959,62 @@ ${renderGlobalNav("/animals")}
   </main>
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
   <script src="/favorites.js" defer></script>
+</body>
+</html>`;
+}
+
+function renderAnimalGoneHtml(displayName: string, pastZoos: AnimalPastZoo[]): string {
+  const escapedDisplayName = escapeHtml(displayName);
+  const breadcrumb = renderBreadcrumb([
+    { href: "/animals", label: "動物一覧" },
+    { label: displayName },
+  ]);
+  const pastZooListHtml = pastZoos
+    .map(
+      (item) => `
+        <li>
+          <a href="/zoos/${item.zoo.id}">${escapeHtml(item.zoo.name)}</a>
+          <span>${escapeHtml(PREF_LABELS[item.zoo.prefecture])} / ${escapeHtml(item.lastSeenMissingAt.slice(0, 10))} 頃から未確認</span>
+        </li>`
+    )
+    .join("");
+
+  return `<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapedDisplayName} | 近畿動物園情報</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
+    main { max-width: 720px; margin: 0 auto; padding: 1.5rem; display: grid; gap: 1rem; }
+    h1 { font-size: 1.3rem; }
+    .gone-note { color: #555; font-size: 0.9rem; line-height: 1.6; border: 1px solid #eadca6; background: #fffaf0; padding: 0.85rem 1rem; }
+    .zoo-list { display: grid; gap: 0.45rem; list-style: none; }
+    .zoo-list li { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: baseline; border: 1px solid #e5e5e5; background: #fafafa; padding: 0.65rem 0.75rem; }
+    .zoo-list a { color: #6a746d; font-weight: bold; text-decoration: none; }
+    .zoo-list a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .zoo-list span { color: #777; font-size: 0.8rem; }
+  </style>
+</head>
+<body>
+${renderSiteHeader()}
+${renderGlobalNav("/animals")}
+  <main>
+    ${breadcrumb}
+    <h1>${escapedDisplayName}</h1>
+    <p class="gone-note">現在、この表示名で確認できる施設はありません。過去の取得結果からの推定であり、展示終了を断定するものではありません。</p>
+    ${
+      pastZoos.length > 0
+        ? `<section><h2>過去に確認された施設</h2><ul class="zoo-list">${pastZooListHtml}</ul></section>`
+        : ""
+    }
+    ${renderStateMessage("最新情報は各施設の公式サイトでご確認ください。", [
+      { href: "/animals", label: "動物一覧へ戻る" },
+    ])}
+  </main>
+  <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
 </body>
 </html>`;
 }
@@ -8173,8 +8310,10 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
     // HTML: /admin/scrape-history
     if (pathname === "/admin/scrape-history") {
       const limitParam = Number.parseInt(url.searchParams.get("limit") ?? "30", 10);
-      const items = await loadScrapeHistory(env.DB, Number.isFinite(limitParam) ? limitParam : 30);
-      return htmlResponse(renderScrapeHistoryAdminHtml(items), url, activePref);
+      const zooIdParam = url.searchParams.get("zoo");
+      const zooId = zooIdParam && zoos.some((zoo) => zoo.id === zooIdParam) ? zooIdParam : null;
+      const items = await loadScrapeHistory(env.DB, Number.isFinite(limitParam) ? limitParam : 30, zooId);
+      return htmlResponse(renderScrapeHistoryAdminHtml(items, zooId), url, activePref);
     }
 
     // HTML: /admin/animal-taxonomy
@@ -8268,12 +8407,17 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
         loadZooAnimalDetail(env.DB, displayName, activePref),
         loadAnimalImage(env.DB, displayName),
       ]);
-      if (!detail) return notFound(`動物 '${displayName}' が見つかりません`);
-      const [relatedAnimals, relatedDisplayNames, imageKeys, animalNews] = await Promise.all([
+      if (!detail) {
+        const pastZoos = await loadAnimalPastZoos(env.DB, displayName, [], activePref);
+        if (pastZoos.length === 0) return notFound(`動物 '${displayName}' が見つかりません`);
+        return htmlResponse(renderAnimalGoneHtml(displayName, pastZoos), url, activePref);
+      }
+      const [relatedAnimals, relatedDisplayNames, imageKeys, animalNews, pastZoos] = await Promise.all([
         loadRelatedAnimals(env.DB, detail),
         loadRelatedDisplayNames(env.DB, detail, activePref),
         loadAnimalImageKeys(env.DB),
         loadAnimalNews(env.DB, detail.displayName, detail.canonicalName ?? null),
+        loadAnimalPastZoos(env.DB, displayName, detail.zoos.map((zoo) => zoo.id), activePref),
       ]);
       const llmStatus = url.searchParams.get("llm");
       const notice =
@@ -8297,7 +8441,8 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
         relatedAnimals,
         relatedDisplayNames,
         imageKeys,
-        animalNews
+        animalNews,
+        pastZoos
       );
       return htmlResponse(html, url, activePref);
     }

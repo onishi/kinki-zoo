@@ -110,6 +110,7 @@
 - [x] [canonical URL・旧URLリダイレクトの整理](https://github.com/onishi/kinki-zoo/issues/117)
 - [x] wagaya.org 配下へのリバースプロキシ対応（basePath 自動付与）
 - [x] 取得結果が大幅に減った場合に既存データを保持する安全装置
+- [x] [D1 のクエリ計画を確認してインデックスを整理する](https://github.com/onishi/kinki-zoo/issues/120)
 
 ### 今後の開発計画（優先候補）
 
@@ -117,7 +118,6 @@
 - [ ] [Cloudflare Pages フロントエンドを分離する](https://github.com/onishi/kinki-zoo/issues/4)
 - [ ] [スクレイプ失敗や急な減少をメール通知する](https://github.com/onishi/kinki-zoo/issues/104)
 - [ ] [手動上書きデータと自動取得データの優先順位を整理する](https://github.com/onishi/kinki-zoo/issues/110)
-- [ ] [D1 のクエリ計画を確認してインデックスを整理する](https://github.com/onishi/kinki-zoo/issues/120)
 
 現在オープンな issue の一覧は `gh issue list --state open` を参照。
 
@@ -169,6 +169,33 @@ npm run typecheck
 | `animal_scrape_warnings` | スクレイピング結果の 0 件、期待最小件数割れ、前回比大幅減、削除差分過多、取得エラー、反映見送り(`update_held_back`)を履歴として保存 |
 | `zoo_news` | 施設ごとのお知らせ(タイトル・URL・公開日・関連動物名)を保存 |
 | `zoo_news_animals` | お知らせ本文から抽出した関連動物名との紐付け |
+
+### クエリ計画とインデックス（2026-08 見直し）
+
+`/animals`・`/taxonomy`・`/search`・`/compare` など主要ページのクエリを
+`EXPLAIN QUERY PLAN`（`npx wrangler d1 execute kinki-zoo-animals --local`）で確認し、
+不足していたインデックスを [migration 0017](migrations/0017_add_query_plan_indexes.sql) で追加した。
+
+- `zoo_animals` の PRIMARY KEY は `(zoo_id, display_name)` で先頭列が `zoo_id` のため、
+  `WHERE display_name = ?` だけで絞り込む検索（動物詳細ページ `loadZooAnimalDetail`・
+  関連表示名 `loadRelatedDisplayNames`、分類適用時の `UPDATE ... WHERE display_name = ?`）は
+  PK を使えず実質フルスキャンになっていた。`idx_zoo_animals_display_name` を追加し、
+  `SEARCH za USING INDEX idx_zoo_animals_display_name (display_name=?)` で引けることを確認済み。
+- `animal_scrape_diffs` は `(zoo_id, scraped_at)` と `diff_type` 単独のインデックスしかなく、
+  動物詳細ページの「過去に見られた動物園」表示（`loadAnimalPastZoos`）が使う
+  `WHERE diff_type = 'removed' AND previous_display_name = ?` は `diff_type` だけでは
+  絞り込みきれず `SCAN` になっていた。複合インデックス
+  `idx_animal_scrape_diffs_diff_type_previous_display_name` を追加し `SEARCH` に変わることを確認済み。
+- それ以外の主要クエリ（`zoo_animals.zoo_id` 絞り込み、`animals` の
+  `class_name/order_name/family_name/genus_name/species_name` 複合インデックスを使う分類集計、
+  `zoo_news_animals.animal_name` を使うお知らせ関連動物検索など）は既存インデックスで
+  `SEARCH ... USING INDEX` になっており追加対応は不要だった。
+- `/search` の動物名あいまい検索（`normalized_display_name LIKE '%keyword%'` など前方が `%` の LIKE）は
+  B-Tree インデックスでは絞り込めない構造的な制約で、`zoo_id` 側の絞り込み後に残りを線形走査している。
+  検索対象データが大きく増えて体感速度が問題になった場合は、通常のインデックス追加では解決できないため
+  SQLite FTS5（仮想テーブルによる全文検索）の導入を検討する。
+- インデックス追加はスクレイピング反映時（`zoo_animals`・`animal_scrape_diffs` への書き込み）の
+  コストを増やすが、これらはユーザーリクエストを止めない cron/バッチ処理なので許容範囲と判断した。
 
 ### 取得結果が大幅に減った場合の安全装置
 

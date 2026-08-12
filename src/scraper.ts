@@ -340,10 +340,17 @@ interface NewsScraperConfig {
   itemTitleSelector?: string;
   itemDateSelector?: string;
   itemLinkSelector?: string;
+  /** このパターンに一致する URL の項目は掲載しない(例: 採用募集など掲載不要なカテゴリ) */
+  excludeLinkPattern?: RegExp;
 }
 
 const NEWS_SCRAPER_CONFIGS: Record<string, NewsScraperConfig> = {
-  "tennoji-zoo": { rssUrl: "https://www.tennojizoo.jp/feed/" },
+  "tennoji-zoo": {
+    rssUrl: "https://www.tennojizoo.jp/feed/",
+    // 「募集情報」カテゴリ(職員採用等)の記事は /new/ 配下に集約されており、
+    // 動物園のお知らせとしては不要なため除外する。
+    excludeLinkPattern: /^https:\/\/www\.tennojizoo\.jp\/new\//,
+  },
   "kyoto-zoo": { rssUrl: "https://zoo.city.kyoto.lg.jp/zoo/news/feed/" },
   "himeji-zoo": { rssUrl: "https://www.city.himeji.lg.jp/rss/rss_new_dobutuen.xml" },
   "awaji-farm-park": { rssUrl: "https://www.england-hill.com/feed/" },
@@ -603,6 +610,7 @@ export async function scrapeZooNews(zooId: string): Promise<NewsItem[]> {
   const config = NEWS_SCRAPER_CONFIGS[zooId];
   if (!config) return [];
   try {
+    let items: NewsItem[];
     if (config.rssUrl) {
       const response = await fetch(config.rssUrl, {
         headers: {
@@ -612,12 +620,15 @@ export async function scrapeZooNews(zooId: string): Promise<NewsItem[]> {
       });
       if (!response.ok) return [];
       const xml = await response.text();
-      return parseRssItems(xml);
+      items = parseRssItems(xml);
+    } else if (config.itemSelector) {
+      items = await scrapeNewsFromHtmlBlocks(config);
+    } else {
+      items = await scrapeNewsFromHtml(config);
     }
-    if (config.itemSelector) {
-      return await scrapeNewsFromHtmlBlocks(config);
-    }
-    return await scrapeNewsFromHtml(config);
+    return config.excludeLinkPattern
+      ? items.filter((item) => !config.excludeLinkPattern!.test(item.url))
+      : items;
   } catch (err) {
     console.error(`[scraper] news fetch failed for ${zooId}:`, err);
     return [];

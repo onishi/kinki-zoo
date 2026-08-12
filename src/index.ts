@@ -2521,7 +2521,7 @@ async function loadChildTaxonomyValues(
        WHERE ${where}
          AND COALESCE(a.${childRank.column}, NULLIF(c.${childRank.column}, 'null')) IS NOT NULL
        GROUP BY COALESCE(a.${childRank.column}, NULLIF(c.${childRank.column}, 'null'))
-       ORDER BY COALESCE(a.${childRank.column}, NULLIF(c.${childRank.column}, 'null'))`
+       ORDER BY animal_count DESC, COALESCE(a.${childRank.column}, NULLIF(c.${childRank.column}, 'null'))`
     )
     .bind(...levels.map((level) => level.value), ...(pref ? zooIds : []))
     .all<TaxonomyValueRow>();
@@ -6185,6 +6185,66 @@ function renderTaxonomyDetailHtml(
   const escapedValue = escapeHtml(value);
   const items = renderAnimalCards(animals, imageKeys);
   const breadcrumb = renderTaxonomyBreadcrumb(levels);
+
+  const zooAnimalCounts = new Map<string, { zoo: Zoo; count: number }>();
+  for (const item of animals) {
+    for (const zoo of item.zoos) {
+      const existing = zooAnimalCounts.get(zoo.id);
+      if (existing) existing.count += 1;
+      else zooAnimalCounts.set(zoo.id, { zoo, count: 1 });
+    }
+  }
+  const topZoos = [...zooAnimalCounts.values()]
+    .sort((a, b) => b.count - a.count || a.zoo.name.localeCompare(b.zoo.name, "ja-JP"))
+    .slice(0, 5);
+  const topZoosHtml =
+    topZoos.length > 0
+      ? `
+        <section class="top-zoos-section">
+          <h2>${escapeHtml(rank.label)}「${escapedValue}」の動物が多い施設</h2>
+          <ol class="top-zoos-list">
+            ${topZoos
+              .map(
+                ({ zoo, count }) => `
+                  <li><a href="/zoos/${encodeURIComponent(zoo.id)}">${escapeHtml(zoo.name)}</a><span>${count} 種</span></li>`
+              )
+              .join("")}
+          </ol>
+        </section>`
+      : "";
+
+  const representativeAnimals = animals
+    .flatMap((item) => {
+      const imageDisplayName = item.displayNames.find((n) => imageKeys.has(normalizeAnimalImageKey(n)));
+      return imageDisplayName ? [{ item, imageDisplayName }] : [];
+    })
+    .slice(0, 8);
+  const representativeHtml =
+    representativeAnimals.length > 0
+      ? `
+        <section class="representative-section">
+          <h2>代表的な動物</h2>
+          <div class="featured-grid">
+            ${representativeAnimals
+              .map(({ item, imageDisplayName }) => {
+                const primaryDisplayName = item.displayNames[0] ?? item.canonicalName ?? "";
+                const title = item.canonicalName ?? primaryDisplayName;
+                const href = primaryDisplayName
+                  ? buildZooAnimalUrl(primaryDisplayName)
+                  : buildAnimalSearchUrl(title);
+                const imageVersion = imageKeys.get(normalizeAnimalImageKey(imageDisplayName));
+                return `
+                  <a class="featured-animal" href="${href}">
+                    <img src="${buildAnimalImageUrl(imageDisplayName, imageVersion)}" alt="" loading="lazy" width="112" height="112">
+                    <span>${escapeHtml(title)}</span>
+                    <small>${item.zoos.length} 施設</small>
+                  </a>`;
+              })
+              .join("")}
+          </div>
+        </section>`
+      : "";
+
   const childLinks =
     childSection && childSection.values.length > 0
       ? childSection.values
@@ -6216,12 +6276,23 @@ function renderTaxonomyDetailHtml(
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
     .summary { padding: 0.75rem 1.5rem; font-size: 0.9rem; color: #666; }
-    .child-taxonomy { padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; }
-    .child-taxonomy h2 { font-size: 1.05rem; margin-bottom: 0.75rem; }
+    .child-taxonomy, .representative-section, .top-zoos-section { padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; }
+    .child-taxonomy h2, .representative-section h2, .top-zoos-section h2 { font-size: 1.05rem; margin-bottom: 0.75rem; }
     .taxonomy-links { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 0.55rem; }
     .taxonomy-link { display: grid; gap: 0.2rem; padding: 0.65rem 0.75rem; }
     .taxonomy-link span { font-weight: bold; overflow-wrap: anywhere; }
     .taxonomy-link small { color: #617469; font-size: 0.75rem; }
+    .featured-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 0.65rem; }
+    .featured-animal { display: grid; gap: 0.25rem; min-width: 0; color: #222; text-decoration: none; }
+    .featured-animal img { width: 100%; aspect-ratio: 1; height: auto; object-fit: cover; border: 1px solid #ddd; background: #f7f7f7; }
+    .featured-animal span { color: #1f5b45; font-size: 0.86rem; font-weight: bold; overflow-wrap: anywhere; }
+    .featured-animal small { color: #777; font-size: 0.72rem; }
+    .top-zoos-list { list-style: none; display: grid; gap: 0.4rem; counter-reset: top-zoos; }
+    .top-zoos-list li { counter-increment: top-zoos; display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.65rem; background: #f8fbf9; border: 1px solid #e0e8e3; }
+    .top-zoos-list li::before { content: counter(top-zoos); flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 1.5rem; height: 1.5rem; background: #1f5b45; color: #fff; font-size: 0.75rem; font-weight: bold; border-radius: 50%; }
+    .top-zoos-list a { flex: 1 1 auto; min-width: 0; color: #1f5b45; text-decoration: none; font-weight: bold; overflow-wrap: anywhere; }
+    .top-zoos-list a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .top-zoos-list span { flex: 0 0 auto; color: #617469; font-size: 0.82rem; }
     .animal-list { padding: 1rem 1.5rem; overflow-x: auto; }
     .animal-table { width: 100%; min-width: 900px; border-collapse: collapse; }
     .animal-table th, .animal-table td { border: none; border-bottom: 1px solid #e8e8e8; padding: 0.65rem; vertical-align: top; text-align: left; font-size: 0.84rem; }
@@ -6241,7 +6312,7 @@ function renderTaxonomyDetailHtml(
     .empty { padding: 2rem 1.5rem; color: #888; }
     footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; }
     @media (max-width: 700px) {
-      .summary, .child-taxonomy { padding-left: 0.75rem; padding-right: 0.75rem; }
+      .summary, .child-taxonomy, .representative-section, .top-zoos-section { padding-left: 0.75rem; padding-right: 0.75rem; }
       .taxonomy-links { grid-template-columns: 1fr; }
       .animal-list { padding: 0.75rem; overflow: visible; }
       .animal-table { min-width: 0; border: 0; }
@@ -6260,7 +6331,9 @@ function renderTaxonomyDetailHtml(
 ${renderSiteHeader()}
 ${renderGlobalNav("/taxonomy")}
   ${breadcrumb}
-  <p class="summary">${escapeHtml(rank.label)}: ${escapedValue} / 動物: ${animals.length} 件</p>
+  <p class="summary">${escapeHtml(rank.label)}: ${escapedValue} / 動物: ${animals.length} 件 / 施設: ${zooAnimalCounts.size} 施設</p>
+  ${representativeHtml}
+  ${topZoosHtml}
   ${childSectionHtml}
   ${
     animals.length > 0

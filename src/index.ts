@@ -4090,9 +4090,10 @@ const COMMON_STYLES = `
       .pref-selector label { flex: 0 0 auto; }
       .pref-selector select { flex: 1 1 auto; min-width: 0; min-height: 44px; }
       .pref-selector button { min-height: 44px; }
-      .global-nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; padding: 0; }
-      .global-nav a { display: flex; min-width: 0; min-height: 44px; align-items: center; justify-content: center; padding: 0.55rem 0.35rem; border-right: 1px solid #eee; border-bottom: 1px solid #eee; text-align: center; font-size: 0.82rem; }
-      .global-nav a:nth-child(2n) { border-right: 0; }
+      .global-nav { display: flex; flex-wrap: nowrap; gap: 0; padding: 0; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
+      .global-nav a { flex: 0 0 auto; display: flex; min-height: 44px; align-items: center; white-space: nowrap; padding: 0.55rem 0.85rem; border-right: 1px solid #eee; font-size: 0.82rem; }
+      .global-nav a:last-child { border-right: 0; }
+      .global-nav .nav-admin { margin-left: 0; }
       .breadcrumb ol { padding: 0.6rem 0.75rem; }
       .page-nav { gap: 0.5rem; }
       .page-nav a { display: inline-flex; align-items: center; min-height: 44px; }

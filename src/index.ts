@@ -4248,23 +4248,19 @@ function renderSiteHeader(): string {
 }
 
 function renderGlobalNav(activePath: string): string {
-  // matchKey は renderGlobalNav 呼び出し側が渡す activePath との比較専用の識別子で、
-  // href（実際のリンク先）とは独立している。/map は /zoos の地図タブへのディープ
-  // リンクだが、ナビ上は従来通り "/map" として current 判定したいためこう分けている。
-  const navItems: [matchKey: string, href: string, iconName: IconName, label: string][] = [
-    ["/", "/", "home", "トップ"],
-    ["/zoos", "/zoos", "location_city", "動物園一覧"],
-    ["/animals", "/animals", "pets", "動物一覧"],
-    ["/taxonomy", "/taxonomy", "category", "分類から探す"],
-    ["/map", "/zoos?view=map", "map", "地図で見る"],
-    ["/compare", "/compare", "compare_arrows", "動物園を比較"],
-    ["/news", "/news", "campaign", "お知らせ"],
-    ["/favorites", "/favorites", "star_border", "お気に入り"],
-    ["/admin", "/admin", "admin_panel_settings", "管理"],
+  const navItems: [href: string, iconName: IconName, label: string][] = [
+    ["/", "home", "トップ"],
+    ["/zoos", "location_city", "動物園一覧"],
+    ["/animals", "pets", "動物一覧"],
+    ["/taxonomy", "category", "分類から探す"],
+    ["/compare", "compare_arrows", "動物園を比較"],
+    ["/news", "campaign", "お知らせ"],
+    ["/favorites", "star_border", "お気に入り"],
+    ["/admin", "admin_panel_settings", "管理"],
   ];
   const links = navItems
-    .map(([matchKey, href, iconName, label], i) => {
-      const isActive = matchKey === "/" ? activePath === "/" : activePath === matchKey || activePath.startsWith(`${matchKey}/`);
+    .map(([href, iconName, label], i) => {
+      const isActive = href === "/" ? activePath === "/" : activePath === href || activePath.startsWith(`${href}/`);
       const cls = i === navItems.length - 1 ? ' class="nav-admin"' : "";
       return `<a href="${href}"${cls}${isActive ? ' aria-current="page"' : ""}>${icon(iconName)}<span>${label}</span></a>`;
     })
@@ -7926,7 +7922,7 @@ function renderZoosShell(opts: {
 </head>
 <body>
 ${renderSiteHeader()}
-${renderGlobalNav(view === "map" ? "/map" : "/zoos")}
+${renderGlobalNav("/zoos")}
   <form class="search-form" action="/zoos" method="get">
     <input type="search" name="animal" value="${escapedAnimal}" placeholder="動物名で検索（例: パンダ）" aria-label="動物名で検索">
     ${taxClass ? `<input type="hidden" name="cls" value="${escapeHtml(taxClass)}">` : ""}

@@ -8296,8 +8296,16 @@ export default {
   },
 };
 
+const CANONICAL_HOSTNAME = "kinki-zoo.wagaya.org";
+
 async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+    if (url.hostname === "kinki-zoo.anison.workers.dev") {
+      url.hostname = CANONICAL_HOSTNAME;
+      url.port = "";
+      url.protocol = "https:";
+      return Response.redirect(url.toString(), 301);
+    }
     const pathname = url.pathname;
     const prefParam = url.searchParams.get("pref");
     if (prefParam && !isPrefectureCode(prefParam)) {

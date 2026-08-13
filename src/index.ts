@@ -345,6 +345,50 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
+// Material Icons (Outlined) の path データ。https://fonts.google.com/icons 由来。
+const ICONS = {
+  home: '<path d="M12 5.69l5 4.5V18h-2v-6H9v6H7v-7.81l5-4.5M12 3L2 12h3v8h6v-6h2v6h6v-8h3L12 3z"/>',
+  location_city:
+    '<path d="M15 11V5l-3-3l-3 3v2H3v14h18V11h-6zm-8 8H5v-2h2v2zm0-4H5v-2h2v2zm0-4H5V9h2v2zm6 8h-2v-2h2v2zm0-4h-2v-2h2v2zm0-4h-2V9h2v2zm0-4h-2V5h2v2zm6 12h-2v-2h2v2zm0-4h-2v-2h2v2z"/>',
+  pets:
+    '<circle cx="4.5" cy="9.5" r="2.5"/><circle cx="9" cy="5.5" r="2.5"/><circle cx="15" cy="5.5" r="2.5"/><circle cx="19.5" cy="9.5" r="2.5"/><path d="M17.34 14.86c-.87-1.02-1.6-1.89-2.48-2.91-.46-.54-1.05-1.08-1.75-1.32-.11-.04-.22-.07-.33-.09-.25-.04-.52-.04-.78-.04s-.53 0-.79.05c-.11.02-.22.05-.33.09-.7.24-1.28.78-1.75 1.32-.87 1.02-1.6 1.89-2.48 2.91-1.31 1.31-2.92 2.76-2.62 4.79.29 1.02 1.02 2.03 2.33 2.32.73.15 3.06-.44 5.54-.44h.18c2.48 0 4.81.58 5.54.44 1.31-.29 2.04-1.31 2.33-2.32.31-2.04-1.3-3.49-2.61-4.8z"/>',
+  category:
+    '<path d="M12 2l-5.5 9h11L12 2zm0 3.84L13.93 9h-3.87L12 5.84zM17.5 13c-2.49 0-4.5 2.01-4.5 4.5s2.01 4.5 4.5 4.5 4.5-2.01 4.5-4.5-2.01-4.5-4.5-4.5zm0 7a2.5 2.5 0 0 1 0-5 2.5 2.5 0 0 1 0 5zM3 21.5h8v-8H3v8zm2-6h4v4H5v-4z"/>',
+  map: '<path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM10 5.47l4 1.4v11.66l-4-1.4V5.47zm-5 .99l3-1.01v11.7l-3 1.16V6.46zm14 11.08l-3 1.01V6.86l3-1.16v11.84z"/>',
+  compare_arrows:
+    '<path d="M9.01 14H2v2h7.01v3L13 15l-3.99-4v3zm5.98-1v-3H22V8h-7.01V5L11 9l3.99 4z"/>',
+  campaign:
+    '<path d="M18 11v2h4v-2h-4zm-2 6.61c.96.71 2.21 1.65 3.2 2.39.4-.53.8-1.07 1.2-1.6-.99-.74-2.24-1.68-3.2-2.4-.4.54-.8 1.08-1.2 1.61zM20.4 5.6c-.4-.53-.8-1.07-1.2-1.6-.99.74-2.24 1.68-3.2 2.4.4.53.8 1.07 1.2 1.6.96-.72 2.21-1.65 3.2-2.4zM4 9c-1.1 0-2 .9-2 2v2c0 1.1.9 2 2 2h1v4h2v-4h1l5 3V6L8 9H4zm5.03 1.71L11 9.53v4.94l-1.97-1.18-.48-.29H4v-2h4.55l.48-.29zM15.5 12c0-1.33-.58-2.53-1.5-3.35v6.69c.92-.81 1.5-2.01 1.5-3.34z"/>',
+  star: '<path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2L9.19 8.63L2 9.24l5.46 4.73L5.82 21L12 17.27z"/>',
+  star_border:
+    '<path d="M22 9.24l-7.19-.62L12 2L9.19 8.63L2 9.24l5.46 4.73L5.82 21L12 17.27L18.18 21l-1.63-7.03L22 9.24zM12 15.4l-3.76 2.27l1-4.28l-3.32-2.88l4.38-.38L12 6.1l1.71 4.04l4.38.38l-3.32 2.88l1 4.28L12 15.4z"/>',
+  admin_panel_settings:
+    '<circle cx="17" cy="15.5" r="1.12"/><path d="M17 17.5c-.73 0-2.19.36-2.24 1.08.5.71 1.32 1.17 2.24 1.17s1.74-.46 2.24-1.17c-.05-.72-1.51-1.08-2.24-1.08z"/><path d="M18 11.09V6.27L10.5 3L3 6.27v4.91c0 4.54 3.2 8.79 7.5 9.82.55-.13 1.08-.32 1.6-.55A5.973 5.973 0 0 0 17 23c3.31 0 6-2.69 6-6 0-2.97-2.16-5.43-5-5.91zM11 17c0 .56.08 1.11.23 1.62-.24.11-.48.22-.73.3-3.17-1-5.5-4.24-5.5-7.74v-3.6l5.5-2.4l5.5 2.4v3.51c-2.84.48-5 2.94-5 5.91zm6 4c-2.21 0-4-1.79-4-4s1.79-4 4-4 4 1.79 4 4-1.79 4-4 4z"/>',
+  search:
+    '<path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5A6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>',
+  close:
+    '<path d="M19 6.41L17.59 5L12 10.59L6.41 5L5 6.41L10.59 12L5 17.59L6.41 19L12 13.41L17.59 19L19 17.59L13.41 12L19 6.41z"/>',
+  content_copy:
+    '<path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>',
+  link: '<path d="M17 7h-4v2h4c1.65 0 3 1.35 3 3s-1.35 3-3 3h-4v2h4c2.76 0 5-2.24 5-5s-2.24-5-5-5zm-6 8H7c-1.65 0-3-1.35-3-3s1.35-3 3-3h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-2zm-3-4h8v2H8z"/>',
+  my_location:
+    '<path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3A8.994 8.994 0 0 0 13 3.06V1h-2v2.06A8.994 8.994 0 0 0 3.06 11H1v2h2.06A8.994 8.994 0 0 0 11 20.94V23h2v-2.06A8.994 8.994 0 0 0 20.94 13H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/>',
+  open_in_new:
+    '<path d="M19 19H5V5h7V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83l1.41 1.41L19 6.41V10h2V3h-7z"/>',
+  delete:
+    '<path d="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1zM18 7H6v12c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7z"/>',
+  expand_less: '<path d="M12 8l-6 6l1.41 1.41L12 10.83l4.59 4.58L18 14l-6-6z"/>',
+  expand_more: '<path d="M16.59 8.59L12 13.17L7.41 8.59L6 10l6 6l6-6l-1.41-1.41z"/>',
+  chevron_right: '<path d="M10 6L8.59 7.41L13.17 12l-4.58 4.59L10 18l6-6l-6-6z"/>',
+} as const satisfies Record<string, string>;
+
+type IconName = keyof typeof ICONS;
+
+function icon(name: IconName, className = ""): string {
+  const cls = ["ui-icon", className].filter(Boolean).join(" ");
+  return `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${ICONS[name]}</svg>`;
+}
+
 const NEWS_CATEGORY_RULES: Array<{ label: string; bg: string; color: string; pattern: RegExp }> = [
   { label: "誕生", bg: "#fff0f5", color: "#b84b7a", pattern: /誕生|生まれ|赤ちゃん|赤ちゃん|出産|子ども誕生/ },
   { label: "訃報", bg: "#f5f5f5", color: "#555", pattern: /死亡|死去|なくなり|亡くなり|永眠/ },
@@ -395,10 +439,11 @@ function renderFavoriteButton(
   // ここで basePath を確定させておく。
   const escHref = escapeHtml(withBase(href));
   const attrs = `data-fav-type="${type}" data-fav-id="${escId}" data-fav-name="${escLabel}" data-fav-href="${escHref}" aria-pressed="false"`;
+  const stars = `<span class="fav-toggle-icon" aria-hidden="true">${icon("star", "fav-toggle-icon-on")}${icon("star_border", "fav-toggle-icon-off")}</span>`;
   if (variant === "large") {
-    return `<button type="button" class="fav-toggle fav-toggle--large ui-btn ui-btn--secondary ui-touch-target" ${attrs}><span class="fav-toggle-icon" aria-hidden="true">☆</span><span class="fav-toggle-text">お気に入りに追加</span></button>`;
+    return `<button type="button" class="fav-toggle fav-toggle--large ui-btn ui-btn--secondary ui-touch-target" ${attrs}>${stars}<span class="fav-toggle-text">お気に入りに追加</span></button>`;
   }
-  return `<button type="button" class="fav-toggle fav-toggle--icon" ${attrs} aria-label="お気に入りに追加"><span class="fav-toggle-icon" aria-hidden="true">☆</span></button>`;
+  return `<button type="button" class="fav-toggle fav-toggle--icon" ${attrs} aria-label="お気に入りに追加">${stars}</button>`;
 }
 
 function jsonResponse(data: unknown, status = 200): Response {
@@ -3633,8 +3678,8 @@ function renderHomeOverview(
     <p class="home-kicker">${escapeHtml(prefLabel)}</p>
     <h2 id="home-overview-title">動物園・動物・分類をまとめて探す</h2>
     <div class="home-primary-actions">
-      <a href="${buildBrowseUrl(activePref, null)}" class="ui-btn ui-btn--primary ui-touch-target">動物園一覧</a>
-      <a href="${buildMapUrl(activePref, null)}" class="ui-btn ui-btn--secondary ui-touch-target">地図で見る</a>
+      <a href="${buildBrowseUrl(activePref, null)}" class="ui-btn ui-btn--primary ui-touch-target">${icon("location_city")}動物園一覧</a>
+      <a href="${buildMapUrl(activePref, null)}" class="ui-btn ui-btn--secondary ui-touch-target">${icon("map")}地図で見る</a>
     </div>
     <dl class="home-stats">
       ${stats.map((stat) => `
@@ -3876,7 +3921,7 @@ function renderHeaderSearch(url: URL, activePref: PrefectureCode | null): string
     ${prefInput}
     <label for="header-search-input">サイト内検索</label>
     <input id="header-search-input" type="search" name="q" value="${escapeHtml(value)}" placeholder="動物・動物園を検索" autocomplete="off">
-    <button type="submit">検索</button>
+    <button type="submit">${icon("search")}<span>検索</span></button>
   </form>`;
 }
 
@@ -3974,7 +4019,8 @@ function renderStateMessage(
     .map((action) => {
       const extraAttrs = action.external ? ` target="_blank" rel="noopener noreferrer"` : "";
       const buttonClass = tone === "error" ? "ui-btn--primary" : "ui-btn--secondary";
-      return `<a href="${escapeHtml(action.href)}" class="ui-btn ${buttonClass} ui-touch-target"${extraAttrs}>${escapeHtml(action.label)}</a>`;
+      const iconHtml = action.external ? icon("open_in_new") : "";
+      return `<a href="${escapeHtml(action.href)}" class="ui-btn ${buttonClass} ui-touch-target"${extraAttrs}>${iconHtml}${escapeHtml(action.label)}</a>`;
     })
     .join("");
   const linksHtml = links ? `<div class="ui-state-actions">${links}</div>` : "";
@@ -4012,7 +4058,9 @@ const COMMON_STYLES = `
     body { min-width: 0; overflow-wrap: anywhere; }
     img, svg { max-width: 100%; }
     button, input, select { font: inherit; }
-    .ui-btn { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; border: 1px solid #1f5b45; padding: 0.45rem 0.8rem; text-decoration: none; }
+    .ui-icon { width: 1.15em; height: 1.15em; flex: 0 0 auto; fill: currentColor; }
+    .icon-heading { display: inline-flex; align-items: center; gap: 0.35rem; }
+    .ui-btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; min-height: 40px; border: 1px solid #1f5b45; padding: 0.45rem 0.8rem; text-decoration: none; }
     .ui-btn:not(:disabled) { cursor: pointer; }
     .ui-btn--primary { background: #1f5b45; color: #fff; }
     .ui-btn--primary:hover { background: #184a38; border-color: #184a38; }
@@ -4103,7 +4151,10 @@ const COMMON_STYLES = `
     .fav-toggle--icon[aria-pressed="true"] { background: #fdf6e0; }
     .fav-toggle--large { display: inline-flex; align-items: center; gap: 0.35rem; }
     .fav-toggle--large[aria-pressed="true"] { background: #fdf6e0; }
-    .fav-toggle-icon { color: #d9a900; }
+    .fav-toggle-icon { display: inline-flex; color: #d9a900; }
+    .fav-toggle-icon .fav-toggle-icon-on { display: none; }
+    .fav-toggle[aria-pressed="true"] .fav-toggle-icon-on { display: inline-flex; }
+    .fav-toggle[aria-pressed="true"] .fav-toggle-icon-off { display: none; }
     .name-with-fav { display: flex; align-items: center; gap: 0.4rem; }
     .site-header { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem 2rem; padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; }
     .site-heading { flex: 1 1 320px; min-width: 0; }
@@ -4113,14 +4164,15 @@ const COMMON_STYLES = `
     .header-search { display: flex; flex: 1 1 300px; max-width: 460px; align-items: center; gap: 0.4rem; }
     .header-search label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
     .header-search input { flex: 1 1 auto; min-width: 0; min-height: 40px; border: 1px solid #aaa; background: #fff; padding: 0.5rem 0.65rem; font-size: 0.9rem; }
-    .header-search button { flex: 0 0 auto; min-height: 40px; border: 1px solid #1f5b45; background: #1f5b45; color: #fff; padding: 0.45rem 0.75rem; font-size: 0.86rem; cursor: pointer; }
+    .header-search button { display: inline-flex; align-items: center; gap: 0.3rem; flex: 0 0 auto; min-height: 40px; border: 1px solid #1f5b45; background: #1f5b45; color: #fff; padding: 0.45rem 0.75rem; font-size: 0.86rem; cursor: pointer; }
     .header-search button:hover { background: #184a38; border-color: #184a38; }
     .pref-selector { display: flex; align-items: center; gap: 0.5rem; }
     .pref-selector label { color: #555; font-size: 0.82rem; font-weight: bold; }
     .pref-selector select { min-width: 9rem; border: 1px solid #aaa; background: #fff; padding: 0.45rem 2rem 0.45rem 0.6rem; font: inherit; }
     .pref-selector button { border: 1px solid #1f5b45; background: #fff; color: #1f5b45; padding: 0.4rem 0.65rem; }
     .global-nav { display: flex; flex-wrap: wrap; gap: 1rem; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; }
-    .global-nav a { color: #1f5b45; text-decoration: none; font-size: 0.9rem; }
+    .global-nav a { display: inline-flex; align-items: center; gap: 0.3rem; color: #1f5b45; text-decoration: none; font-size: 0.9rem; }
+    .global-nav a .ui-icon { width: 1.05em; height: 1.05em; opacity: 0.85; }
     .global-nav a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .global-nav a[aria-current="page"] { font-weight: bold; text-decoration: underline; text-underline-offset: 0.2em; }
     .global-nav .nav-admin { margin-left: auto; color: #888; font-size: 0.82rem; }
@@ -4158,7 +4210,7 @@ const COMMON_STYLES = `
       .pref-selector select { flex: 1 1 auto; min-width: 0; min-height: 44px; }
       .pref-selector button { min-height: 44px; }
       .global-nav { display: flex; flex-wrap: nowrap; gap: 0; padding: 0; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
-      .global-nav a { flex: 0 0 auto; display: flex; min-height: 44px; align-items: center; white-space: nowrap; padding: 0.55rem 0.85rem; border-right: 1px solid #eee; font-size: 0.82rem; }
+      .global-nav a { flex: 0 0 auto; display: flex; gap: 0.3rem; min-height: 44px; align-items: center; white-space: nowrap; padding: 0.55rem 0.85rem; border-right: 1px solid #eee; font-size: 0.82rem; }
       .global-nav a:last-child { border-right: 0; }
       .global-nav .nav-admin { margin-left: 0; }
       .breadcrumb ol { padding: 0.6rem 0.75rem; }
@@ -4177,22 +4229,22 @@ function renderSiteHeader(): string {
 }
 
 function renderGlobalNav(activePath: string): string {
-  const navItems: [string, string][] = [
-    ["/", "トップ"],
-    ["/zoos", "動物園一覧"],
-    ["/animals", "動物一覧"],
-    ["/taxonomy", "分類から探す"],
-    ["/map", "地図で見る"],
-    ["/compare", "動物園を比較"],
-    ["/news", "お知らせ"],
-    ["/favorites", "お気に入り"],
-    ["/admin", "管理"],
+  const navItems: [string, IconName, string][] = [
+    ["/", "home", "トップ"],
+    ["/zoos", "location_city", "動物園一覧"],
+    ["/animals", "pets", "動物一覧"],
+    ["/taxonomy", "category", "分類から探す"],
+    ["/map", "map", "地図で見る"],
+    ["/compare", "compare_arrows", "動物園を比較"],
+    ["/news", "campaign", "お知らせ"],
+    ["/favorites", "star_border", "お気に入り"],
+    ["/admin", "admin_panel_settings", "管理"],
   ];
   const links = navItems
-    .map(([href, label], i) => {
+    .map(([href, iconName, label], i) => {
       const isActive = href === "/" ? activePath === "/" : activePath === href || activePath.startsWith(`${href}/`);
       const cls = i === navItems.length - 1 ? ' class="nav-admin"' : "";
-      return `<a href="${href}"${cls}${isActive ? ' aria-current="page"' : ""}>${label}</a>`;
+      return `<a href="${href}"${cls}${isActive ? ' aria-current="page"' : ""}>${icon(iconName)}<span>${label}</span></a>`;
     })
     .join("\n    ");
   return `  <nav class="global-nav" aria-label="サイトナビゲーション">
@@ -5297,12 +5349,12 @@ ${renderGlobalNav(isHome ? "/" : "/zoos")}
   ${isHome ? renderHomeOverview(activePref, count, totalAnimalCount) : ""}
   ${isHome ? "" : `<form class="search-form" action="/zoos" method="get">
     <input type="search" name="animal" value="${escapedAnimal}" placeholder="動物名で検索（例: パンダ）" aria-label="動物名で検索">
-    <button type="submit" class="ui-btn ui-btn--primary ui-touch-target">検索</button>
-    ${animal ? `<a href="${buildBrowseUrl(activePref, null)}" class="ui-btn ui-btn--secondary ui-touch-target">クリア</a>` : ""}
+    <button type="submit" class="ui-btn ui-btn--primary ui-touch-target">${icon("search")}検索</button>
+    ${animal ? `<a href="${buildBrowseUrl(activePref, null)}" class="ui-btn ui-btn--secondary ui-touch-target">${icon("close")}クリア</a>` : ""}
   </form>`}
   ${isHome && latestNews.length > 0 ? `<section class="latest-news-section">
     <div class="latest-news-heading">
-      <h2>📢 最新のお知らせ</h2>
+      <h2 class="icon-heading">${icon("campaign")}最新のお知らせ</h2>
       <a href="/news" class="section-link">すべて見る →</a>
     </div>
     <ul class="latest-news-list">
@@ -5519,7 +5571,7 @@ ${renderGlobalNav("/search")}
     </div>
     <form class="site-search-form" action="/search" method="get">
       <input type="search" name="q" value="${escapedQuery}" placeholder="動物名・施設名・分類で検索" aria-label="検索キーワード">
-      <button type="submit" class="ui-btn ui-btn--primary ui-touch-target">検索</button>
+      <button type="submit" class="ui-btn ui-btn--primary ui-touch-target">${icon("search")}検索</button>
     </form>
     ${hasQuery ? `<p class="search-summary">「${escapedQuery}」の検索結果: 動物 ${results.animals.length} 件 / 動物園 ${results.zoos.length} 件 / 分類 ${results.taxonomies.length} 件</p>` : ""}
     ${emptyHtml}
@@ -5698,8 +5750,8 @@ ${renderGlobalNav("/animals")}
   <form class="animal-search-form" action="/animals" method="get">
     ${filter === "unclassified" ? `<input type="hidden" name="filter" value="unclassified">` : ""}
     <input type="search" name="q" value="${escapedQuery}" placeholder="動物名・分類・施設名で検索" aria-label="動物を検索">
-    <button type="submit" class="ui-btn ui-btn--primary ui-touch-target">検索</button>
-    ${query ? `<a href="${buildAnimalsUrl(filter)}" class="ui-btn ui-btn--secondary ui-touch-target">クリア</a>` : ""}
+    <button type="submit" class="ui-btn ui-btn--primary ui-touch-target">${icon("search")}検索</button>
+    ${query ? `<a href="${buildAnimalsUrl(filter)}" class="ui-btn ui-btn--secondary ui-touch-target">${icon("close")}クリア</a>` : ""}
   </form>
   <p class="summary">${summary}</p>
   ${animalListHtml}
@@ -6035,7 +6087,7 @@ ${renderGlobalNav("/animals")}
     ${
       animalNews.length > 0
         ? `<section>
-        <h2>📢 お知らせ（このどうぶつを含む）</h2>
+        <h2 class="icon-heading">${icon("campaign")}お知らせ（このどうぶつを含む）</h2>
         <ul class="animal-news-list">
           ${animalNews
             .map((item) => {
@@ -6147,6 +6199,7 @@ function renderTaxonomyHtml(
             <li class="order-node">
               <details>
                 <summary>
+                  ${icon("chevron_right", "tree-toggle-icon")}
                   <a href="${orderUrl}">${escapeHtml(orderNode.name)}</a>
                   <small>${orderNode.animalCount} 種 / ${orderNode.zooCount} 施設</small>
                 </summary>
@@ -6159,6 +6212,7 @@ function renderTaxonomyHtml(
         <li class="class-node">
           <details>
             <summary>
+              ${icon("chevron_right", "tree-toggle-icon")}
               <a href="${classUrl}">${escapeHtml(classNode.name)}</a>
               <small>${classNode.animalCount} 種 / ${classNode.zooCount} 施設</small>
             </summary>
@@ -6210,8 +6264,8 @@ function renderTaxonomyHtml(
     .taxonomy-tree li + li { margin-top: 0.35rem; }
     .taxonomy-tree summary { display: flex; align-items: center; gap: 0.55rem; min-height: 2.75rem; cursor: pointer; padding: 0.55rem 0.65rem; list-style: none; }
     .taxonomy-tree summary::-webkit-details-marker { display: none; }
-    .taxonomy-tree summary::before { content: "▶"; flex: 0 0 1.15rem; color: #587466; font-size: 1.05rem; line-height: 1; text-align: center; transition: transform 0.15s ease; }
-    .taxonomy-tree details[open] > summary::before { transform: rotate(90deg); }
+    .taxonomy-tree .tree-toggle-icon { flex: 0 0 1.15rem; width: 1.15rem; height: 1.15rem; color: #587466; transition: transform 0.15s ease; }
+    .taxonomy-tree details[open] > summary .tree-toggle-icon { transform: rotate(90deg); }
     .taxonomy-tree summary:hover { background: #f3f7f4; }
     .taxonomy-tree summary:focus-visible { outline: 2px solid #1f5b45; outline-offset: -2px; }
     .taxonomy-tree a { color: #1f5b45; font-weight: bold; text-decoration: none; }
@@ -6236,7 +6290,7 @@ function renderTaxonomyHtml(
       .taxonomy-tree { gap: 0.35rem; }
       .taxonomy-tree ul { margin-left: 0.25rem; padding-left: 0.45rem; }
       .taxonomy-tree summary { align-items: flex-start; gap: 0.35rem; min-height: 44px; padding: 0.65rem 0.35rem; }
-      .taxonomy-tree summary::before { flex-basis: 1.35rem; font-size: 1.15rem; margin-top: 0.05rem; }
+      .taxonomy-tree .tree-toggle-icon { flex-basis: 1.35rem; width: 1.35rem; height: 1.35rem; margin-top: 0.05rem; }
       .taxonomy-tree summary small { margin-left: auto; padding-left: 0.25rem; text-align: right; line-height: 1.4; }
       .family-node { min-height: 40px; align-items: center; padding: 0.35rem; }
       .taxonomy-links { grid-template-columns: 1fr; }
@@ -6628,7 +6682,7 @@ function renderZooDetailHtml(
     .error { color: #b00020; margin-bottom: 0.75rem; }
     .empty { color: #777; }
     .zoo-news-section { background: #fafcfb; border-left: 3px solid #1f5b45; }
-    .section-ext-link { font-size: 0.78rem; color: #1f5b45; text-decoration: none; }
+    .section-ext-link { display: inline-flex; align-items: center; gap: 0.2rem; font-size: 0.78rem; color: #1f5b45; text-decoration: none; }
     .section-ext-link:hover { text-decoration: underline; }
     .zoo-news-list { list-style: none; display: grid; gap: 0; }
     .zoo-news-list li { display: grid; gap: 0.28rem; padding: 0.6rem 0; border-bottom: 1px solid #e5eee8; }
@@ -6677,8 +6731,8 @@ ${renderGlobalNav("/zoos")}
           <p class="kana">${escapeHtml(zoo.nameKana)}</p>
         </div>
         <div class="hero-actions">
-          <a class="primary-link ui-btn ui-btn--primary ui-touch-target" href="${escapeHtml(zoo.website)}" target="_blank" rel="noopener noreferrer">公式サイトを見る</a>
-          <a class="secondary-link ui-btn ui-btn--secondary ui-touch-target" href="${buildMapUrl(zoo.prefecture, null)}#zoo-${escapeHtml(zoo.id)}">地図で見る</a>
+          <a class="primary-link ui-btn ui-btn--primary ui-touch-target" href="${escapeHtml(zoo.website)}" target="_blank" rel="noopener noreferrer">${icon("open_in_new")}公式サイトを見る</a>
+          <a class="secondary-link ui-btn ui-btn--secondary ui-touch-target" href="${buildMapUrl(zoo.prefecture, null)}#zoo-${escapeHtml(zoo.id)}">${icon("map")}地図で見る</a>
           ${renderFavoriteButton("zoo", zoo.id, zoo.name, `/zoos/${encodeURIComponent(zoo.id)}`, "large")}
         </div>
       </div>
@@ -6702,8 +6756,8 @@ ${renderGlobalNav("/zoos")}
       news.length > 0
         ? `<section class="section zoo-news-section" id="zoo-news">
         <div class="section-heading">
-          <h3>📢 お知らせ</h3>
-          <a href="${escapeHtml(zoo.website)}" target="_blank" rel="noopener noreferrer" class="section-ext-link">公式サイトで見る ↗</a>
+          <h3 class="icon-heading">${icon("campaign")}お知らせ</h3>
+          <a href="${escapeHtml(zoo.website)}" target="_blank" rel="noopener noreferrer" class="section-ext-link">公式サイトで見る${icon("open_in_new")}</a>
         </div>
         <ul class="zoo-news-list">
           ${news
@@ -7057,9 +7111,9 @@ function renderCompareIndexHtml(countRows: TaxonomyCountRow[], animalCounts: Map
     .cnt-cell.is-checked-b { background: #e8f5ee; }
     .compare-bar { position: fixed; bottom: 0; left: 0; right: 0; background: #1f5b45; color: #fff; padding: 0.75rem 1.5rem; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; z-index: 100; box-shadow: 0 -2px 8px rgba(0,0,0,0.15); }
     .compare-bar-text { flex: 1; font-size: 0.88rem; }
-    .compare-go { border: 2px solid #fff; background: #fff; color: #1f5b45; padding: 0.4rem 1rem; cursor: pointer; font-size: 0.88rem; font-weight: bold; }
+    .compare-go { display: inline-flex; align-items: center; gap: 0.3rem; border: 2px solid #fff; background: #fff; color: #1f5b45; padding: 0.4rem 1rem; cursor: pointer; font-size: 0.88rem; font-weight: bold; }
     .compare-go:disabled { opacity: 0.5; cursor: default; }
-    .compare-clear { border: 1px solid rgba(255,255,255,0.5); background: transparent; color: #fff; padding: 0.4rem 0.75rem; cursor: pointer; font-size: 0.82rem; }
+    .compare-clear { display: inline-flex; align-items: center; gap: 0.3rem; border: 1px solid rgba(255,255,255,0.5); background: transparent; color: #fff; padding: 0.4rem 0.75rem; cursor: pointer; font-size: 0.82rem; }
     @media (max-width: 640px) {
       main { padding: 0.75rem 0.5rem 5rem; }
     }
@@ -7084,8 +7138,8 @@ ${renderGlobalNav("/compare")}
   </main>
   <div class="compare-bar" id="compare-bar" hidden>
     <span class="compare-bar-text" id="compare-bar-text"></span>
-    <button class="compare-go" id="compare-go" disabled>比較する</button>
-    <button class="compare-clear" id="compare-clear">クリア</button>
+    <button class="compare-go" id="compare-go" disabled>${icon("compare_arrows")}比較する</button>
+    <button class="compare-clear" id="compare-clear">${icon("close")}クリア</button>
   </div>
   <script>
     var checked = [];
@@ -7339,7 +7393,7 @@ function renderCompareHtml(
     .compare-form { display: flex; flex-wrap: nowrap; gap: 0.5rem; align-items: center; padding: 0.75rem; background: #f8fbf9; border: 1px solid #dce7df; }
     .select-group { flex: 1 1 0; min-width: 0; }
     .select-group select { width: 100%; min-height: 42px; border: 1px solid #bbb; padding: 0.4rem 0.6rem; background: #fff; }
-    .compare-form button { min-height: 42px; border: 1px solid #1f5b45; background: #1f5b45; color: #fff; padding: 0.4rem 1.1rem; cursor: pointer; font-size: 0.9rem; flex-shrink: 0; white-space: nowrap; }
+    .compare-form button { display: inline-flex; align-items: center; gap: 0.3rem; min-height: 42px; border: 1px solid #1f5b45; background: #1f5b45; color: #fff; padding: 0.4rem 1.1rem; cursor: pointer; font-size: 0.9rem; flex-shrink: 0; white-space: nowrap; }
     @media (max-width: 640px) { .compare-form { flex-wrap: wrap; } .select-group { flex: 1 1 100%; } }
     .compare-header { display: grid; grid-template-columns: ${gridCols}; border: 1px solid #ddd; border-bottom: none; position: sticky; top: 0; z-index: 10; }
     .compare-label { padding: 0.6rem 0.85rem; background: #f3f3f3; font-size: 0.82rem; font-weight: bold; color: #555; border-right: 1px solid #ddd; display: flex; justify-content: space-between; align-items: baseline; gap: 0.4rem; }
@@ -7393,7 +7447,7 @@ ${renderGlobalNav("/compare")}
       ${zooOptions(selected[0]?.zoo.id ?? "", "a")}
       ${zooOptions(selected[1]?.zoo.id ?? "", "b")}
       ${zooOptions(selected[2]?.zoo.id ?? "", "c")}
-      <button type="submit">比較する</button>
+      <button type="submit">${icon("compare_arrows")}比較する</button>
     </form>
     <p class="heat-legend">各列内で展示数が多い「目」ほど濃い色: <span class="heat-legend-scale"><span></span><span></span><span></span><span></span><span></span></span> 少ない→多い</p>
     <div class="compare-header">${headerLabels}</div>
@@ -7489,7 +7543,7 @@ function renderMapHtml(
     .list-link { font-size: 0.85rem; color: #1f5b45; text-decoration: none; }
     .list-link:hover { text-decoration: underline; }
     .map-toolbar-actions { display: flex; align-items: center; gap: 0.45rem; }
-    .share-btn, .location-btn { font-size: 0.82rem; padding: 0.35rem 0.75rem; border: 1px solid #1f5b45; background: #fff; color: #1f5b45; cursor: pointer; line-height: 1; white-space: nowrap; }
+    .share-btn, .location-btn { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.82rem; padding: 0.35rem 0.75rem; border: 1px solid #1f5b45; background: #fff; color: #1f5b45; cursor: pointer; line-height: 1; white-space: nowrap; }
     .share-btn:hover, .location-btn:hover { background: #f1f8f3; }
     .share-btn:focus-visible, .location-btn:focus-visible { outline: 2px solid #1f5b45; outline-offset: 2px; }
     .location-btn:disabled { opacity: 0.65; cursor: wait; }
@@ -7500,8 +7554,8 @@ function renderMapHtml(
     .search-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; flex-shrink: 0; }
     .search-form input { flex: 1 1 220px; max-width: 320px; padding: 0.55rem 0.75rem; border: 1px solid #bbb; font-size: 0.95rem; }
     .search-form button, .search-form a { font-size: 0.875rem; }
-    .search-form button { border: 1px solid #1f5b45; background: #1f5b45; color: #fff; padding: 0.5rem 0.9rem; cursor: pointer; }
-    .search-form a { padding: 0.5rem 0.7rem; color: #1f5b45; text-decoration: none; border: 1px solid #1f5b45; }
+    .search-form button { display: inline-flex; align-items: center; gap: 0.3rem; border: 1px solid #1f5b45; background: #1f5b45; color: #fff; padding: 0.5rem 0.9rem; cursor: pointer; }
+    .search-form a { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.5rem 0.7rem; color: #1f5b45; text-decoration: none; border: 1px solid #1f5b45; }
     .cls-filter { display: flex; flex-wrap: wrap; gap: 0.35rem; padding: 0.5rem 1.5rem; border-bottom: 1px solid #ddd; flex-shrink: 0; }
     .cls-chip { font-size: 0.78rem; padding: 0.25rem 0.65rem; border: 1px solid #bbb; color: #555; text-decoration: none; background: #fff; white-space: nowrap; }
     .cls-chip:hover { border-color: #1f5b45; color: #1f5b45; }
@@ -7536,7 +7590,10 @@ function renderMapHtml(
       .result-list-panel { position: absolute; left: 0; right: 0; bottom: 0; width: auto; border-left: none; border-top: 1px solid #ddd; border-radius: 14px 14px 0 0; box-shadow: 0 -4px 18px rgba(0,0,0,0.18); max-height: min(68%, 420px); background: #fff; transform: translateY(0); transition: transform 0.2s ease-in-out; padding-bottom: env(safe-area-inset-bottom); }
       .result-list-panel.is-collapsed { transform: translateY(calc(100% - 44px - env(safe-area-inset-bottom))); }
       .result-list-scroll { overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch; }
-      .result-sheet-toggle { display: flex; min-height: 44px; align-items: center; justify-content: center; border: 0; border-bottom: 1px solid #e8ece9; background: #fff; color: #1f5b45; font-size: 0.82rem; font-weight: bold; cursor: pointer; }
+      .result-sheet-toggle { display: flex; min-height: 44px; align-items: center; justify-content: center; gap: 0.3rem; border: 0; border-bottom: 1px solid #e8ece9; background: #fff; color: #1f5b45; font-size: 0.82rem; font-weight: bold; cursor: pointer; }
+      .result-sheet-toggle .rst-icon-collapsed { display: none; }
+      .result-sheet-toggle[aria-expanded="false"] .rst-icon-expanded { display: none; }
+      .result-sheet-toggle[aria-expanded="false"] .rst-icon-collapsed { display: inline-flex; }
     }
   </style>
 </head>
@@ -7546,14 +7603,14 @@ ${renderGlobalNav("/map")}
   <nav class="map-toolbar">
     <a href="${buildBrowseUrl(activePref, animal)}" class="list-link">一覧で見る →</a>
     <div class="map-toolbar-actions">
-      <button type="button" class="location-btn" id="location-btn">現在地から探す</button>
-      <button type="button" class="share-btn" id="share-btn" aria-label="現在の地図状態のリンクをコピー">リンクをコピー</button>
+      <button type="button" class="location-btn" id="location-btn">${icon("my_location")}現在地から探す</button>
+      <button type="button" class="share-btn" id="share-btn" aria-label="現在の地図状態のリンクをコピー">${icon("link")}リンクをコピー</button>
     </div>
   </nav>
   <form class="search-form" action="/map" method="get">
     <input type="search" name="animal" value="${escapedAnimal}" placeholder="動物名で検索（例: パンダ）" aria-label="動物名で検索">
-    <button type="submit">検索</button>
-    ${animal ? `<a href="${buildMapUrl(activePref, null)}">クリア</a>` : ""}
+    <button type="submit">${icon("search")}検索</button>
+    ${animal ? `<a href="${buildMapUrl(activePref, null)}">${icon("close")}クリア</a>` : ""}
   </form>
   <div class="cls-filter">${classChips}</div>
   <p class="summary">${summary}</p>
@@ -7561,7 +7618,7 @@ ${renderGlobalNav("/map")}
   <div class="map-body">
     <div id="map"></div>
     <aside class="result-list-panel" aria-label="検索結果一覧">
-      <button type="button" class="result-sheet-toggle" aria-expanded="true">検索結果を閉じる</button>
+      <button type="button" class="result-sheet-toggle" aria-expanded="true">${icon("expand_less", "rst-icon-expanded")}${icon("expand_more", "rst-icon-collapsed")}<span class="rst-label">検索結果を閉じる</span></button>
       <div class="result-list-scroll">
         <ul class="result-list">${resultListHtml}</ul>
       </div>
@@ -7605,7 +7662,8 @@ ${renderGlobalNav("/map")}
       if (!resultPanel || !resultToggle) return;
       resultPanel.classList.toggle('is-collapsed', !isSheetOpen);
       resultToggle.setAttribute('aria-expanded', isSheetOpen ? 'true' : 'false');
-      resultToggle.textContent = isSheetOpen ? '検索結果を閉じる' : '検索結果を開く';
+      var resultToggleLabel = resultToggle.querySelector('.rst-label');
+      if (resultToggleLabel) resultToggleLabel.textContent = isSheetOpen ? '検索結果を閉じる' : '検索結果を開く';
     }
 
     if (resultToggle) {
@@ -7886,8 +7944,6 @@ const FAVORITES_JS = `(function () {
     if (!type || !id) return;
     var active = isFavorite(loadFavorites(), type, id);
     button.setAttribute("aria-pressed", active ? "true" : "false");
-    var icon = button.querySelector(".fav-toggle-icon");
-    if (icon) icon.textContent = active ? "\\u2605" : "\\u2606";
     var text = button.querySelector(".fav-toggle-text");
     if (text) text.textContent = active ? "お気に入り済み" : "お気に入りに追加";
     if (!text) {
@@ -7951,7 +8007,8 @@ const FAVORITES_JS = `(function () {
           return (
             '<li><a href="' + escapeHtml(entry.href) + '">' + escapeHtml(entry.label) + "</a>" +
             '<button type="button" class="ui-btn ui-btn--secondary favorites-remove" data-fav-remove data-fav-type="' +
-            type + '" data-fav-id="' + escapeHtml(entry.id) + '">削除</button></li>'
+            type + '" data-fav-id="' + escapeHtml(entry.id) + '">' +
+            '<svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1zM18 7H6v12c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7z"/></svg>削除</button></li>'
           );
         })
         .join("");

@@ -380,6 +380,7 @@ const ICONS = {
   expand_less: '<path d="M12 8l-6 6l1.41 1.41L12 10.83l4.59 4.58L18 14l-6-6z"/>',
   expand_more: '<path d="M16.59 8.59L12 13.17L7.41 8.59L6 10l6 6l6-6l-1.41-1.41z"/>',
   chevron_right: '<path d="M10 6L8.59 7.41L13.17 12l-4.58 4.59L10 18l6-6l-6-6z"/>',
+  view_list: '<path d="M3 5v14h18V5H3zm4 2v2H5V7h2zm-2 6v-2h2v2H5zm0 2h2v2H5v-2zm14 2H9v-2h10v2zm0-4H9v-2h10v2zm0-4H9V7h10v2z"/>',
 } as const satisfies Record<string, string>;
 
 type IconName = keyof typeof ICONS;
@@ -3654,21 +3655,27 @@ function renderZooCard(result: ZooSearchResult, includeMatchSummary: boolean): s
     </tr>`;
 }
 
-function buildBrowseUrl(pref: PrefectureCode | null, animal: string | null): string {
+function buildZoosUrl(
+  pref: PrefectureCode | null,
+  animal: string | null,
+  opts: { cls?: string | null; view?: "list" | "map" } = {}
+): string {
   const params = new URLSearchParams();
   if (pref) params.set("pref", pref);
   if (animal) params.set("animal", animal);
+  if (opts.cls) params.set("cls", opts.cls);
+  if (opts.view === "map") params.set("view", "map");
   const query = params.toString();
   return query ? `/zoos?${query}` : "/zoos";
 }
 
+function buildBrowseUrl(pref: PrefectureCode | null, animal: string | null): string {
+  return buildZoosUrl(pref, animal);
+}
+
+// 「地図で見る」系のリンクは /zoos の地図タブへのディープリンクを返す。
 function buildMapUrl(pref: PrefectureCode | null, animal: string | null, taxClass?: string | null): string {
-  const params = new URLSearchParams();
-  if (pref) params.set("pref", pref);
-  if (animal) params.set("animal", animal);
-  if (taxClass) params.set("cls", taxClass);
-  const query = params.toString();
-  return query ? `/map?${query}` : "/map";
+  return buildZoosUrl(pref, animal, { cls: taxClass, view: "map" });
 }
 
 function renderHomeOverview(
@@ -3932,7 +3939,7 @@ function renderHeaderSearch(url: URL, activePref: PrefectureCode | null): string
     ${prefInput}
     <label for="header-search-input">サイト内検索</label>
     <input id="header-search-input" type="search" name="q" value="${escapeHtml(value)}" placeholder="動物・動物園を検索" autocomplete="off">
-    <button type="submit">${icon("search")}<span>検索</span></button>
+    <button type="submit" aria-label="検索">${icon("search")}<span>検索</span></button>
   </form>`;
 }
 
@@ -4210,15 +4217,16 @@ const COMMON_STYLES = `
     .ui-state-actions { display: flex; flex-wrap: wrap; gap: 0.45rem; }
     @media (max-width: 640px) {
       .ui-btn, .ui-touch-target { min-height: 44px; }
-      .site-header { display: grid; gap: 0.75rem; padding: 0.75rem; }
-      .site-heading { width: 100%; }
+      .site-header { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.6rem; padding: 0.75rem; }
+      .site-heading { flex: 1 1 100%; }
       .site-header h1 { font-size: 1.2rem; line-height: 1.35; }
       .site-header p { font-size: 0.78rem; line-height: 1.45; }
-      .header-search { width: 100%; max-width: none; }
+      .header-search { flex: 1 1 140px; width: auto; min-width: 0; max-width: none; }
       .header-search input, .header-search button { min-height: 44px; }
-      .pref-selector { width: 100%; }
-      .pref-selector label { flex: 0 0 auto; }
-      .pref-selector select { flex: 1 1 auto; min-width: 0; min-height: 44px; }
+      .header-search button span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+      .pref-selector { flex: 0 1 auto; width: auto; }
+      .pref-selector label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+      .pref-selector select { flex: 1 1 auto; min-width: 0; max-width: 8rem; min-height: 44px; }
       .pref-selector button { min-height: 44px; }
       .global-nav { display: flex; flex-wrap: nowrap; gap: 0; padding: 0; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
       .global-nav a { flex: 0 0 auto; display: flex; gap: 0.3rem; min-height: 44px; align-items: center; white-space: nowrap; padding: 0.55rem 0.85rem; border-right: 1px solid #eee; font-size: 0.82rem; }
@@ -4240,20 +4248,23 @@ function renderSiteHeader(): string {
 }
 
 function renderGlobalNav(activePath: string): string {
-  const navItems: [string, IconName, string][] = [
-    ["/", "home", "トップ"],
-    ["/zoos", "location_city", "動物園一覧"],
-    ["/animals", "pets", "動物一覧"],
-    ["/taxonomy", "category", "分類から探す"],
-    ["/map", "map", "地図で見る"],
-    ["/compare", "compare_arrows", "動物園を比較"],
-    ["/news", "campaign", "お知らせ"],
-    ["/favorites", "star_border", "お気に入り"],
-    ["/admin", "admin_panel_settings", "管理"],
+  // matchKey は renderGlobalNav 呼び出し側が渡す activePath との比較専用の識別子で、
+  // href（実際のリンク先）とは独立している。/map は /zoos の地図タブへのディープ
+  // リンクだが、ナビ上は従来通り "/map" として current 判定したいためこう分けている。
+  const navItems: [matchKey: string, href: string, iconName: IconName, label: string][] = [
+    ["/", "/", "home", "トップ"],
+    ["/zoos", "/zoos", "location_city", "動物園一覧"],
+    ["/animals", "/animals", "pets", "動物一覧"],
+    ["/taxonomy", "/taxonomy", "category", "分類から探す"],
+    ["/map", "/zoos?view=map", "map", "地図で見る"],
+    ["/compare", "/compare", "compare_arrows", "動物園を比較"],
+    ["/news", "/news", "campaign", "お知らせ"],
+    ["/favorites", "/favorites", "star_border", "お気に入り"],
+    ["/admin", "/admin", "admin_panel_settings", "管理"],
   ];
   const links = navItems
-    .map(([href, iconName, label], i) => {
-      const isActive = href === "/" ? activePath === "/" : activePath === href || activePath.startsWith(`${href}/`);
+    .map(([matchKey, href, iconName, label], i) => {
+      const isActive = matchKey === "/" ? activePath === "/" : activePath === matchKey || activePath.startsWith(`${matchKey}/`);
       const cls = i === navItems.length - 1 ? ' class="nav-admin"' : "";
       return `<a href="${href}"${cls}${isActive ? ' aria-current="page"' : ""}>${icon(iconName)}<span>${label}</span></a>`;
     })
@@ -5162,62 +5173,13 @@ ${renderGlobalNav("/admin")}
 </html>`;
 }
 
-function renderHtml(
+function renderHomeHtml(
   results: ZooSearchResult[],
   activePref: PrefectureCode | null,
-  animal: string | null,
-  featuredAnimals: FeaturedAnimal[] = [],
-  page: "home" | "zoos" = "zoos",
   latestNews: ZooNewsRow[] = []
 ): string {
-  const isHome = page === "home";
-  const includeMatchSummary = Boolean(animal);
-  const rows = results.map((result) => renderZooCard(result, includeMatchSummary)).join("\n");
-  const escapedAnimal = escapeHtml(animal ?? "");
-
   const count = results.length;
-  const matchCount = results.reduce((sum, result) => sum + result.matchedAnimals.length, 0);
   const totalAnimalCount = results.reduce((sum, result) => sum + result.animalCount, 0);
-  const prefLabel = activePref && isPrefectureCode(activePref) ? PREF_LABELS[activePref] : "近畿一円";
-  const summary = animal
-    ? `${prefLabel}で「${escapedAnimal}」を探せる動物園・施設: ${count} 件 / 検索ヒット: ${matchCount} 件`
-    : `${prefLabel}の動物園・施設: ${count} 件`;
-  const emptyMessage = animal
-    ? `「${escapedAnimal}」に該当する施設が見つかりませんでした。`
-    : "該当する施設が見つかりませんでした。";
-  let zooListHtml = renderStateMessage(
-    emptyMessage,
-    animal
-      ? [
-          { href: buildBrowseUrl(activePref, null), label: "検索をクリア" },
-          { href: buildMapUrl(activePref, null), label: "地図で見る" },
-        ]
-      : [{ href: "/taxonomy", label: "分類から探す" }]
-  );
-  if (count > 0) {
-    zooListHtml = `<div class="zoo-list"><table class="zoo-table">
-    <thead>
-      <tr>
-        <th scope="col">施設名</th>
-        <th scope="col">都道府県</th>
-        <th scope="col">住所</th>
-        <th scope="col">動物種数</th>
-        <th scope="col">基本情報</th>
-        ${includeMatchSummary ? `<th scope="col">検索ヒット</th>` : ""}
-      </tr>
-    </thead>
-    <tbody>
-      ${rows}
-    </tbody>
-  </table></div>`;
-  }
-
-  const featuredZoos = animal
-    ? []
-    : [...results]
-        .filter((r) => r.animalCount > 0)
-        .sort((a, b) => b.animalCount - a.animalCount || a.zoo.name.localeCompare(b.zoo.name, "ja-JP"))
-        .slice(0, 4);
 
   return `<!DOCTYPE html>
 <html lang="ja">
@@ -5228,10 +5190,6 @@ function renderHtml(
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
-    .search-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; }
-    .search-form input { flex: 1 1 220px; max-width: 320px; padding: 0.55rem 0.75rem; border: 1px solid #bbb; font-size: 0.95rem; }
-    .search-form button, .search-form a { font-size: 0.875rem; }
-    .search-form button, .search-form a { padding: 0.5rem 0.9rem; }
     .home-overview { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.8fr); gap: 1.25rem; padding: 1.35rem 1.5rem; border-bottom: 1px solid #ddd; background: #fbfcfb; }
     .home-overview-main { display: grid; align-content: center; gap: 0.55rem; min-width: 0; }
     .home-kicker { color: #617469; font-size: 0.8rem; font-weight: bold; }
@@ -5298,31 +5256,8 @@ function renderHtml(
     .latest-news-list .news-animals { display: flex; flex-wrap: wrap; gap: 0.25rem; }
     .latest-news-list .news-animals a { font-size: 0.7rem; color: #1f5b45; background: #f0f7f3; border: 1px solid #c5dece; padding: 0.08rem 0.4rem; text-decoration: none; }
     .latest-news-list .news-animals a:hover { background: #e1f0e8; }
-    .summary { padding: 0.75rem 1.5rem; font-size: 0.9rem; color: #666; }
-    .zoo-list { padding: 1rem 1.5rem; overflow-x: auto; }
-    .zoo-table { width: 100%; border-collapse: collapse; min-width: 960px; border: 1px solid #ddd; }
-    .zoo-table th, .zoo-table td { border: 1px solid #ddd; padding: 0.65rem; vertical-align: top; font-size: 0.86rem; text-align: left; }
-    .zoo-table thead th { background: #f7f7f7; color: #555; }
-    .zoo-name a { color: #2d6a4f; text-decoration: none; font-size: 1rem; }
-    .zoo-name a:hover { text-decoration: underline; }
-    .zoo-name-links { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.45rem; font-size: 0.8rem; }
-    .zoo-name-links a { font-size: 0.8rem; font-weight: normal; }
-    .kana { font-size: 0.8rem; color: #888; margin-top: 0.25rem; }
-    .meta-list { list-style: none; display: grid; gap: 0.25rem; }
-    .meta-list li { color: #444; }
-    .match-box { padding: 0.55rem; border: 1px solid #d7eadc; border-radius: 6px; background: #f3fbf5; display: grid; gap: 0.45rem; }
-    .match-row { display: grid; gap: 0.35rem; }
-    .match-label { color: #456052; font-size: 0.75rem; font-weight: bold; }
-    .match-values { display: flex; flex-wrap: wrap; gap: 0.35rem; }
-    .match-chip { border-color: #b7dcc3; background: #fff; color: #1b5e3b; padding: 0.18rem 0.55rem; font-size: 0.75rem; font-weight: bold; }
-    .match-more { color: #5d7166; font-size: 0.75rem; align-self: center; }
-    .match-note { color: #6d756f; font-size: 0.75rem; line-height: 1.5; }
-    .empty { padding: 2rem 1.5rem; color: #888; }
     footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; }
     @media (max-width: 700px) {
-      .search-form { display: grid; grid-template-columns: 1fr auto; padding: 0.75rem; }
-      .search-form input { width: 100%; max-width: none; min-width: 0; min-height: 44px; grid-column: 1 / -1; }
-      .search-form button, .search-form a { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; }
       .home-overview { grid-template-columns: 1fr; gap: 0.85rem; padding: 1rem 0.75rem; }
       .home-overview h2 { font-size: 1.15rem; }
       .home-lead { font-size: 0.86rem; }
@@ -5338,32 +5273,15 @@ function renderHtml(
       .spotlight-heading { display: grid; gap: 0.25rem; }
       .spotlight-animal-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .spotlight-zoo-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .summary { padding: 0.7rem 0.75rem; line-height: 1.5; }
-      .zoo-list { padding: 0.75rem; overflow: visible; }
-      .zoo-table { min-width: 0; border: 0; }
-      .zoo-table thead { display: none; }
-      .zoo-table tbody, .zoo-table tr, .zoo-table th, .zoo-table td { display: block; width: 100%; }
-      .zoo-table tr { margin-bottom: 0.75rem; border: 1px solid #d8ddd9; }
-      .zoo-table th, .zoo-table td { border: 0; border-bottom: 1px solid #e5e8e6; padding: 0.7rem 0.75rem; }
-      .zoo-table td:empty { display: none; }
-      .zoo-table tr > :last-child { border-bottom: 0; }
-      .zoo-table td::before { content: attr(data-label); display: block; margin-bottom: 0.35rem; color: #6a746d; font-size: 0.7rem; font-weight: bold; }
-      .zoo-name { background: #f7faf8; }
-      .empty { padding: 1.5rem 0.75rem; }
       footer { padding: 1rem 0.75rem; line-height: 1.5; }
     }
   </style>
 </head>
 <body>
 ${renderSiteHeader()}
-${renderGlobalNav(isHome ? "/" : "/zoos")}
-  ${isHome ? renderHomeOverview(activePref, count, totalAnimalCount) : ""}
-  ${isHome ? "" : `<form class="search-form" action="/zoos" method="get">
-    <input type="search" name="animal" value="${escapedAnimal}" placeholder="動物名で検索（例: パンダ）" aria-label="動物名で検索">
-    <button type="submit" class="ui-btn ui-btn--primary ui-touch-target">${icon("search")}検索</button>
-    ${animal ? `<a href="${buildBrowseUrl(activePref, null)}" class="ui-btn ui-btn--secondary ui-touch-target">${icon("close")}クリア</a>` : ""}
-  </form>`}
-  ${isHome && latestNews.length > 0 ? `<section class="latest-news-section">
+${renderGlobalNav("/")}
+  ${renderHomeOverview(activePref, count, totalAnimalCount)}
+  ${latestNews.length > 0 ? `<section class="latest-news-section">
     <div class="latest-news-heading">
       <h2 class="icon-heading">${icon("campaign")}最新のお知らせ</h2>
       <a href="/news" class="section-link">すべて見る →</a>
@@ -5388,12 +5306,6 @@ ${renderGlobalNav(isHome ? "/" : "/zoos")}
       }).join("")}
     </ul>
   </section>` : ""}
-  ${
-    isHome
-      ? ""
-      : `<p class="summary">${summary}</p>
-  ${zooListHtml}`
-  }
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
   <script src="/favorites.js" defer></script>
 </body>
@@ -7466,16 +7378,76 @@ ${renderGlobalNav("/compare")}
 const MAP_CLASS_FILTERS = ["哺乳類", "鳥類", "爬虫類", "両生類", "魚類", "軟骨魚類", "無脊椎動物"];
 const MAP_MOBILE_BREAKPOINT = 640;
 
-function renderMapHtml(
+function renderZoosHtml(
   results: ZooSearchResult[],
   activePref: PrefectureCode | null,
   animal: string | null,
   taxClass: string | null = null,
+  view: "list" | "map" = "list",
   initialLat: number | null = null,
   initialLon: number | null = null,
   initialZoom: number | null = null
 ): string {
   const escapedAnimal = escapeHtml(animal ?? "");
+  const includeMatchSummary = Boolean(animal || taxClass);
+
+  const count = results.length;
+  const matchCount = results.reduce((sum, result) => sum + result.matchedAnimals.length, 0);
+  const prefLabel = activePref && isPrefectureCode(activePref) ? PREF_LABELS[activePref] : "近畿一円";
+  const summary = taxClass
+    ? `${prefLabel}で${escapeHtml(taxClass)}を見られる動物園・施設: ${count} 件 / ${matchCount} 種`
+    : animal
+      ? `${prefLabel}で「${escapedAnimal}」を探せる動物園・施設: ${count} 件 / 検索ヒット: ${matchCount} 件`
+      : `${prefLabel}の動物園・施設: ${count} 件`;
+
+  const classChips = MAP_CLASS_FILTERS.map((cls) => {
+    const active = cls === taxClass;
+    const href = active
+      ? buildZoosUrl(activePref, null, { view })
+      : buildZoosUrl(activePref, null, { cls, view });
+    return `<a href="${escapeHtml(href)}" class="cls-chip${active ? " cls-chip--active" : ""}">${escapeHtml(cls)}</a>`;
+  }).join("");
+
+  const clearHref = buildZoosUrl(activePref, null, { view });
+
+  if (count === 0) {
+    const emptyMessage = animal
+      ? `「${escapedAnimal}」に該当する施設が見つかりませんでした。`
+      : taxClass
+        ? "選択した分類に該当する施設が見つかりませんでした。"
+        : "表示できる施設が見つかりませんでした。";
+    const emptyStateHtml = renderStateMessage(emptyMessage, [
+      ...(animal || taxClass ? [{ href: clearHref, label: "検索条件をクリア" }] : []),
+      { href: buildZoosUrl(activePref, null), label: "動物園一覧へ戻る" },
+    ]);
+    return renderZoosShell({
+      activePref,
+      animal,
+      escapedAnimal,
+      taxClass,
+      view,
+      classChips,
+      bodyHtml: `<p class="summary">${summary}</p>\n  ${emptyStateHtml}`,
+      showResultPanel: false,
+    });
+  }
+
+  const rows = results.map((result) => renderZooCard(result, includeMatchSummary)).join("\n");
+  const zooListHtml = `<div class="zoo-list"><table class="zoo-table">
+    <thead>
+      <tr>
+        <th scope="col">施設名</th>
+        <th scope="col">都道府県</th>
+        <th scope="col">住所</th>
+        <th scope="col">動物種数</th>
+        <th scope="col">基本情報</th>
+        ${includeMatchSummary ? `<th scope="col">検索ヒット</th>` : ""}
+      </tr>
+    </thead>
+    <tbody>
+      ${rows}
+    </tbody>
+  </table></div>`;
 
   // Embed only the data needed for map markers; safe to embed as JSON in <script>
   const mapData = JSON.stringify(
@@ -7489,31 +7461,7 @@ function renderMapHtml(
     }))
   ).replace(/<\//g, "<\\/");
 
-  const count = results.length;
-  const matchCount = results.reduce((sum, result) => sum + result.matchedAnimals.length, 0);
-  const prefLabel = activePref && isPrefectureCode(activePref) ? PREF_LABELS[activePref] : "近畿一円";
-  const summary = taxClass
-    ? `${prefLabel} で${escapeHtml(taxClass)}を見られる動物園・施設: ${count} 件 / ${matchCount} 種`
-    : animal
-      ? `${prefLabel} で「${escapedAnimal}」を探せる動物園・施設: ${count} 件 / 検索ヒット: ${matchCount} 件`
-      : `${prefLabel} の動物園・施設: ${count} 件`;
-
-  const showPanel = (animal || taxClass) && results.length > 0;
-  const mapStateMessage =
-    count === 0
-      ? renderStateMessage(
-          animal
-            ? "検索条件に該当する施設が見つかりませんでした。"
-            : taxClass
-              ? "選択した分類に該当する施設が見つかりませんでした。"
-              : "表示できる施設が見つかりませんでした。",
-          [
-            ...(animal || taxClass ? [{ href: buildMapUrl(activePref, null), label: "検索条件をクリア" }] : []),
-            { href: buildBrowseUrl(activePref, null), label: "動物園一覧へ戻る" },
-          ]
-        )
-      : "";
-
+  const showPanel = Boolean(animal || taxClass);
   const resultListHtml = showPanel
     ? results.map((r) => {
         const matched = r.matchedAnimals.map((a) => `<a href="/animal/${encodeURIComponent(a)}">${escapeHtml(a)}</a>`).join("、");
@@ -7527,27 +7475,399 @@ function renderMapHtml(
       }).join("\n")
     : "";
 
-  const classChips = MAP_CLASS_FILTERS.map((cls) => {
-    const active = cls === taxClass;
-    const href = active ? buildMapUrl(activePref, null) : buildMapUrl(activePref, null, cls);
-    return `<a href="${escapeHtml(href)}" class="cls-chip${active ? " cls-chip--active" : ""}">${escapeHtml(cls)}</a>`;
-  }).join("");
+  const mapPaneHtml = `<div class="view-pane" id="view-map"${view === "map" ? "" : " hidden"}>
+    <nav class="map-toolbar">
+      <div class="map-toolbar-actions">
+        <button type="button" class="location-btn" id="location-btn">${icon("my_location")}現在地から探す</button>
+        <button type="button" class="share-btn" id="share-btn" aria-label="現在の地図状態のリンクをコピー">${icon("link")}リンクをコピー</button>
+      </div>
+    </nav>
+    <div class="map-body">
+      <div id="map"></div>
+      <aside class="result-list-panel" aria-label="検索結果一覧">
+        <button type="button" class="result-sheet-toggle" aria-expanded="true">${icon("expand_less", "rst-icon-expanded")}${icon("expand_more", "rst-icon-collapsed")}<span class="rst-label">検索結果を閉じる</span></button>
+        <div class="result-list-scroll">
+          <ul class="result-list">${resultListHtml}</ul>
+        </div>
+      </aside>
+    </div>
+    <div class="share-toast" id="share-toast" role="status" aria-live="polite"></div>
+  </div>`;
 
+  const listPaneHtml = `<div class="view-pane" id="view-list"${view === "map" ? " hidden" : ""}>
+    ${zooListHtml}
+  </div>`;
+
+  const mapScript = `
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script>
+    var kzZoos = ${mapData};
+    var kzInitLat = ${initialLat !== null ? String(initialLat) : "null"};
+    var kzInitLon = ${initialLon !== null ? String(initialLon) : "null"};
+    var kzInitZoom = ${initialZoom !== null ? String(initialZoom) : "null"};
+    var kzMap = null;
+    var kzMapInitialized = false;
+
+    function esc(s) {
+      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function initMapIfNeeded() {
+      if (kzMapInitialized) return;
+      kzMapInitialized = true;
+
+      var map = (kzInitLat !== null && kzInitLon !== null && kzInitZoom !== null)
+        ? L.map('map').setView([kzInitLat, kzInitLon], kzInitZoom)
+        : L.map('map');
+      kzMap = map;
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      }).addTo(map);
+
+      var markers = {};
+      var resultItemsByZooId = {};
+      var resultPanel = document.querySelector('.result-list-panel');
+      var resultToggle = document.querySelector('.result-sheet-toggle');
+      var mobileViewportQuery = window.matchMedia('(max-width: ${MAP_MOBILE_BREAKPOINT}px)');
+      var reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+      var hasSearchResults = ${showPanel ? "true" : "false"};
+      var isSheetOpen = !mobileViewportQuery.matches || hasSearchResults;
+      var prevFocused = null;
+      var prevMarker = null;
+      var locationMarker = null;
+
+      function shouldSmoothScroll() {
+        return !reducedMotionQuery.matches;
+      }
+
+      function setSheetOpen(nextOpen) {
+        isSheetOpen = nextOpen;
+        if (!resultPanel || !resultToggle) return;
+        resultPanel.classList.toggle('is-collapsed', !isSheetOpen);
+        resultToggle.setAttribute('aria-expanded', isSheetOpen ? 'true' : 'false');
+        var resultToggleLabel = resultToggle.querySelector('.rst-label');
+        if (resultToggleLabel) resultToggleLabel.textContent = isSheetOpen ? '検索結果を閉じる' : '検索結果を開く';
+      }
+
+      if (resultToggle) {
+        resultToggle.addEventListener('click', function() {
+          setSheetOpen(!isSheetOpen);
+        });
+        setSheetOpen(isSheetOpen);
+        var syncSheetToViewport = function(event) {
+          setSheetOpen(!event.matches || hasSearchResults);
+        };
+        if (mobileViewportQuery.addEventListener) {
+          mobileViewportQuery.addEventListener('change', syncSheetToViewport);
+        } else if (mobileViewportQuery.addListener) {
+          mobileViewportQuery.addListener(syncSheetToViewport);
+        }
+      }
+
+      if (resultPanel) {
+        // Prevent Leaflet from capturing scroll/wheel events within the bottom sheet panel,
+        // which would otherwise zoom or pan the map while the user scrolls the result list.
+        L.DomEvent.disableScrollPropagation(resultPanel);
+      }
+
+      if (window.visualViewport) {
+        // On iOS Safari the visual viewport changes height when the address bar shows or
+        // hides, but the layout viewport does not fire a regular resize event in time.
+        // Calling invalidateSize() ensures Leaflet recalculates the map container size
+        // after such changes so tiles and controls remain correctly positioned.
+        window.visualViewport.addEventListener('resize', function() {
+          map.invalidateSize();
+        });
+      }
+
+      function activateResult(id, options) {
+        options = options || {};
+        if (options.openSheet || options.scroll) {
+          setSheetOpen(true);
+        }
+        var item = resultItemsByZooId[id];
+        if (item) {
+          if (prevFocused) prevFocused.classList.remove('is-focused');
+          item.classList.add('is-focused');
+          prevFocused = item;
+          if (options.scroll) item.scrollIntoView({ block: 'nearest', behavior: shouldSmoothScroll() ? 'smooth' : 'auto' });
+        }
+        if (prevMarker) {
+          var prevEl = prevMarker.getElement();
+          if (prevEl) prevEl.classList.remove('marker-active');
+        }
+        var marker = markers[id];
+        if (marker) {
+          var markerEl = marker.getElement();
+          if (markerEl) markerEl.classList.add('marker-active');
+          marker.openPopup();
+          prevMarker = marker;
+        }
+      }
+
+      function distanceInKm(lat1, lon1, lat2, lon2) {
+        var radians = Math.PI / 180;
+        var dLat = (lat2 - lat1) * radians;
+        var dLon = (lon2 - lon1) * radians;
+        var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(lat1 * radians) * Math.cos(lat2 * radians) *
+          Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      }
+
+      function formatDistance(km) {
+        return km < 1 ? Math.round(km * 1000) + 'm' : km.toFixed(km < 10 ? 1 : 0) + 'km';
+      }
+
+      function sortResultsByDistance(lat, lon) {
+        var list = document.querySelector('.result-list');
+        if (!list) return;
+        var items = Object.keys(resultItemsByZooId).map(function(id) {
+          var zoo = kzZoos.find(function(item) { return item.id === id; });
+          var item = resultItemsByZooId[id];
+          return { zoo: zoo, item: item, distance: zoo ? distanceInKm(lat, lon, zoo.lat, zoo.lon) : Infinity };
+        }).filter(function(entry) { return entry.zoo && entry.item; });
+        items.sort(function(a, b) { return a.distance - b.distance; });
+        items.forEach(function(entry) {
+          var name = entry.item.querySelector('.result-name');
+          var distance = entry.item.querySelector('.result-distance');
+          if (!distance) {
+            distance = document.createElement('span');
+            distance.className = 'result-distance';
+            name.appendChild(distance);
+          }
+          distance.textContent = formatDistance(entry.distance);
+          list.appendChild(entry.item);
+        });
+      }
+
+      kzZoos.forEach(function(zoo) {
+        var matchLine = ${animal ? "true" : "false"} ? '<br><span>検索ヒット: ' + zoo.matchCount + ' 件</span>' : '';
+        var animalCountLine = '<br><span>動物種数: ' + (zoo.animalCount > 0 ? zoo.animalCount + ' 種' : '未取得') + '</span>';
+        var marker = L.marker([zoo.lat, zoo.lon])
+          .bindPopup('<b><a href="/zoos/' + esc(zoo.id) + '${activePref ? `?pref=${activePref}` : ""}">' + esc(zoo.name) + '</a></b>' + matchLine + animalCountLine)
+          .addTo(map);
+        marker.on('click', function() {
+          activateResult(zoo.id, { openSheet: true, scroll: true });
+        });
+        markers[zoo.id] = marker;
+      });
+      if (kzInitLat === null || kzInitLon === null || kzInitZoom === null) {
+        if (kzZoos.length > 0) {
+          var bounds = L.latLngBounds(kzZoos.map(function(z) { return [z.lat, z.lon]; }));
+          map.fitBounds(bounds, { padding: [40, 40] });
+        } else {
+          map.setView([34.7, 135.5], 8);
+        }
+      }
+
+      function updateUrlFromMap() {
+        var center = map.getCenter();
+        var zoom = map.getZoom();
+        var lat = Math.round(center.lat * 10000) / 10000;
+        var lon = Math.round(center.lng * 10000) / 10000;
+        var z = Math.round(zoom * 10) / 10;
+        var url = new URL(window.location.href);
+        url.searchParams.set('lat', String(lat));
+        url.searchParams.set('lon', String(lon));
+        url.searchParams.set('z', String(z));
+        history.replaceState(null, '', url.toString());
+      }
+      map.on('moveend', updateUrlFromMap);
+      map.on('zoomend', updateUrlFromMap);
+
+      var shareBtn = document.getElementById('share-btn');
+      var shareToast = document.getElementById('share-toast');
+      var toastTimer = null;
+
+      function showToast(msg, isError) {
+        if (!shareToast) return;
+        shareToast.textContent = msg;
+        shareToast.className = 'share-toast ' + (isError ? 'share-toast--error' : 'share-toast--ok');
+        if (toastTimer) clearTimeout(toastTimer);
+        toastTimer = setTimeout(function() {
+          shareToast.className = 'share-toast';
+        }, 3000);
+      }
+
+      if (shareBtn) {
+        shareBtn.addEventListener('click', function() {
+          updateUrlFromMap();
+          var shareUrl = window.location.href;
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(shareUrl).then(function() {
+              showToast('URLをコピーしました', false);
+            }, function() {
+              showToast('コピーに失敗しました', true);
+            });
+          } else {
+            try {
+              var ta = document.createElement('textarea');
+              ta.value = shareUrl;
+              ta.style.cssText = 'position:fixed;top:-1000px;left:-1000px;opacity:0;';
+              ta.setAttribute('readonly', '');
+              document.body.appendChild(ta);
+              ta.setSelectionRange(0, ta.value.length);
+              document.execCommand('copy');
+              document.body.removeChild(ta);
+              showToast('URLをコピーしました', false);
+            } catch (e) {
+              showToast('コピーに失敗しました', true);
+            }
+          }
+        });
+      }
+
+      var locationBtn = document.getElementById('location-btn');
+      if (locationBtn) {
+        locationBtn.addEventListener('click', function() {
+          if (!navigator.geolocation) {
+            showToast('このブラウザでは現在地を取得できません', true);
+            return;
+          }
+          locationBtn.disabled = true;
+          locationBtn.textContent = '現在地を取得中…';
+          navigator.geolocation.getCurrentPosition(function(position) {
+            var lat = position.coords.latitude;
+            var lon = position.coords.longitude;
+            if (locationMarker) map.removeLayer(locationMarker);
+            locationMarker = L.circleMarker([lat, lon], {
+              radius: 9, color: '#155eef', weight: 3, fillColor: '#fff', fillOpacity: 1
+            }).addTo(map).bindPopup('現在地').openPopup();
+            map.setView([lat, lon], Math.max(map.getZoom(), 11));
+            sortResultsByDistance(lat, lon);
+            locationBtn.disabled = false;
+            locationBtn.textContent = '現在地から探す';
+            showToast('近い順に並べ替えました', false);
+          }, function(error) {
+            locationBtn.disabled = false;
+            locationBtn.textContent = '現在地から探す';
+            showToast(error.code === 1 ? '現在地の利用が許可されませんでした' : '現在地を取得できませんでした', true);
+          }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 });
+        });
+      }
+
+      document.querySelectorAll('.result-item').forEach(function(item) {
+        var id = item.dataset.zooId;
+        if (id) resultItemsByZooId[id] = item;
+        function activate() {
+          if (id) activateResult(id);
+        }
+        item.addEventListener('mouseenter', activate);
+        item.addEventListener('focusin', activate);
+        item.addEventListener('click', function() {
+          if (id) activateResult(id, { openSheet: true });
+        });
+      });
+
+      requestAnimationFrame(function() { map.invalidateSize(); });
+    }
+
+    var kzCurrentView = ${JSON.stringify(view)};
+
+    function kzSetView(next) {
+      kzCurrentView = next;
+      var listPane = document.getElementById('view-list');
+      var mapPane = document.getElementById('view-map');
+      if (listPane) listPane.hidden = next !== 'list';
+      if (mapPane) mapPane.hidden = next !== 'map';
+      document.querySelectorAll('[data-view-btn]').forEach(function(btn) {
+        var active = btn.dataset.viewBtn === next;
+        btn.classList.toggle('view-toggle-btn--active', active);
+        btn.setAttribute('aria-selected', active ? 'true' : 'false');
+      });
+      var url = new URL(window.location.href);
+      url.searchParams.set('view', next);
+      history.replaceState(null, '', url.toString());
+      var viewInput = document.getElementById('search-form-view');
+      if (viewInput) viewInput.value = next;
+      if (next === 'map') {
+        initMapIfNeeded();
+        if (kzMap) requestAnimationFrame(function() { kzMap.invalidateSize(); });
+      }
+    }
+
+    document.querySelectorAll('[data-view-btn]').forEach(function(btn) {
+      btn.addEventListener('click', function() { kzSetView(btn.dataset.viewBtn); });
+    });
+
+    kzSetView(kzCurrentView);
+  </script>`;
+
+  return renderZoosShell({
+    activePref,
+    animal,
+    escapedAnimal,
+    taxClass,
+    view,
+    classChips,
+    bodyHtml: `<p class="summary">${summary}</p>
+  <div class="view-toggle" role="tablist" aria-label="表示切り替え">
+    <button type="button" class="view-toggle-btn" data-view-btn="list" role="tab" aria-selected="${view === "list" ? "true" : "false"}">${icon("view_list")}リスト</button>
+    <button type="button" class="view-toggle-btn" data-view-btn="map" role="tab" aria-selected="${view === "map" ? "true" : "false"}">${icon("map")}地図</button>
+  </div>
+  ${listPaneHtml}
+  ${mapPaneHtml}`,
+    showResultPanel: showPanel,
+    mapScript,
+  });
+}
+
+function renderZoosShell(opts: {
+  activePref: PrefectureCode | null;
+  animal: string | null;
+  escapedAnimal: string;
+  taxClass: string | null;
+  view: "list" | "map";
+  classChips: string;
+  bodyHtml: string;
+  showResultPanel?: boolean;
+  mapScript?: string;
+}): string {
+  const { activePref, animal, escapedAnimal, taxClass, view, classChips, bodyHtml, mapScript } = opts;
   return `<!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>地図 | 近畿動物園情報</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+  <title>動物園一覧 | 近畿動物園情報</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: sans-serif; background: #fff; color: #222; display: flex; flex-direction: column; height: 100vh; height: 100dvh; }${COMMON_STYLES}
-    .site-header { flex-shrink: 0; }
-    .global-nav { flex-shrink: 0; }
-    .map-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 0.55rem 1.5rem; border-bottom: 1px solid #ddd; flex-shrink: 0; gap: 0.5rem; }
-    .list-link { font-size: 0.85rem; color: #1f5b45; text-decoration: none; }
-    .list-link:hover { text-decoration: underline; }
+    body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
+    .search-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; }
+    .search-form input { flex: 1 1 220px; max-width: 320px; padding: 0.55rem 0.75rem; border: 1px solid #bbb; font-size: 0.95rem; }
+    .search-form button, .search-form a { font-size: 0.875rem; padding: 0.5rem 0.9rem; }
+    .cls-filter { display: flex; flex-wrap: wrap; gap: 0.35rem; padding: 0.6rem 1.5rem; border-bottom: 1px solid #ddd; }
+    .cls-chip { font-size: 0.78rem; padding: 0.25rem 0.65rem; border: 1px solid #bbb; color: #555; text-decoration: none; background: #fff; white-space: nowrap; }
+    .cls-chip:hover { border-color: #1f5b45; color: #1f5b45; }
+    .cls-chip--active { background: #1f5b45; color: #fff; border-color: #1f5b45; }
+    .summary { padding: 0.75rem 1.5rem 0; font-size: 0.9rem; color: #666; }
+    .view-toggle { display: inline-flex; gap: 0.3rem; margin: 0.75rem 1.5rem; border: 1px solid #d3e0d8; background: #f3f7f4; padding: 0.25rem; border-radius: 6px; width: fit-content; }
+    .view-toggle-btn { display: inline-flex; align-items: center; gap: 0.35rem; border: 0; background: transparent; color: #4c5d53; padding: 0.4rem 0.9rem; font-size: 0.85rem; font-weight: bold; cursor: pointer; border-radius: 4px; }
+    .view-toggle-btn--active { background: #1f5b45; color: #fff; }
+    .view-pane[hidden] { display: none; }
+    .zoo-list { padding: 0 1.5rem 1.5rem; overflow-x: auto; }
+    .zoo-table { width: 100%; border-collapse: collapse; min-width: 960px; border: 1px solid #ddd; }
+    .zoo-table th, .zoo-table td { border: 1px solid #ddd; padding: 0.65rem; vertical-align: top; font-size: 0.86rem; text-align: left; }
+    .zoo-table thead th { background: #f7f7f7; color: #555; }
+    .zoo-name a { color: #2d6a4f; text-decoration: none; font-size: 1rem; }
+    .zoo-name a:hover { text-decoration: underline; }
+    .zoo-name-links { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.45rem; font-size: 0.8rem; }
+    .zoo-name-links a { font-size: 0.8rem; font-weight: normal; }
+    .kana { font-size: 0.8rem; color: #888; margin-top: 0.25rem; }
+    .meta-list { list-style: none; display: grid; gap: 0.25rem; }
+    .meta-list li { color: #444; }
+    .match-box { padding: 0.55rem; border: 1px solid #d7eadc; border-radius: 6px; background: #f3fbf5; display: grid; gap: 0.45rem; }
+    .match-row { display: grid; gap: 0.35rem; }
+    .match-label { color: #456052; font-size: 0.75rem; font-weight: bold; }
+    .match-values { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+    .match-chip { border-color: #b7dcc3; background: #fff; color: #1b5e3b; padding: 0.18rem 0.55rem; font-size: 0.75rem; font-weight: bold; }
+    .match-more { color: #5d7166; font-size: 0.75rem; align-self: center; }
+    .match-note { color: #6d756f; font-size: 0.75rem; line-height: 1.5; }
+    .empty { padding: 2rem 1.5rem; color: #888; }
+    .map-toolbar { display: flex; justify-content: flex-end; align-items: center; padding: 0.6rem 1.5rem 0; gap: 0.5rem; }
     .map-toolbar-actions { display: flex; align-items: center; gap: 0.45rem; }
     .share-btn, .location-btn { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.82rem; padding: 0.35rem 0.75rem; border: 1px solid #1f5b45; background: #fff; color: #1f5b45; cursor: pointer; line-height: 1; white-space: nowrap; }
     .share-btn:hover, .location-btn:hover { background: #f1f8f3; }
@@ -7557,19 +7877,9 @@ function renderMapHtml(
     .share-toast { position: fixed; bottom: 1.25rem; left: 50%; transform: translateX(-50%); padding: 0.5rem 1.1rem; border-radius: 4px; font-size: 0.85rem; z-index: 2000; opacity: 0; visibility: hidden; transition: opacity 0.25s, visibility 0.25s; pointer-events: none; white-space: nowrap; }
     .share-toast--ok { background: #1f5b45; color: #fff; opacity: 1; visibility: visible; }
     .share-toast--error { background: #b91c1c; color: #fff; opacity: 1; visibility: visible; }
-    .search-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; flex-shrink: 0; }
-    .search-form input { flex: 1 1 220px; max-width: 320px; padding: 0.55rem 0.75rem; border: 1px solid #bbb; font-size: 0.95rem; }
-    .search-form button, .search-form a { font-size: 0.875rem; }
-    .search-form button { display: inline-flex; align-items: center; gap: 0.3rem; border: 1px solid #1f5b45; background: #1f5b45; color: #fff; padding: 0.5rem 0.9rem; cursor: pointer; }
-    .search-form a { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.5rem 0.7rem; color: #1f5b45; text-decoration: none; border: 1px solid #1f5b45; }
-    .cls-filter { display: flex; flex-wrap: wrap; gap: 0.35rem; padding: 0.5rem 1.5rem; border-bottom: 1px solid #ddd; flex-shrink: 0; }
-    .cls-chip { font-size: 0.78rem; padding: 0.25rem 0.65rem; border: 1px solid #bbb; color: #555; text-decoration: none; background: #fff; white-space: nowrap; }
-    .cls-chip:hover { border-color: #1f5b45; color: #1f5b45; }
-    .cls-chip--active { background: #1f5b45; color: #fff; border-color: #1f5b45; }
-    .summary { padding: 0.4rem 1.5rem; font-size: 0.9rem; color: #666; flex-shrink: 0; }
-    .map-body { flex: 1; min-height: 0; display: flex; }
+    .map-body { position: relative; height: min(70vh, 640px); min-height: 420px; display: flex; margin: 0.75rem 1.5rem 1.5rem; border: 1px solid #ddd; }
     #map { flex: 1; min-height: 0; min-width: 0; }
-    .result-list-panel { width: 300px; flex-shrink: 0; border-left: 1px solid #ddd; display: ${showPanel ? "flex" : "none"}; flex-direction: column; min-height: 0; }
+    .result-list-panel { width: 300px; flex-shrink: 0; border-left: 1px solid #ddd; display: ${opts.showResultPanel ? "flex" : "none"}; flex-direction: column; min-height: 0; }
     .result-sheet-toggle { display: none; }
     .result-list-scroll { flex: 1; min-height: 0; overflow-y: auto; }
     .result-list { list-style: none; }
@@ -7583,306 +7893,51 @@ function renderMapHtml(
     .result-animals a { color: #1f5b45; text-decoration: none; }
     .result-animals a:hover { text-decoration: underline; }
     .marker-active { filter: hue-rotate(160deg) saturate(2) brightness(1.1); }
-    @media (max-width: ${MAP_MOBILE_BREAKPOINT}px) {
-      .map-toolbar { padding: 0 0.75rem; }
-      .list-link { display: flex; min-height: 44px; align-items: center; }
-      .share-btn, .location-btn { min-height: 44px; }
-      .search-form { display: grid; grid-template-columns: 1fr auto; padding: 0.65rem 0.75rem; }
+    @media (max-width: 700px) {
+      .search-form { display: grid; grid-template-columns: 1fr auto; padding: 0.75rem; }
       .search-form input { width: 100%; max-width: none; min-width: 0; min-height: 44px; grid-column: 1 / -1; }
       .search-form button, .search-form a { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; }
-      .summary { padding: 0.45rem 0.75rem; font-size: 0.8rem; line-height: 1.4; }
-      .map-body { position: relative; }
-      #map { min-height: 320px; }
+      .summary { padding: 0.7rem 0.75rem 0; line-height: 1.5; }
+      .view-toggle { margin: 0.65rem 0.75rem; }
+      .zoo-list { padding: 0 0.75rem 0.75rem; overflow: visible; }
+      .zoo-table { min-width: 0; border: 0; }
+      .zoo-table thead { display: none; }
+      .zoo-table tbody, .zoo-table tr, .zoo-table th, .zoo-table td { display: block; width: 100%; }
+      .zoo-table tr { margin-bottom: 0.75rem; border: 1px solid #d8ddd9; }
+      .zoo-table th, .zoo-table td { border: 0; border-bottom: 1px solid #e5e8e6; padding: 0.7rem 0.75rem; }
+      .zoo-table td:empty { display: none; }
+      .zoo-table tr > :last-child { border-bottom: 0; }
+      .zoo-table td::before { content: attr(data-label); display: block; margin-bottom: 0.35rem; color: #6a746d; font-size: 0.7rem; font-weight: bold; }
+      .zoo-name { background: #f7faf8; }
+      .empty { padding: 1.5rem 0.75rem; }
+      .map-toolbar { padding: 0.5rem 0.75rem 0; }
+      .share-btn, .location-btn { min-height: 44px; }
+      .map-body { position: relative; margin: 0.5rem 0.75rem 0.75rem; height: 60vh; min-height: 320px; }
       .result-list-panel { position: absolute; left: 0; right: 0; bottom: 0; z-index: 1000; width: auto; border-left: none; border-top: 1px solid #ddd; border-radius: 14px 14px 0 0; box-shadow: 0 -4px 18px rgba(0,0,0,0.18); max-height: min(68%, 420px); background: #fff; transform: translateY(0); transition: transform 0.2s ease-in-out; padding-bottom: env(safe-area-inset-bottom); }
       .result-list-panel.is-collapsed { transform: translateY(calc(100% - 44px - env(safe-area-inset-bottom))); }
       .result-list-scroll { overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch; }
-      .result-sheet-toggle { display: flex; min-height: 44px; align-items: center; justify-content: center; gap: 0.3rem; border: 0; border-bottom: 1px solid #e8ece9; background: #fff; color: #1f5b45; font-size: 0.82rem; font-weight: bold; cursor: pointer; }
+      .result-sheet-toggle { display: flex; min-height: 44px; align-items: center; justify-content: center; gap: 0.3rem; border: 0; border-bottom: 1px solid #e8ece9; background: #fff; color: #1f5b45; font-size: 0.82rem; font-weight: bold; cursor: pointer; flex-shrink: 0; }
       .result-sheet-toggle .rst-icon-collapsed { display: none; }
       .result-sheet-toggle[aria-expanded="false"] .rst-icon-expanded { display: none; }
       .result-sheet-toggle[aria-expanded="false"] .rst-icon-collapsed { display: inline-flex; }
+      footer { padding: 1rem 0.75rem; line-height: 1.5; }
     }
   </style>
 </head>
 <body>
 ${renderSiteHeader()}
-${renderGlobalNav("/map")}
-  <nav class="map-toolbar">
-    <a href="${buildBrowseUrl(activePref, animal)}" class="list-link">一覧で見る →</a>
-    <div class="map-toolbar-actions">
-      <button type="button" class="location-btn" id="location-btn">${icon("my_location")}現在地から探す</button>
-      <button type="button" class="share-btn" id="share-btn" aria-label="現在の地図状態のリンクをコピー">${icon("link")}リンクをコピー</button>
-    </div>
-  </nav>
-  <form class="search-form" action="/map" method="get">
+${renderGlobalNav(view === "map" ? "/map" : "/zoos")}
+  <form class="search-form" action="/zoos" method="get">
     <input type="search" name="animal" value="${escapedAnimal}" placeholder="動物名で検索（例: パンダ）" aria-label="動物名で検索">
-    <button type="submit">${icon("search")}検索</button>
-    ${animal ? `<a href="${buildMapUrl(activePref, null)}">${icon("close")}クリア</a>` : ""}
+    ${taxClass ? `<input type="hidden" name="cls" value="${escapeHtml(taxClass)}">` : ""}
+    <input type="hidden" name="view" id="search-form-view" value="${view}">
+    <button type="submit" class="ui-btn ui-btn--primary ui-touch-target">${icon("search")}検索</button>
+    ${animal ? `<a href="${escapeHtml(buildZoosUrl(activePref, null, { cls: taxClass, view }))}" class="ui-btn ui-btn--secondary ui-touch-target">${icon("close")}クリア</a>` : ""}
   </form>
   <div class="cls-filter">${classChips}</div>
-  <p class="summary">${summary}</p>
-  ${mapStateMessage}
-  <div class="map-body">
-    <div id="map"></div>
-    <aside class="result-list-panel" aria-label="検索結果一覧">
-      <button type="button" class="result-sheet-toggle" aria-expanded="true">${icon("expand_less", "rst-icon-expanded")}${icon("expand_more", "rst-icon-collapsed")}<span class="rst-label">検索結果を閉じる</span></button>
-      <div class="result-list-scroll">
-        <ul class="result-list">${resultListHtml}</ul>
-      </div>
-    </aside>
-  </div>
-  <div class="share-toast" id="share-toast" role="status" aria-live="polite"></div>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  <script>
-    var zoos = ${mapData};
-    var mapInitLat = ${initialLat !== null ? String(initialLat) : "null"};
-    var mapInitLon = ${initialLon !== null ? String(initialLon) : "null"};
-    var mapInitZoom = ${initialZoom !== null ? String(initialZoom) : "null"};
-    var map = (mapInitLat !== null && mapInitLon !== null && mapInitZoom !== null)
-      ? L.map('map').setView([mapInitLat, mapInitLon], mapInitZoom)
-      : L.map('map');
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-    }).addTo(map);
-    function esc(s) {
-      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-    }
-    var markers = {};
-    var resultItemsByZooId = {};
-    var resultPanel = document.querySelector('.result-list-panel');
-    var resultToggle = document.querySelector('.result-sheet-toggle');
-    var mobileViewportQuery = window.matchMedia('(max-width: ${MAP_MOBILE_BREAKPOINT}px)');
-    var reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
-    var hasSearchResults = ${showPanel ? "true" : "false"};
-    var isSheetOpen = !mobileViewportQuery.matches || hasSearchResults;
-    var prevFocused = null;
-    var prevMarker = null;
-    var locationMarker = null;
-
-    function shouldSmoothScroll() {
-      return !reducedMotionQuery.matches;
-    }
-
-    function setSheetOpen(nextOpen) {
-      isSheetOpen = nextOpen;
-      if (!resultPanel || !resultToggle) return;
-      resultPanel.classList.toggle('is-collapsed', !isSheetOpen);
-      resultToggle.setAttribute('aria-expanded', isSheetOpen ? 'true' : 'false');
-      var resultToggleLabel = resultToggle.querySelector('.rst-label');
-      if (resultToggleLabel) resultToggleLabel.textContent = isSheetOpen ? '検索結果を閉じる' : '検索結果を開く';
-    }
-
-    if (resultToggle) {
-      resultToggle.addEventListener('click', function() {
-        setSheetOpen(!isSheetOpen);
-      });
-      setSheetOpen(isSheetOpen);
-      var syncSheetToViewport = function(event) {
-        setSheetOpen(!event.matches || hasSearchResults);
-      };
-      if (mobileViewportQuery.addEventListener) {
-        mobileViewportQuery.addEventListener('change', syncSheetToViewport);
-      } else if (mobileViewportQuery.addListener) {
-        mobileViewportQuery.addListener(syncSheetToViewport);
-      }
-    }
-
-    if (resultPanel) {
-      // Prevent Leaflet from capturing scroll/wheel events within the bottom sheet panel,
-      // which would otherwise zoom or pan the map while the user scrolls the result list.
-      L.DomEvent.disableScrollPropagation(resultPanel);
-    }
-
-    if (window.visualViewport) {
-      // On iOS Safari the visual viewport changes height when the address bar shows or
-      // hides, but the layout viewport does not fire a regular resize event in time.
-      // Calling invalidateSize() ensures Leaflet recalculates the map container size
-      // after such changes so tiles and controls remain correctly positioned.
-      window.visualViewport.addEventListener('resize', function() {
-        map.invalidateSize();
-      });
-    }
-
-    function activateResult(id, options) {
-      options = options || {};
-      if (options.openSheet || options.scroll) {
-        setSheetOpen(true);
-      }
-      var item = resultItemsByZooId[id];
-      if (item) {
-        if (prevFocused) prevFocused.classList.remove('is-focused');
-        item.classList.add('is-focused');
-        prevFocused = item;
-        if (options.scroll) item.scrollIntoView({ block: 'nearest', behavior: shouldSmoothScroll() ? 'smooth' : 'auto' });
-      }
-      if (prevMarker) {
-        var prevEl = prevMarker.getElement();
-        if (prevEl) prevEl.classList.remove('marker-active');
-      }
-      var marker = markers[id];
-      if (marker) {
-        var markerEl = marker.getElement();
-        if (markerEl) markerEl.classList.add('marker-active');
-        marker.openPopup();
-        prevMarker = marker;
-      }
-    }
-
-    function distanceInKm(lat1, lon1, lat2, lon2) {
-      var radians = Math.PI / 180;
-      var dLat = (lat2 - lat1) * radians;
-      var dLon = (lon2 - lon1) * radians;
-      var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(lat1 * radians) * Math.cos(lat2 * radians) *
-        Math.sin(dLon / 2) * Math.sin(dLon / 2);
-      return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    }
-
-    function formatDistance(km) {
-      return km < 1 ? Math.round(km * 1000) + 'm' : km.toFixed(km < 10 ? 1 : 0) + 'km';
-    }
-
-    function sortResultsByDistance(lat, lon) {
-      var list = document.querySelector('.result-list');
-      if (!list) return;
-      var items = Object.keys(resultItemsByZooId).map(function(id) {
-        var zoo = zoos.find(function(item) { return item.id === id; });
-        var item = resultItemsByZooId[id];
-        return { zoo: zoo, item: item, distance: zoo ? distanceInKm(lat, lon, zoo.lat, zoo.lon) : Infinity };
-      }).filter(function(entry) { return entry.zoo && entry.item; });
-      items.sort(function(a, b) { return a.distance - b.distance; });
-      items.forEach(function(entry) {
-        var name = entry.item.querySelector('.result-name');
-        var distance = entry.item.querySelector('.result-distance');
-        if (!distance) {
-          distance = document.createElement('span');
-          distance.className = 'result-distance';
-          name.appendChild(distance);
-        }
-        distance.textContent = formatDistance(entry.distance);
-        list.appendChild(entry.item);
-      });
-    }
-
-    zoos.forEach(function(zoo) {
-      var matchLine = ${animal ? "true" : "false"} ? '<br><span>検索ヒット: ' + zoo.matchCount + ' 件</span>' : '';
-      var animalCountLine = '<br><span>動物種数: ' + (zoo.animalCount > 0 ? zoo.animalCount + ' 種' : '未取得') + '</span>';
-      var marker = L.marker([zoo.lat, zoo.lon])
-        .bindPopup('<b><a href="/zoos/' + esc(zoo.id) + '${activePref ? `?pref=${activePref}` : ""}">' + esc(zoo.name) + '</a></b>' + matchLine + animalCountLine)
-        .addTo(map);
-      marker.on('click', function() {
-        activateResult(zoo.id, { openSheet: true, scroll: true });
-      });
-      markers[zoo.id] = marker;
-    });
-    if (mapInitLat === null || mapInitLon === null || mapInitZoom === null) {
-      if (zoos.length > 0) {
-        var bounds = L.latLngBounds(zoos.map(function(z) { return [z.lat, z.lon]; }));
-        map.fitBounds(bounds, { padding: [40, 40] });
-      } else {
-        map.setView([34.7, 135.5], 8);
-      }
-    }
-
-    function updateUrlFromMap() {
-      var center = map.getCenter();
-      var zoom = map.getZoom();
-      var lat = Math.round(center.lat * 10000) / 10000;
-      var lon = Math.round(center.lng * 10000) / 10000;
-      var z = Math.round(zoom * 10) / 10;
-      var url = new URL(window.location.href);
-      url.searchParams.set('lat', String(lat));
-      url.searchParams.set('lon', String(lon));
-      url.searchParams.set('z', String(z));
-      history.replaceState(null, '', url.toString());
-    }
-    map.on('moveend', updateUrlFromMap);
-    map.on('zoomend', updateUrlFromMap);
-
-    var shareBtn = document.getElementById('share-btn');
-    var shareToast = document.getElementById('share-toast');
-    var toastTimer = null;
-
-    function showToast(msg, isError) {
-      if (!shareToast) return;
-      shareToast.textContent = msg;
-      shareToast.className = 'share-toast ' + (isError ? 'share-toast--error' : 'share-toast--ok');
-      if (toastTimer) clearTimeout(toastTimer);
-      toastTimer = setTimeout(function() {
-        shareToast.className = 'share-toast';
-      }, 3000);
-    }
-
-    if (shareBtn) {
-      shareBtn.addEventListener('click', function() {
-        updateUrlFromMap();
-        var shareUrl = window.location.href;
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(shareUrl).then(function() {
-            showToast('URLをコピーしました', false);
-          }, function() {
-            showToast('コピーに失敗しました', true);
-          });
-        } else {
-          try {
-            var ta = document.createElement('textarea');
-            ta.value = shareUrl;
-            ta.style.cssText = 'position:fixed;top:-1000px;left:-1000px;opacity:0;';
-            ta.setAttribute('readonly', '');
-            document.body.appendChild(ta);
-            ta.setSelectionRange(0, ta.value.length);
-            document.execCommand('copy');
-            document.body.removeChild(ta);
-            showToast('URLをコピーしました', false);
-          } catch (e) {
-            showToast('コピーに失敗しました', true);
-          }
-        }
-      });
-    }
-
-    var locationBtn = document.getElementById('location-btn');
-    if (locationBtn) {
-      locationBtn.addEventListener('click', function() {
-        if (!navigator.geolocation) {
-          showToast('このブラウザでは現在地を取得できません', true);
-          return;
-        }
-        locationBtn.disabled = true;
-        locationBtn.textContent = '現在地を取得中…';
-        navigator.geolocation.getCurrentPosition(function(position) {
-          var lat = position.coords.latitude;
-          var lon = position.coords.longitude;
-          if (locationMarker) map.removeLayer(locationMarker);
-          locationMarker = L.circleMarker([lat, lon], {
-            radius: 9, color: '#155eef', weight: 3, fillColor: '#fff', fillOpacity: 1
-          }).addTo(map).bindPopup('現在地').openPopup();
-          map.setView([lat, lon], Math.max(map.getZoom(), 11));
-          sortResultsByDistance(lat, lon);
-          locationBtn.disabled = false;
-          locationBtn.textContent = '現在地から探す';
-          showToast('近い順に並べ替えました', false);
-        }, function(error) {
-          locationBtn.disabled = false;
-          locationBtn.textContent = '現在地から探す';
-          showToast(error.code === 1 ? '現在地の利用が許可されませんでした' : '現在地を取得できませんでした', true);
-        }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 });
-      });
-    }
-
-    document.querySelectorAll('.result-item').forEach(function(item) {
-      var id = item.dataset.zooId;
-      if (id) resultItemsByZooId[id] = item;
-      function activate() {
-        if (id) activateResult(id);
-      }
-      item.addEventListener('mouseenter', activate);
-      item.addEventListener('focusin', activate);
-      item.addEventListener('click', function() {
-        if (id) activateResult(id, { openSheet: true });
-      });
-    });
-  </script>
+  ${bodyHtml}
+  <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
+  <script src="/favorites.js" defer></script>${mapScript ?? ""}
 </body>
 </html>`;
 }
@@ -8792,11 +8847,30 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
       return htmlResponse(html, url, activePref);
     }
 
-    // HTML: /zoos
+    // HTML: /zoos（一覧・地図の統合ページ）
     if (pathname === "/zoos") {
       const animal = normalizeSearchTerm(url.searchParams.get("animal"));
-      const results = await searchZoos(env.DB, activePref, animal);
-      const html = renderHtml(results, activePref, animal, [], "zoos");
+      const taxClass = url.searchParams.get("cls") ?? null;
+      const view = url.searchParams.get("view") === "map" ? "map" : "list";
+      const latParam = parseFloat(url.searchParams.get("lat") ?? "");
+      const lonParam = parseFloat(url.searchParams.get("lon") ?? "");
+      const zoomParam = parseFloat(url.searchParams.get("z") ?? "");
+      const initialLat = isFinite(latParam) ? latParam : null;
+      const initialLon = isFinite(lonParam) ? lonParam : null;
+      const initialZoom = isFinite(zoomParam) ? zoomParam : null;
+      const results = taxClass && !animal
+        ? await searchZoosByTaxonomyClass(env.DB, activePref, taxClass)
+        : await searchZoos(env.DB, activePref, animal);
+      const html = renderZoosHtml(
+        results,
+        activePref,
+        animal,
+        animal ? null : taxClass,
+        view,
+        initialLat,
+        initialLon,
+        initialZoom
+      );
       return htmlResponse(html, url, activePref);
     }
 
@@ -8998,20 +9072,12 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
       return htmlResponse(renderCompareIndexHtml(countRows, animalCounts), url, activePref);
     }
 
+    // /map は /zoos の地図タブへ統合済み。既存リンク・ブックマークのため恒久リダイレクトする。
     if (pathname === "/map") {
-      const animal = normalizeSearchTerm(url.searchParams.get("animal"));
-      const taxClass = url.searchParams.get("cls") ?? null;
-      const latParam = parseFloat(url.searchParams.get("lat") ?? "");
-      const lonParam = parseFloat(url.searchParams.get("lon") ?? "");
-      const zoomParam = parseFloat(url.searchParams.get("z") ?? "");
-      const initialLat = isFinite(latParam) ? latParam : null;
-      const initialLon = isFinite(lonParam) ? lonParam : null;
-      const initialZoom = isFinite(zoomParam) ? zoomParam : null;
-      const results = taxClass && !animal
-        ? await searchZoosByTaxonomyClass(env.DB, activePref, taxClass)
-        : await searchZoos(env.DB, activePref, animal);
-      const html = renderMapHtml(results, activePref, animal, animal ? null : taxClass, initialLat, initialLon, initialZoom);
-      return htmlResponse(html, url, activePref);
+      const destination = new URL("/zoos", url.origin);
+      destination.search = url.search;
+      destination.searchParams.set("view", "map");
+      return redirectResponse(`${destination.pathname}${destination.search}`, 301);
     }
 
     // HTML: /favorites
@@ -9032,7 +9098,7 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
         searchZoos(env.DB, activePref, null),
         loadAllZooNews(env.DB, 10),
       ]);
-      const html = renderHtml(results, activePref, null, [], "home", latestNews);
+      const html = renderHomeHtml(results, activePref, latestNews);
       return htmlResponse(html, url, activePref);
     }
 

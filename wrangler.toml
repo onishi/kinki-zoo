@@ -14,5 +14,9 @@ migrations_dir = "migrations"
 binding = "IMAGES"
 bucket_name = "kinki-zoo-images"
 
+[[routes]]
+pattern = "kinki-zoo.wagaya.org"
+custom_domain = true
+
 [triggers]
 crons = ["0 18 * * *"]

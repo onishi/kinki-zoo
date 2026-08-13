@@ -389,6 +389,17 @@ function icon(name: IconName, className = ""): string {
   return `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${ICONS[name]}</svg>`;
 }
 
+// count を max に対する比率で 0(無し)〜4(最も濃い)の5段階に量子化する。
+// 比較ページのヒートマップ色分けで共通利用する。
+function heatStep(count: number, max: number): number {
+  if (count <= 0 || max <= 0) return 0;
+  const ratio = count / max;
+  if (ratio >= 0.75) return 4;
+  if (ratio >= 0.5) return 3;
+  if (ratio >= 0.25) return 2;
+  return 1;
+}
+
 const NEWS_CATEGORY_RULES: Array<{ label: string; bg: string; color: string; pattern: RegExp }> = [
   { label: "誕生", bg: "#fff0f5", color: "#b84b7a", pattern: /誕生|生まれ|赤ちゃん|赤ちゃん|出産|子ども誕生/ },
   { label: "訃報", bg: "#f5f5f5", color: "#555", pattern: /死亡|死去|なくなり|亡くなり|永眠/ },
@@ -6848,6 +6859,29 @@ ${renderGlobalNav("/zoos")}
 </html>`;
 }
 
+function renderNewsItems(news: ZooNewsRow[], emptyMessage = "お知らせはまだありません。"): string {
+  if (news.length === 0) return `<li class="news-empty">${escapeHtml(emptyMessage)}</li>`;
+  return news
+    .map((item) => {
+      const zoo = zoos.find((z) => z.id === item.zoo_id);
+      const animals = item.animal_names ? item.animal_names.split(",").filter(Boolean) : [];
+      const animalsHtml = animals.length > 0
+        ? `<div class="news-animals">${animals.map((n) => `<a href="/animal/${encodeURIComponent(n)}">${escapeHtml(n)}</a>`).join("")}</div>`
+        : "";
+      const badges = renderNewsItemBadges(item.title, item.published_at);
+      return `<li data-zoo="${escapeHtml(item.zoo_id)}" data-animals="${escapeHtml(animals.join(","))}">
+          <div class="news-meta">
+            ${item.published_at ? `<span class="news-date">${escapeHtml(item.published_at)}</span>` : ""}
+            ${zoo ? `<a class="news-zoo-label" href="/zoos/${escapeHtml(zoo.id)}">${escapeHtml(zoo.name)}</a>` : ""}
+            ${badges}
+          </div>
+          <a class="news-title" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a>
+          ${animalsHtml}
+        </li>`;
+    })
+    .join("");
+}
+
 function renderNewsListHtml(news: ZooNewsRow[], activePref: PrefectureCode | null): string {
   const zooIds = [...new Set(news.map((n) => n.zoo_id))];
   const zooFilterHtml = zooIds.length > 1
@@ -6864,25 +6898,7 @@ function renderNewsListHtml(news: ZooNewsRow[], activePref: PrefectureCode | nul
       </div>`
     : "";
 
-  const itemsHtml = news.length > 0
-    ? news.map((item) => {
-        const zoo = zoos.find((z) => z.id === item.zoo_id);
-        const animals = item.animal_names ? item.animal_names.split(",").filter(Boolean) : [];
-        const animalsHtml = animals.length > 0
-          ? `<div class="news-animals">${animals.map((n) => `<a href="/animal/${encodeURIComponent(n)}">${escapeHtml(n)}</a>`).join("")}</div>`
-          : "";
-        const badges = renderNewsItemBadges(item.title, item.published_at);
-        return `<li data-zoo="${escapeHtml(item.zoo_id)}" data-animals="${escapeHtml(animals.join(","))}">
-          <div class="news-meta">
-            ${item.published_at ? `<span class="news-date">${escapeHtml(item.published_at)}</span>` : ""}
-            ${zoo ? `<a class="news-zoo-label" href="/zoos/${escapeHtml(zoo.id)}">${escapeHtml(zoo.name)}</a>` : ""}
-            ${badges}
-          </div>
-          <a class="news-title" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a>
-          ${animalsHtml}
-        </li>`;
-      }).join("")
-    : `<li class="news-empty">お知らせはまだありません。</li>`;
+  const itemsHtml = renderNewsItems(news);
 
   return `<!DOCTYPE html>
 <html lang="ja">
@@ -6897,10 +6913,6 @@ function renderNewsListHtml(news: ZooNewsRow[], activePref: PrefectureCode | nul
     h1 { font-size: 1.3rem; margin-bottom: 1rem; }
     .news-zoo-filters { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1rem; }
     .news-zoo-filters button { font: inherit; font-size: 0.82rem; }
-    .fav-news-toggle { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: #444; margin-bottom: 1rem; cursor: pointer; width: fit-content; }
-    .fav-news-toggle input { cursor: pointer; }
-    .fav-news-toggle.is-disabled { color: #aaa; cursor: default; }
-    .fav-news-toggle.is-disabled input { cursor: default; }
     .news-list { list-style: none; display: grid; gap: 0; }
     .news-list li { display: grid; gap: 0.3rem; border-bottom: 1px solid #eee; padding: 0.85rem 0.65rem; }
     .news-list li:first-child { border-top: 1px solid #eee; }
@@ -6925,30 +6937,17 @@ ${renderGlobalNav("/news")}
   <main>
     <h1>お知らせ一覧</h1>
     ${zooFilterHtml}
-    <label class="fav-news-toggle" id="fav-news-toggle-label">
-      <input type="checkbox" id="fav-news-only">
-      お気に入りの動物のお知らせだけ表示
-    </label>
     <ul class="news-list">${itemsHtml}</ul>
   </main>
-  <script src="/favorites.js" defer></script>
   <script defer>
     var filterBtns = document.querySelectorAll('[data-zoo-filter]');
     var newsItems = document.querySelectorAll('.news-list li[data-zoo]');
-    var favOnly = document.getElementById('fav-news-only');
-    var favLabel = document.getElementById('fav-news-toggle-label');
     var activeZoo = 'all';
 
     function applyFilters() {
-      var useFav = !!(favOnly && favOnly.checked);
       newsItems.forEach(function(item) {
         var zooMatch = activeZoo === 'all' || item.dataset.zoo === activeZoo;
-        var favMatch = true;
-        if (useFav) {
-          var names = (item.dataset.animals || '').split(',').filter(Boolean);
-          favMatch = window.KinkiZooFavorites ? window.KinkiZooFavorites.hasAnyFavoriteAnimal(names) : false;
-        }
-        item.classList.toggle('is-hidden', !(zooMatch && favMatch));
+        item.classList.toggle('is-hidden', !zooMatch);
       });
     }
 
@@ -6963,17 +6962,6 @@ ${renderGlobalNav("/news")}
         applyFilters();
       });
     });
-
-    if (favOnly) {
-      if (!window.KinkiZooFavorites || !window.KinkiZooFavorites.hasStorage()) {
-        favOnly.disabled = true;
-        if (favLabel) {
-          favLabel.classList.add('is-disabled');
-          favLabel.title = 'このブラウザではお気に入りを利用できません（プライベートブラウズなど localStorage が無効な環境です）。';
-        }
-      }
-      favOnly.addEventListener('change', applyFilters);
-    }
   </script>
 </body>
 </html>`;
@@ -7040,6 +7028,18 @@ function renderCompareIndexHtml(countRows: TaxonomyCountRow[], animalCounts: Map
 
   const sortedZoos = [...zoos].sort((a, b) => (animalCounts.get(b.id) ?? 0) - (animalCounts.get(a.id) ?? 0));
 
+  // Column-local heat scale: each zoo列は自分の最も展示数が多い「目」を基準に
+  // 濃淡を付けるので、動物園ごとの得意な分類が規模差に関わらず浮かび上がる。
+  const zooOrderMax = new Map<string, number>(
+    sortedZoos.map((zoo) => {
+      const byClass = lookup.get(zoo.id);
+      const max = byClass
+        ? Math.max(0, ...[...byClass.values()].flatMap((byOrder) => [...byOrder.values()]))
+        : 0;
+      return [zoo.id, max];
+    })
+  );
+
   const headerCells = sortedZoos
     .map(
       (zoo) => `<th class="zoo-head" scope="col">
@@ -7070,7 +7070,8 @@ function renderCompareIndexHtml(countRows: TaxonomyCountRow[], animalCounts: Map
           const cells = sortedZoos
             .map((zoo) => {
               const cnt = lookup.get(zoo.id)?.get(cls)?.get(ord) ?? 0;
-              return `<td class="cnt-cell">${cnt || ""}</td>`;
+              const heat = heatStep(cnt, zooOrderMax.get(zoo.id) ?? 0);
+              return `<td class="cnt-cell heat-${heat}">${cnt || ""}</td>`;
             })
             .join("");
           return `<tr class="order-row"><th class="tax-cell order-cell" scope="row">${escapeHtml(ord)}</th>${cells}</tr>`;
@@ -7107,8 +7108,20 @@ function renderCompareIndexHtml(countRows: TaxonomyCountRow[], animalCounts: Map
     .order-cell { font-size: 0.75rem; color: #555; padding-left: 1.2rem; }
     .cnt-cell { text-align: center; padding: 0.22rem 0.4rem; color: #444; min-width: 44px; }
     .cnt-class { background: #f9f9f9; font-weight: bold; color: #333; border-top: 2px solid #ccc !important; }
+    .cnt-cell.heat-1 { background: #e4f1eb; }
+    .cnt-cell.heat-2 { background: #c9e3d8; }
+    .cnt-cell.heat-3 { background: #b7dacb; }
+    .cnt-cell.heat-4 { background: #a5d0be; }
     .cnt-cell.is-checked-a { background: #e8f5ee; }
     .cnt-cell.is-checked-b { background: #e8f5ee; }
+    .heat-legend { display: flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; color: #777; }
+    .heat-legend-scale { display: flex; }
+    .heat-legend-scale span { width: 1.1rem; height: 0.75rem; }
+    .heat-legend-scale span:nth-child(1) { background: #fff; border: 1px solid #eee; }
+    .heat-legend-scale span:nth-child(2) { background: #e4f1eb; }
+    .heat-legend-scale span:nth-child(3) { background: #c9e3d8; }
+    .heat-legend-scale span:nth-child(4) { background: #b7dacb; }
+    .heat-legend-scale span:nth-child(5) { background: #a5d0be; }
     .compare-bar { position: fixed; bottom: 0; left: 0; right: 0; background: #1f5b45; color: #fff; padding: 0.75rem 1.5rem; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; z-index: 100; box-shadow: 0 -2px 8px rgba(0,0,0,0.15); }
     .compare-bar-text { flex: 1; font-size: 0.88rem; }
     .compare-go { display: inline-flex; align-items: center; gap: 0.3rem; border: 2px solid #fff; background: #fff; color: #1f5b45; padding: 0.4rem 1rem; cursor: pointer; font-size: 0.88rem; font-weight: bold; }
@@ -7124,6 +7137,7 @@ ${renderSiteHeader()}
 ${renderGlobalNav("/compare")}
   <main>
     <h1>動物園を比較 <span style="font-size:0.82rem;font-weight:normal;color:#888">2〜3つ選んで比較できます</span></h1>
+    <p class="heat-legend">各列内で展示数が多い「目」ほど濃い色: <span class="heat-legend-scale"><span></span><span></span><span></span><span></span><span></span></span> 少ない→多い</p>
     <div class="table-wrap">
       <table class="pivot-table">
         <thead>
@@ -7290,14 +7304,6 @@ function renderCompareHtml(
   const columnMax = columnOrderCounts.map((grp) =>
     Math.max(0, ...[...grp.values()].map((names) => names.length))
   );
-  const heatStep = (count: number, max: number): number => {
-    if (count <= 0 || max <= 0) return 0;
-    const ratio = count / max;
-    if (ratio >= 0.75) return 4;
-    if (ratio >= 0.5) return 3;
-    if (ratio >= 0.25) return 2;
-    return 1;
-  };
 
   const allClasses = [
     ...new Set([
@@ -7971,6 +7977,7 @@ const FAVORITES_JS = `(function () {
         toggleFavorite(type, id, label, href);
         document.querySelectorAll('[data-fav-type="' + type + '"][data-fav-id="' + CSS.escape(id) + '"]').forEach(syncButton);
         renderFavoritesPage();
+        syncFavoritesNews();
       });
     });
   }
@@ -8026,13 +8033,44 @@ const FAVORITES_JS = `(function () {
         toggleFavorite(type, id, "", "");
         document.querySelectorAll('[data-fav-type="' + type + '"][data-fav-id="' + CSS.escape(id) + '"]').forEach(syncButton);
         renderFavoritesPage();
+        syncFavoritesNews();
       });
     });
+  }
+
+  function syncFavoritesNews() {
+    var section = document.getElementById("favorites-news-section");
+    var list = document.getElementById("favorites-news-list");
+    var emptyMsg = document.getElementById("favorites-news-empty");
+    if (!section || !list) return;
+    var data = loadFavorites();
+    var hasAnyFavorite = Object.keys(data.zoos).length > 0 || Object.keys(data.animals).length > 0;
+    if (!hasStorage || !hasAnyFavorite) {
+      section.hidden = true;
+      return;
+    }
+    var visibleCount = 0;
+    list.querySelectorAll("li[data-zoo]").forEach(function (item) {
+      var zooId = item.getAttribute("data-zoo");
+      var animalNames = (item.getAttribute("data-animals") || "").split(",").filter(Boolean);
+      var match = isFavorite(data, "zoo", zooId) || animalNames.some(function (name) {
+        return isFavorite(data, "animal", name);
+      });
+      item.classList.toggle("is-hidden", !match);
+      if (match) visibleCount++;
+    });
+    section.hidden = false;
+    list.hidden = visibleCount === 0;
+    if (emptyMsg) {
+      emptyMsg.hidden = visibleCount > 0;
+      emptyMsg.textContent = "お気に入りに関連するお知らせはまだありません。";
+    }
   }
 
   document.addEventListener("DOMContentLoaded", function () {
     initButtons();
     renderFavoritesPage();
+    syncFavoritesNews();
   });
 
   window.KinkiZooFavorites = {
@@ -8050,7 +8088,8 @@ const FAVORITES_JS = `(function () {
 })();
 `;
 
-function renderFavoritesHtml(): string {
+function renderFavoritesHtml(news: ZooNewsRow[]): string {
+  const newsItemsHtml = news.length > 0 ? renderNewsItems(news) : "";
   return `<!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -8063,6 +8102,7 @@ function renderFavoritesHtml(): string {
     main { max-width: 800px; margin: 0 auto; padding: 1.5rem; display: grid; gap: 1.25rem; }
     main > p.lead { color: #666; font-size: 0.9rem; line-height: 1.6; }
     .favorites-section { display: grid; gap: 0.6rem; }
+    .favorites-section[hidden] { display: none; }
     .favorites-section h2 { font-size: 1.05rem; }
     .favorites-empty { color: #777; font-size: 0.88rem; border: 1px solid #e1e1e1; background: #f7f7f7; padding: 0.75rem; }
     .favorites-list { list-style: none; display: grid; gap: 0.5rem; }
@@ -8070,11 +8110,28 @@ function renderFavoritesHtml(): string {
     .favorites-list a { color: #1f5b45; font-weight: bold; text-decoration: none; overflow-wrap: anywhere; }
     .favorites-list a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .favorites-remove { flex: 0 0 auto; font-size: 0.78rem; padding: 0.35rem 0.65rem; min-height: 0; }
+    .news-list { list-style: none; display: grid; gap: 0; }
+    .news-list[hidden] { display: none; }
+    .news-list li { display: grid; gap: 0.3rem; border-bottom: 1px solid #eee; padding: 0.85rem 0.65rem; }
+    .news-list li:first-child { border-top: 1px solid #eee; }
+    .news-list li:hover { background: #fafcfb; }
+    .news-list li.is-hidden { display: none; }
+    .news-meta { display: flex; flex-wrap: wrap; gap: 0.35rem 0.55rem; align-items: center; }
+    .news-date { flex: 0 0 auto; color: #888; font-size: 0.76rem; font-variant-numeric: tabular-nums; }
+    .news-zoo-label { flex: 0 0 auto; color: #1f5b45; font-size: 0.78rem; font-weight: bold; text-decoration: none; }
+    .news-zoo-label:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .news-title { color: #1a1a1a; text-decoration: none; font-size: 0.93rem; line-height: 1.5; overflow-wrap: anywhere; }
+    .news-title:hover { color: #1f5b45; text-decoration: underline; text-underline-offset: 0.2em; }
+    .news-animals { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+    .news-animals a { font-size: 0.72rem; color: #1f5b45; background: #f0f7f3; border: 1px solid #c5dece; padding: 0.1rem 0.45rem; text-decoration: none; }
+    .news-animals a:hover { background: #e1f0e8; }
+    .news-empty { color: #777; font-size: 0.9rem; }
     noscript p { color: #777; font-size: 0.88rem; border: 1px solid #e1e1e1; background: #f7f7f7; padding: 0.75rem; }
     footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; }
     @media (max-width: 640px) {
       main { padding: 0.85rem; }
       .favorites-list li { flex-wrap: wrap; }
+      .news-list li { padding: 0.75rem 0.35rem; }
     }
   </style>
 </head>
@@ -8088,6 +8145,11 @@ ${renderGlobalNav("/favorites")}
     </div>
     <noscript><p>お気に入り機能を利用するには JavaScript を有効にしてください。</p></noscript>
     <div id="favorites-root"></div>
+    <section class="favorites-section" id="favorites-news-section" hidden>
+      <h2 class="icon-heading">${icon("campaign")}お気に入りのお知らせ</h2>
+      <ul class="news-list" id="favorites-news-list">${newsItemsHtml}</ul>
+      <p class="favorites-empty" id="favorites-news-empty" hidden></p>
+    </section>
   </main>
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
   <script src="/favorites.js" defer></script>
@@ -8946,7 +9008,8 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
 
     // HTML: /favorites
     if (pathname === "/favorites") {
-      return htmlResponse(renderFavoritesHtml(), url, activePref);
+      const news = await loadAllZooNews(env.DB, 500);
+      return htmlResponse(renderFavoritesHtml(news), url, activePref);
     }
 
     // HTML: /

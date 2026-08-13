@@ -4050,7 +4050,7 @@ function renderStateMessage(
 
 function renderTaxonomyBreadcrumb(levels: TaxonomyPathLevel[]): string {
   return renderBreadcrumb([
-    { href: "/taxonomy", label: "分類一覧" },
+    { href: buildTaxonomyIndexUrl(), label: "分類一覧" },
     ...levels.map((level, index) => ({
       href:
         index === levels.length - 1
@@ -4252,7 +4252,6 @@ function renderGlobalNav(activePath: string): string {
     ["/", "home", "トップ"],
     ["/zoos", "location_city", "動物園一覧"],
     ["/animals", "pets", "動物一覧"],
-    ["/taxonomy", "category", "分類から探す"],
     ["/compare", "compare_arrows", "動物園を比較"],
     ["/news", "campaign", "お知らせ"],
     ["/favorites", "star_border", "お気に入り"],
@@ -5388,7 +5387,7 @@ function renderSearchHtml(
       </div>`
     : "";
   const taxonomyMore = results.taxonomies.length > visibleTaxonomies.length
-    ? `<a href="/taxonomy" class="section-link">分類一覧へ →</a>`
+    ? `<a href="${buildTaxonomyIndexUrl()}" class="section-link">分類一覧へ →</a>`
     : "";
   const emptyHtml = !hasQuery
     ? renderStateMessage("動物名、施設名、分類名で検索できます。", [
@@ -5398,7 +5397,7 @@ function renderSearchHtml(
     : !hasResults
       ? renderStateMessage(`「${query}」に該当する動物・施設が見つかりませんでした。`, [
           { href: "/animals", label: "動物一覧" },
-          { href: "/taxonomy", label: "分類から探す" },
+          { href: buildTaxonomyIndexUrl(), label: "分類から探す" },
           { href: buildMapUrl(activePref, null), label: "地図で見る" },
         ])
       : "";
@@ -5545,12 +5544,20 @@ function buildAnimalsUrl(filter: AnimalListFilter, query: string | null = null):
   return serialized ? `/animals?${serialized}` : "/animals";
 }
 
+// 「分類から探す」系のリンクは /animals の分類タブへのディープリンクを返す。
+function buildTaxonomyIndexUrl(): string {
+  return "/animals?view=taxonomy";
+}
+
 function renderAnimalsHtml(
   animals: AnimalListItem[],
   filter: AnimalListFilter,
   activePref: PrefectureCode | null,
   imageKeys: AnimalImageVersionIndex = new Map(),
-  query: string | null = null
+  query: string | null = null,
+  sections: TaxonomyOverviewSection[] = [],
+  tree: TaxonomyTreeNode[] = [],
+  view: "list" | "taxonomy" = "list"
 ): string {
   const items = renderAnimalCards(animals, imageKeys);
   const prefLabel = activePref ? PREF_LABELS[activePref] : "近畿一円";
@@ -5568,12 +5575,10 @@ function renderAnimalsHtml(
         ? renderStateMessage(`「${query}」に該当する動物が見つかりませんでした。`, [
             { href: buildAnimalsUrl("all"), label: "検索をクリア" },
             { href: "/search", label: "横断検索" },
-            { href: "/taxonomy", label: "分類から探す" },
           ])
         : filter === "unclassified"
         ? renderStateMessage("分類未設定の動物はありません。", [
             { href: buildAnimalsUrl("all", query), label: "すべての動物を見る" },
-            { href: "/taxonomy", label: "分類から探す" },
           ])
         : renderStateMessage(
             "動物データがまだありません。動物園一覧から気になる施設を開き、掲載動物をご確認ください。",
@@ -5600,6 +5605,95 @@ function renderAnimalsHtml(
   </table></div>`;
   }
 
+  const treeHtml = tree
+    .map((classNode) => {
+      const classUrl = buildTaxonomyPathUrl([classNode.name]);
+      const orders = classNode.children
+        .map((orderNode) => {
+          const orderUrl = buildTaxonomyPathUrl([classNode.name, orderNode.name]);
+          const families = orderNode.children
+            .map(
+              (familyNode) => `
+                <li class="family-node">
+                  <a href="${buildTaxonomyPathUrl([
+                    classNode.name,
+                    orderNode.name,
+                    familyNode.name,
+                  ])}">${escapeHtml(familyNode.name)}</a>
+                  <small>${familyNode.animalCount} 種 / ${familyNode.zooCount} 施設</small>
+                </li>`
+            )
+            .join("");
+          return `
+            <li class="order-node">
+              <details>
+                <summary>
+                  ${icon("chevron_right", "tree-toggle-icon")}
+                  <a href="${orderUrl}">${escapeHtml(orderNode.name)}</a>
+                  <small>${orderNode.animalCount} 種 / ${orderNode.zooCount} 施設</small>
+                </summary>
+                <ul>${families}</ul>
+              </details>
+            </li>`;
+        })
+        .join("");
+      return `
+        <li class="class-node">
+          <details>
+            <summary>
+              ${icon("chevron_right", "tree-toggle-icon")}
+              <a href="${classUrl}">${escapeHtml(classNode.name)}</a>
+              <small>${classNode.animalCount} 種 / ${classNode.zooCount} 施設</small>
+            </summary>
+            <ul>${orders}</ul>
+          </details>
+        </li>`;
+    })
+    .join("");
+  const sectionHtml = sections
+    .map((section) => {
+      const values = section.values
+        .map((value) => {
+          const href =
+            section.key === "class"
+              ? buildTaxonomyPathUrl([value.name])
+              : buildLegacyTaxonomyUrl(section.key, value.name);
+          return `
+            <a class="taxonomy-link ui-card-link ui-touch-target" href="${href}">
+              <span>${escapeHtml(value.name)}</span>
+              <small>${value.animal_count} 種 / ${value.zoo_count} 施設</small>
+            </a>`;
+        })
+        .join("");
+
+      return `
+        <section class="taxonomy-section">
+          <h2>${escapeHtml(section.label)}</h2>
+          <div class="taxonomy-links">${values}</div>
+        </section>`;
+    })
+    .join("\n");
+  const taxonomyPaneHtml = `
+    <p class="taxonomy-scope">${escapeHtml(prefLabel)}の分類</p>
+    <div class="taxonomy-page">
+      <section class="tree-section">
+        <h2>分類ツリー（類・目・科）</h2>
+        ${
+          treeHtml
+            ? `<ul class="taxonomy-tree">${treeHtml}</ul>`
+            : renderStateMessage(
+                "この地域には分類済みの動物がありません。",
+                [
+                  { href: buildAnimalsUrl("unclassified"), label: "分類未設定の動物を見る" },
+                  { href: buildBrowseUrl(activePref, null), label: "動物園一覧へ戻る" },
+                ]
+              )
+        }
+      </section>
+      <h2 class="rank-sections-title">ランク別一覧</h2>
+      ${sectionHtml}
+    </div>`;
+
   return `<!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -5615,6 +5709,10 @@ function renderAnimalsHtml(
     .tab { color: #1f5b45; text-decoration: none; font-size: 0.9rem; }
     .tab.active { font-weight: bold; text-decoration: underline; text-underline-offset: 0.2em; }
     .tab:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .view-toggle { display: inline-flex; gap: 0.3rem; margin: 0.75rem 1.5rem; border: 1px solid #d3e0d8; background: #f3f7f4; padding: 0.25rem; border-radius: 6px; width: fit-content; }
+    .view-toggle-btn { display: inline-flex; align-items: center; gap: 0.35rem; border: 0; background: transparent; color: #4c5d53; padding: 0.4rem 0.9rem; font-size: 0.85rem; font-weight: bold; cursor: pointer; border-radius: 4px; }
+    .view-toggle-btn--active { background: #1f5b45; color: #fff; }
+    .view-pane[hidden] { display: none; }
     .summary { padding: 0.75rem 1.5rem; font-size: 0.9rem; color: #666; }
     .animal-list { padding: 1rem 1.5rem; overflow-x: auto; }
     .animal-table { width: 100%; min-width: 860px; border-collapse: collapse; }
@@ -5638,12 +5736,42 @@ function renderAnimalsHtml(
     .zoo-links a { font-size: 0.78rem; }
     .zoo-links a:hover { text-decoration: underline; }
     .empty { padding: 2rem 1.5rem; color: #888; }
+    .taxonomy-scope { padding: 0 1.5rem 0.75rem; color: #666; font-size: 0.9rem; }
+    .taxonomy-page { display: grid; gap: 1.25rem; padding: 0 1.5rem 1.5rem; }
+    .tree-section { border-bottom: 1px solid #ddd; padding-bottom: 1.25rem; }
+    .tree-section h2, .rank-sections-title { font-size: 1.08rem; margin-bottom: 0.75rem; }
+    .taxonomy-tree, .taxonomy-tree ul { list-style: none; }
+    .taxonomy-tree { display: grid; gap: 0.55rem; }
+    .taxonomy-tree ul { margin: 0.4rem 0 0 0.65rem; padding-left: 1rem; border-left: 1px solid #cbd8cf; }
+    .taxonomy-tree li + li { margin-top: 0.35rem; }
+    .taxonomy-tree summary { display: flex; align-items: center; gap: 0.55rem; min-height: 2.75rem; cursor: pointer; padding: 0.55rem 0.65rem; list-style: none; }
+    .taxonomy-tree summary::-webkit-details-marker { display: none; }
+    .taxonomy-tree .tree-toggle-icon { flex: 0 0 1.15rem; width: 1.15rem; height: 1.15rem; color: #587466; transition: transform 0.15s ease; }
+    .taxonomy-tree details[open] > summary .tree-toggle-icon { transform: rotate(90deg); }
+    .taxonomy-tree summary:hover { background: #f3f7f4; }
+    .taxonomy-tree summary:focus-visible { outline: 2px solid #1f5b45; outline-offset: -2px; }
+    .taxonomy-tree a { color: #1f5b45; font-weight: bold; text-decoration: none; }
+    .taxonomy-tree a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .taxonomy-tree small { margin-left: 0.45rem; color: #6b786f; font-size: 0.72rem; font-weight: normal; }
+    .class-node > details > summary { font-size: 1rem; border-bottom: 1px solid #e3e9e5; }
+    .order-node > details > summary { min-height: 2.5rem; font-size: 0.9rem; }
+    .family-node { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem; padding: 0.22rem 0; font-size: 0.84rem; }
+    .family-node a { font-weight: normal; }
+    .family-node small { margin-left: 0.25rem; }
+    .taxonomy-section { border-top: 1px solid #ddd; padding-top: 1rem; }
+    .taxonomy-section:first-child { border-top: 0; padding-top: 0; }
+    .taxonomy-section h2 { font-size: 1.05rem; margin-bottom: 0.75rem; }
+    .taxonomy-links { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 0.55rem; }
+    .taxonomy-link { display: grid; gap: 0.2rem; padding: 0.65rem 0.75rem; }
+    .taxonomy-link span { font-weight: bold; overflow-wrap: anywhere; }
+    .taxonomy-link small { color: #617469; font-size: 0.75rem; }
     footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; }
     @media (max-width: 700px) {
       .tabs { padding: 0.65rem 0.75rem; }
       .animal-search-form { display: grid; grid-template-columns: 1fr; padding: 0.65rem 0.75rem; }
       .animal-search-form input, .animal-search-form button, .animal-search-form a { max-width: none; min-height: 44px; }
       .tab { display: inline-flex; min-height: 44px; align-items: center; }
+      .view-toggle { margin: 0.65rem 0.75rem; }
       .summary { padding: 0.7rem 0.75rem; line-height: 1.5; }
       .animal-list { padding: 0.75rem; overflow: visible; }
       .animal-table { min-width: 0; border: 0; }
@@ -5655,6 +5783,16 @@ function renderAnimalsHtml(
       .animal-table td::before { content: attr(data-label); display: block; margin-bottom: 0.35rem; color: #6a746d; font-size: 0.7rem; font-weight: bold; }
       .animal-name { background: #f7faf8; }
       .empty { padding: 1.5rem 0.75rem; }
+      .taxonomy-scope { padding: 0 0.75rem 0.65rem; }
+      .taxonomy-page { gap: 1rem; padding: 0 0.75rem 0.75rem; }
+      .taxonomy-tree { gap: 0.35rem; }
+      .taxonomy-tree ul { margin-left: 0.25rem; padding-left: 0.45rem; }
+      .taxonomy-tree summary { align-items: flex-start; gap: 0.35rem; min-height: 44px; padding: 0.65rem 0.35rem; }
+      .taxonomy-tree .tree-toggle-icon { flex-basis: 1.35rem; width: 1.35rem; height: 1.35rem; margin-top: 0.05rem; }
+      .taxonomy-tree summary small { margin-left: auto; padding-left: 0.25rem; text-align: right; line-height: 1.4; }
+      .family-node { min-height: 40px; align-items: center; padding: 0.35rem; }
+      .taxonomy-links { grid-template-columns: 1fr; }
+      .taxonomy-link { min-height: 54px; }
       footer { padding: 1rem 0.75rem; line-height: 1.5; }
     }
   </style>
@@ -5662,47 +5800,75 @@ function renderAnimalsHtml(
 <body>
 ${renderSiteHeader()}
 ${renderGlobalNav("/animals")}
-  <nav class="tabs">
-    <a href="${buildAnimalsUrl("all", query)}" class="tab${filter === "all" ? " active" : ""}">すべて</a>
-    <a href="${buildAnimalsUrl("unclassified", query)}" class="tab${filter === "unclassified" ? " active" : ""}">分類未設定</a>
-  </nav>
-  <form class="animal-search-form" action="/animals" method="get">
-    ${filter === "unclassified" ? `<input type="hidden" name="filter" value="unclassified">` : ""}
-    <input type="search" name="q" value="${escapedQuery}" placeholder="動物名・分類・施設名で検索" aria-label="動物を検索">
-    <button type="submit" class="ui-btn ui-btn--primary ui-touch-target">${icon("search")}検索</button>
-    ${query ? `<a href="${buildAnimalsUrl(filter)}" class="ui-btn ui-btn--secondary ui-touch-target">${icon("close")}クリア</a>` : ""}
-  </form>
-  <p class="summary">${summary}</p>
-  ${animalListHtml}
+  <div class="view-toggle" role="tablist" aria-label="表示切り替え">
+    <button type="button" class="view-toggle-btn" data-view-btn="list" role="tab" aria-selected="${view === "list" ? "true" : "false"}">${icon("view_list")}動物一覧</button>
+    <button type="button" class="view-toggle-btn" data-view-btn="taxonomy" role="tab" aria-selected="${view === "taxonomy" ? "true" : "false"}">${icon("category")}分類から探す</button>
+  </div>
+  <div class="view-pane" id="view-list"${view === "taxonomy" ? " hidden" : ""}>
+    <nav class="tabs">
+      <a href="${buildAnimalsUrl("all", query)}" class="tab${filter === "all" ? " active" : ""}">すべて</a>
+      <a href="${buildAnimalsUrl("unclassified", query)}" class="tab${filter === "unclassified" ? " active" : ""}">分類未設定</a>
+    </nav>
+    <form class="animal-search-form" action="/animals" method="get">
+      ${filter === "unclassified" ? `<input type="hidden" name="filter" value="unclassified">` : ""}
+      <input type="search" name="q" value="${escapedQuery}" placeholder="動物名・分類・施設名で検索" aria-label="動物を検索">
+      <button type="submit" class="ui-btn ui-btn--primary ui-touch-target">${icon("search")}検索</button>
+      ${query ? `<a href="${buildAnimalsUrl(filter)}" class="ui-btn ui-btn--secondary ui-touch-target">${icon("close")}クリア</a>` : ""}
+    </form>
+    <p class="summary">${summary}</p>
+    ${animalListHtml}
+  </div>
+  <div class="view-pane" id="view-taxonomy"${view === "taxonomy" ? "" : " hidden"}>${taxonomyPaneHtml}
+  </div>
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
   <script src="/favorites.js" defer></script>
 <script>
 (function () {
   const table = document.getElementById('animal-table');
-  if (!table) return;
-  const tbody = table.querySelector('tbody');
-  const buttons = table.querySelectorAll('thead th button[data-col]');
+  if (table) {
+    const tbody = table.querySelector('tbody');
+    const buttons = table.querySelectorAll('thead th button[data-col]');
 
-  function sortTable(col, dir) {
-    const rows = [...tbody.querySelectorAll('tr')];
-    rows.sort((a, b) => {
-      const av = a.dataset[col] ?? '';
-      const bv = b.dataset[col] ?? '';
-      if (col === 'count') return (Number(av) - Number(bv)) * dir;
-      return av.localeCompare(bv, 'ja') * dir;
+    function sortTable(col, dir) {
+      const rows = [...tbody.querySelectorAll('tr')];
+      rows.sort((a, b) => {
+        const av = a.dataset[col] ?? '';
+        const bv = b.dataset[col] ?? '';
+        if (col === 'count') return (Number(av) - Number(bv)) * dir;
+        return av.localeCompare(bv, 'ja') * dir;
+      });
+      rows.forEach(r => tbody.appendChild(r));
+    }
+
+    buttons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const col = btn.dataset.col;
+        const prev = btn.dataset.dir;
+        const dir = prev === 'asc' ? -1 : 1;
+        buttons.forEach(b => delete b.dataset.dir);
+        btn.dataset.dir = dir === 1 ? 'asc' : 'desc';
+        sortTable(col, dir);
+      });
     });
-    rows.forEach(r => tbody.appendChild(r));
   }
 
-  buttons.forEach(btn => {
-    btn.addEventListener('click', () => {
-      const col = btn.dataset.col;
-      const prev = btn.dataset.dir;
-      const dir = prev === 'asc' ? -1 : 1;
-      buttons.forEach(b => delete b.dataset.dir);
-      btn.dataset.dir = dir === 1 ? 'asc' : 'desc';
-      sortTable(col, dir);
+  function setView(next) {
+    var listPane = document.getElementById('view-list');
+    var taxonomyPane = document.getElementById('view-taxonomy');
+    if (listPane) listPane.hidden = next !== 'list';
+    if (taxonomyPane) taxonomyPane.hidden = next !== 'taxonomy';
+    document.querySelectorAll('[data-view-btn]').forEach(function(btn) {
+      var active = btn.dataset.viewBtn === next;
+      btn.classList.toggle('view-toggle-btn--active', active);
+      btn.setAttribute('aria-selected', active ? 'true' : 'false');
     });
+    var url = new URL(window.location.href);
+    url.searchParams.set('view', next);
+    history.replaceState(null, '', url.toString());
+  }
+
+  document.querySelectorAll('[data-view-btn]').forEach(function(btn) {
+    btn.addEventListener('click', function() { setView(btn.dataset.viewBtn); });
   });
 })();
 </script>
@@ -6089,162 +6255,6 @@ ${renderGlobalNav("/animals")}
 </html>`;
 }
 
-function renderTaxonomyHtml(
-  sections: TaxonomyOverviewSection[],
-  tree: TaxonomyTreeNode[],
-  activePref: PrefectureCode | null
-): string {
-  const prefLabel = activePref ? PREF_LABELS[activePref] : "近畿一円";
-  const treeHtml = tree
-    .map((classNode) => {
-      const classUrl = buildTaxonomyPathUrl([classNode.name]);
-      const orders = classNode.children
-        .map((orderNode) => {
-          const orderUrl = buildTaxonomyPathUrl([classNode.name, orderNode.name]);
-          const families = orderNode.children
-            .map(
-              (familyNode) => `
-                <li class="family-node">
-                  <a href="${buildTaxonomyPathUrl([
-                    classNode.name,
-                    orderNode.name,
-                    familyNode.name,
-                  ])}">${escapeHtml(familyNode.name)}</a>
-                  <small>${familyNode.animalCount} 種 / ${familyNode.zooCount} 施設</small>
-                </li>`
-            )
-            .join("");
-          return `
-            <li class="order-node">
-              <details>
-                <summary>
-                  ${icon("chevron_right", "tree-toggle-icon")}
-                  <a href="${orderUrl}">${escapeHtml(orderNode.name)}</a>
-                  <small>${orderNode.animalCount} 種 / ${orderNode.zooCount} 施設</small>
-                </summary>
-                <ul>${families}</ul>
-              </details>
-            </li>`;
-        })
-        .join("");
-      return `
-        <li class="class-node">
-          <details>
-            <summary>
-              ${icon("chevron_right", "tree-toggle-icon")}
-              <a href="${classUrl}">${escapeHtml(classNode.name)}</a>
-              <small>${classNode.animalCount} 種 / ${classNode.zooCount} 施設</small>
-            </summary>
-            <ul>${orders}</ul>
-          </details>
-        </li>`;
-    })
-    .join("");
-  const sectionHtml = sections
-    .map((section) => {
-      const values = section.values
-        .map((value) => {
-          const href =
-            section.key === "class"
-              ? buildTaxonomyPathUrl([value.name])
-              : buildLegacyTaxonomyUrl(section.key, value.name);
-          return `
-            <a class="taxonomy-link ui-card-link ui-touch-target" href="${href}">
-              <span>${escapeHtml(value.name)}</span>
-              <small>${value.animal_count} 種 / ${value.zoo_count} 施設</small>
-            </a>`;
-        })
-        .join("");
-
-      return `
-        <section class="taxonomy-section">
-          <h2>${escapeHtml(section.label)}</h2>
-          <div class="taxonomy-links">${values}</div>
-        </section>`;
-    })
-    .join("\n");
-
-  return `<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>分類から探す | 近畿動物園情報</title>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
-    .taxonomy-scope { padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; color: #666; font-size: 0.9rem; }
-    .taxonomy-page { display: grid; gap: 1.25rem; padding: 1rem 1.5rem 1.5rem; }
-    .tree-section { border-bottom: 1px solid #ddd; padding-bottom: 1.25rem; }
-    .tree-section h2, .rank-sections-title { font-size: 1.08rem; margin-bottom: 0.75rem; }
-    .taxonomy-tree, .taxonomy-tree ul { list-style: none; }
-    .taxonomy-tree { display: grid; gap: 0.55rem; }
-    .taxonomy-tree ul { margin: 0.4rem 0 0 0.65rem; padding-left: 1rem; border-left: 1px solid #cbd8cf; }
-    .taxonomy-tree li + li { margin-top: 0.35rem; }
-    .taxonomy-tree summary { display: flex; align-items: center; gap: 0.55rem; min-height: 2.75rem; cursor: pointer; padding: 0.55rem 0.65rem; list-style: none; }
-    .taxonomy-tree summary::-webkit-details-marker { display: none; }
-    .taxonomy-tree .tree-toggle-icon { flex: 0 0 1.15rem; width: 1.15rem; height: 1.15rem; color: #587466; transition: transform 0.15s ease; }
-    .taxonomy-tree details[open] > summary .tree-toggle-icon { transform: rotate(90deg); }
-    .taxonomy-tree summary:hover { background: #f3f7f4; }
-    .taxonomy-tree summary:focus-visible { outline: 2px solid #1f5b45; outline-offset: -2px; }
-    .taxonomy-tree a { color: #1f5b45; font-weight: bold; text-decoration: none; }
-    .taxonomy-tree a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
-    .taxonomy-tree small { margin-left: 0.45rem; color: #6b786f; font-size: 0.72rem; font-weight: normal; }
-    .class-node > details > summary { font-size: 1rem; border-bottom: 1px solid #e3e9e5; }
-    .order-node > details > summary { min-height: 2.5rem; font-size: 0.9rem; }
-    .family-node { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem; padding: 0.22rem 0; font-size: 0.84rem; }
-    .family-node a { font-weight: normal; }
-    .family-node small { margin-left: 0.25rem; }
-    .taxonomy-section { border-top: 1px solid #ddd; padding-top: 1rem; }
-    .taxonomy-section:first-child { border-top: 0; padding-top: 0; }
-    .taxonomy-section h2 { font-size: 1.05rem; margin-bottom: 0.75rem; }
-    .taxonomy-links { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 0.55rem; }
-    .taxonomy-link { display: grid; gap: 0.2rem; padding: 0.65rem 0.75rem; }
-    .taxonomy-link span { font-weight: bold; overflow-wrap: anywhere; }
-    .taxonomy-link small { color: #617469; font-size: 0.75rem; }
-    footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; }
-    @media (max-width: 640px) {
-      .taxonomy-scope { padding: 0.7rem 0.75rem; }
-      .taxonomy-page { gap: 1rem; padding: 0.75rem; }
-      .taxonomy-tree { gap: 0.35rem; }
-      .taxonomy-tree ul { margin-left: 0.25rem; padding-left: 0.45rem; }
-      .taxonomy-tree summary { align-items: flex-start; gap: 0.35rem; min-height: 44px; padding: 0.65rem 0.35rem; }
-      .taxonomy-tree .tree-toggle-icon { flex-basis: 1.35rem; width: 1.35rem; height: 1.35rem; margin-top: 0.05rem; }
-      .taxonomy-tree summary small { margin-left: auto; padding-left: 0.25rem; text-align: right; line-height: 1.4; }
-      .family-node { min-height: 40px; align-items: center; padding: 0.35rem; }
-      .taxonomy-links { grid-template-columns: 1fr; }
-      .taxonomy-link { min-height: 54px; }
-      footer { padding: 1rem 0.75rem; line-height: 1.5; }
-    }
-  </style>
-</head>
-<body>
-${renderSiteHeader()}
-${renderGlobalNav("/taxonomy")}
-  <p class="taxonomy-scope">${escapeHtml(prefLabel)}の分類</p>
-  <main class="taxonomy-page">
-    <section class="tree-section">
-      <h2>分類ツリー（類・目・科）</h2>
-      ${
-        treeHtml
-          ? `<ul class="taxonomy-tree">${treeHtml}</ul>`
-          : renderStateMessage(
-              "この地域には分類済みの動物がありません。",
-              [
-                { href: buildAnimalsUrl("unclassified"), label: "分類未設定の動物を見る" },
-                { href: buildBrowseUrl(activePref, null), label: "動物園一覧へ戻る" },
-              ]
-            )
-      }
-    </section>
-    <h2 class="rank-sections-title">ランク別一覧</h2>
-    ${sectionHtml}
-  </main>
-  <footer>分類は利用者が探しやすい粒度で整理しています。最新情報は各施設の公式サイトでご確認ください。</footer>
-</body>
-</html>`;
-}
-
 function renderTaxonomyDetailHtml(
   levels: TaxonomyPathLevel[],
   childSection: TaxonomyOverviewSection | null,
@@ -6400,7 +6410,7 @@ function renderTaxonomyDetailHtml(
 </head>
 <body>
 ${renderSiteHeader()}
-${renderGlobalNav("/taxonomy")}
+${renderGlobalNav("/animals")}
   ${breadcrumb}
   <p class="summary">${escapeHtml(rank.label)}: ${escapedValue} / 動物: ${animals.length} 件 / 施設: ${zooAnimalCounts.size} 施設</p>
   ${representativeHtml}
@@ -6420,7 +6430,7 @@ ${renderGlobalNav("/taxonomy")}
     <tbody>${items}</tbody>
   </table></div>`
       : renderStateMessage("該当する動物がありません。", [
-          { href: "/taxonomy", label: "分類一覧へ戻る" },
+          { href: buildTaxonomyIndexUrl(), label: "分類一覧へ戻る" },
           { href: buildAnimalsUrl("all"), label: "動物一覧を見る" },
         ])
   }
@@ -8274,8 +8284,6 @@ async function loadSitemapEntries(db: D1Database): Promise<SitemapEntry[]> {
     { path: "/" },
     { path: "/zoos" },
     { path: "/animals" },
-    { path: "/taxonomy" },
-    { path: "/map" },
     { path: "/compare" },
     { path: "/news" },
   ];
@@ -8830,16 +8838,20 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
     }
 
     // HTML: /animals
+    // HTML: /animals（一覧・分類の統合ページ）
     if (pathname === "/animals") {
       const filter: AnimalListFilter =
         url.searchParams.get("filter") === "unclassified" ? "unclassified" : "all";
       const query = normalizeSearchTerm(url.searchParams.get("q"));
-      const [animals, imageKeys] = await Promise.all([
+      const view = url.searchParams.get("view") === "taxonomy" ? "taxonomy" : "list";
+      const [animals, imageKeys, sections, tree] = await Promise.all([
         loadAnimalList(env.DB, filter, activePref),
         loadAnimalImageKeys(env.DB),
+        loadTaxonomyOverview(env.DB, activePref),
+        loadTaxonomyTree(env.DB, activePref),
       ]);
       const filteredAnimals = filterAnimalItemsByQuery(animals, query);
-      const html = renderAnimalsHtml(filteredAnimals, filter, activePref, imageKeys, query);
+      const html = renderAnimalsHtml(filteredAnimals, filter, activePref, imageKeys, query, sections, tree, view);
       return htmlResponse(html, url, activePref);
     }
 
@@ -8953,13 +8965,12 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
     }
 
     // HTML: /taxonomy
+    // /taxonomy は /animals の分類タブへ統合済み。既存リンク・ブックマークのため恒久リダイレクトする。
     if (pathname === "/taxonomy") {
-      const [sections, tree] = await Promise.all([
-        loadTaxonomyOverview(env.DB, activePref),
-        loadTaxonomyTree(env.DB, activePref),
-      ]);
-      const html = renderTaxonomyHtml(sections, tree, activePref);
-      return htmlResponse(html, url, activePref);
+      const destination = new URL("/animals", url.origin);
+      destination.search = url.search;
+      destination.searchParams.set("view", "taxonomy");
+      return redirectResponse(`${destination.pathname}${destination.search}`, 301);
     }
 
     // HTML: /taxonomy/:rank/:value

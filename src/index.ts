@@ -3625,9 +3625,6 @@ function renderZooCard(result: ZooSearchResult, includeMatchSummary: boolean): s
   const zooId = encodeURIComponent(zoo.id);
   const zooDomId = `zoo-${zoo.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
   const prefLabel = PREF_LABELS[zoo.prefecture];
-  const wikiLink = zoo.wikipediaUrl
-    ? `<a href="${escapeHtml(zoo.wikipediaUrl)}" target="_blank" rel="noopener noreferrer">Wikipedia</a>`
-    : "";
   return `
     <tr id="${escapeHtml(zooDomId)}">
       <th scope="row" class="zoo-name">
@@ -3636,21 +3633,9 @@ function renderZooCard(result: ZooSearchResult, includeMatchSummary: boolean): s
           ${renderFavoriteButton("zoo", zoo.id, zoo.name, `/zoos/${zooId}`)}
         </div>
         <p class="kana">${escapeHtml(zoo.nameKana)}</p>
-        <p class="zoo-name-links">
-          <a href="${escapeHtml(zoo.website)}" target="_blank" rel="noopener noreferrer">公式サイト</a>
-          ${wikiLink}
-        </p>
       </th>
       <td data-label="都道府県">${prefLabel}</td>
-      <td data-label="住所">${escapeHtml(zoo.address)}</td>
       <td data-label="動物種数">${result.animalCount > 0 ? `${result.animalCount} 種` : "未取得"}</td>
-      <td data-label="基本情報">
-        <ul class="meta-list">
-          <li><b>開園時間:</b> ${escapeHtml(zoo.openingHours)}</li>
-          <li><b>休園日:</b> ${escapeHtml(zoo.closedDays)}</li>
-          <li><b>入園料:</b> ${escapeHtml(zoo.admission)}</li>
-        </ul>
-      </td>
       ${includeMatchSummary ? `<td data-label="検索ヒット">${renderMatchSummary(result)}</td>` : ""}
     </tr>`;
 }
@@ -5443,16 +5428,12 @@ function renderSearchHtml(
     .search-taxonomy-card span { font-weight: bold; overflow-wrap: anywhere; }
     .search-taxonomy-card small { color: #617469; font-size: 0.75rem; }
     .zoo-list { overflow-x: auto; }
-    .zoo-table { width: 100%; border-collapse: collapse; min-width: 960px; border: 1px solid #ddd; }
+    .zoo-table { width: 100%; border-collapse: collapse; min-width: 480px; border: 1px solid #ddd; }
     .zoo-table th, .zoo-table td { border: 1px solid #ddd; padding: 0.65rem; vertical-align: top; font-size: 0.86rem; text-align: left; }
     .zoo-table thead th { background: #f7f7f7; color: #555; }
     .zoo-name a { color: #2d6a4f; text-decoration: none; font-size: 1rem; }
     .zoo-name a:hover { text-decoration: underline; }
-    .zoo-name-links { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.45rem; font-size: 0.8rem; }
-    .zoo-name-links a { font-size: 0.8rem; font-weight: normal; }
     .kana { font-size: 0.8rem; color: #888; margin-top: 0.25rem; }
-    .meta-list { list-style: none; display: grid; gap: 0.25rem; }
-    .meta-list li { color: #444; }
     .match-box { padding: 0.55rem; border: 1px solid #d7eadc; border-radius: 6px; background: #f3fbf5; display: grid; gap: 0.45rem; }
     .match-row { display: grid; gap: 0.35rem; }
     .match-label { color: #456052; font-size: 0.75rem; font-weight: bold; }
@@ -5520,9 +5501,7 @@ ${renderGlobalNav("/search")}
           <tr>
             <th scope="col">施設名</th>
             <th scope="col">都道府県</th>
-            <th scope="col">住所</th>
             <th scope="col">動物種数</th>
-            <th scope="col">基本情報</th>
             <th scope="col">検索ヒット</th>
           </tr>
         </thead>
@@ -7444,9 +7423,7 @@ function renderZoosHtml(
       <tr>
         <th scope="col">施設名</th>
         <th scope="col">都道府県</th>
-        <th scope="col">住所</th>
         <th scope="col">動物種数</th>
-        <th scope="col">基本情報</th>
         ${includeMatchSummary ? `<th scope="col">検索ヒット</th>` : ""}
       </tr>
     </thead>
@@ -7855,16 +7832,12 @@ function renderZoosShell(opts: {
     .view-toggle-btn--active { background: #1f5b45; color: #fff; }
     .view-pane[hidden] { display: none; }
     .zoo-list { padding: 0 1.5rem 1.5rem; overflow-x: auto; }
-    .zoo-table { width: 100%; border-collapse: collapse; min-width: 960px; border: 1px solid #ddd; }
+    .zoo-table { width: 100%; border-collapse: collapse; min-width: 480px; border: 1px solid #ddd; }
     .zoo-table th, .zoo-table td { border: 1px solid #ddd; padding: 0.65rem; vertical-align: top; font-size: 0.86rem; text-align: left; }
     .zoo-table thead th { background: #f7f7f7; color: #555; }
     .zoo-name a { color: #2d6a4f; text-decoration: none; font-size: 1rem; }
     .zoo-name a:hover { text-decoration: underline; }
-    .zoo-name-links { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.45rem; font-size: 0.8rem; }
-    .zoo-name-links a { font-size: 0.8rem; font-weight: normal; }
     .kana { font-size: 0.8rem; color: #888; margin-top: 0.25rem; }
-    .meta-list { list-style: none; display: grid; gap: 0.25rem; }
-    .meta-list li { color: #444; }
     .match-box { padding: 0.55rem; border: 1px solid #d7eadc; border-radius: 6px; background: #f3fbf5; display: grid; gap: 0.45rem; }
     .match-row { display: grid; gap: 0.35rem; }
     .match-label { color: #456052; font-size: 0.75rem; font-weight: bold; }

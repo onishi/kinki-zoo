@@ -241,6 +241,16 @@ npm run deploy
 
 `wrangler login` でログインしておく必要があります。
 
+### 自動デプロイ
+
+`main` への push で `.github/workflows/deploy.yml` が自動的に `wrangler deploy` を実行します。
+利用するにはリポジトリの Secrets に以下を設定してください。
+
+- `CLOUDFLARE_API_TOKEN`: Workers の編集権限を持つ API トークン
+- `CLOUDFLARE_ACCOUNT_ID`: デプロイ先の Cloudflare アカウントID
+
+マイグレーション(`npm run d1:migrate:remote`)は自動化していないため、DBスキーマを変更した場合は手動で適用してください。
+
 ## リバースプロキシ配下(wagaya.org)での提供
 
 このアプリは自身のドメインを持たず、`wagaya.org` リポジトリの

@@ -17,11 +17,10 @@
 |------|------|
 | `GET /` | 動物園一覧 HTML（都道府県タブで絞り込み可） |
 | `GET /search` | サイト内検索 HTML |
-| `GET /animals` | D1 に保存済みの動物一覧 HTML（動物ごとに見られる施設を表示） |
+| `GET /animals` | D1 に保存済みの動物一覧 HTML（動物名検索・分類絞り込み・見られる施設を表示。`/taxonomy` は本ページへ統合済み） |
 | `GET /animal/:displayName` | 動物ごとの詳細 HTML（見られる施設一覧・関連動物・分類情報） |
-| `GET /taxonomy` | 類・目・科・属・種から動物を探せる分類一覧 HTML |
 | `GET /taxonomy/:rank/:value` | 指定した分類値に属する動物一覧 HTML |
-| `GET /taxonomy/:class/:order/:family/:genus/:species` | 分類階層を URL にした動物一覧 HTML（途中階層まででも可） |
+| `GET /taxonomy/:class/:order/:family/:genus/:species` | 分類階層を URL にした動物一覧 HTML（途中階層まででも可。代表的な動物・動物が多い施設・子分類へのリンクを表示） |
 | `GET /map` | 動物園位置を地図で表示 HTML（都道府県・動物名での絞り込み可） |
 | `GET /compare` | 動物園同士を動物の在不在で比較する HTML |
 | `GET /news` | 全動物園のお知らせ一覧 HTML（施設別フィルタ付き、最大50件） |

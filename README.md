@@ -243,12 +243,30 @@ npm run deploy
 ### 自動デプロイ
 
 `main` への push で `.github/workflows/deploy.yml` が自動的に `wrangler deploy` を実行します。
-利用するにはリポジトリの Secrets に以下を設定してください。
+利用するにはリポジトリの Settings → Secrets and variables → Actions に以下を設定してください。
 
 - `CLOUDFLARE_API_TOKEN`: Workers の編集権限を持つ API トークン
 - `CLOUDFLARE_ACCOUNT_ID`: デプロイ先の Cloudflare アカウントID
 
 マイグレーション(`npm run d1:migrate:remote`)は自動化していないため、DBスキーマを変更した場合は手動で適用してください。
+
+#### CLOUDFLARE_API_TOKEN の取得方法
+
+1. [Cloudflare ダッシュボードの API トークンページ](https://dash.cloudflare.com/profile/api-tokens)を開く
+2. 「トークンを作成する」→ 「Edit Cloudflare Workers」テンプレートを選択（または任意のトークン名でカスタム作成）
+3. 権限に `Account` - `Workers Scripts` - `Edit` が含まれていることを確認する
+   （カスタムで作る場合は `Account` - `Workers Scripts` - `Edit` と、対象アカウントの `Account Resources` を明示的に指定する）
+4. 対象アカウント（デプロイ先の Cloudflare アカウント）を選択して作成し、表示されたトークンをコピーする
+   （トークンはこの時しか表示されないので、すぐに GitHub の Secrets に登録すること）
+
+#### CLOUDFLARE_ACCOUNT_ID の取得方法
+
+- Cloudflare ダッシュボードで対象アカウントを開き、[Workers & Pages の概要ページ](https://dash.cloudflare.com/?to=/:account/workers-and-pages)を表示すると右側に「Account ID」が表示される
+- または、`wrangler login` 済みの環境で次のコマンドを実行しても確認できる
+
+  ```bash
+  npx wrangler whoami
+  ```
 
 ## リバースプロキシ配下(wagaya.org)での提供
 

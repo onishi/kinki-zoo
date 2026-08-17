@@ -6610,7 +6610,7 @@ async function loadTaxonomyCountsByZoo(db: D1Database): Promise<TaxonomyCountRow
   return result.results ?? [];
 }
 
-const CLASS_SORT_ORDER = ["哺乳類", "鳥類", "爬虫類", "両生類", "魚類", "軟骨魚類", "無脊椎動物"];
+const CLASS_SORT_ORDER = ["魚類", "鳥類", "軟骨魚類", "爬虫類", "哺乳類", "無脊椎動物", "両生類"];
 
 function renderCompareIndexHtml(countRows: TaxonomyCountRow[], animalCounts: Map<string, number>): string {
   // Build lookup: zooId -> className -> orderName -> count
@@ -7073,7 +7073,7 @@ ${renderGlobalNav("/compare")}
 </html>`;
 }
 
-const MAP_CLASS_FILTERS = ["哺乳類", "鳥類", "爬虫類", "両生類", "魚類", "軟骨魚類", "無脊椎動物"];
+const MAP_CLASS_FILTERS = ["魚類", "鳥類", "軟骨魚類", "爬虫類", "哺乳類", "無脊椎動物", "両生類"];
 const MAP_MOBILE_BREAKPOINT = 640;
 
 function renderZoosHtml(

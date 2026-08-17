@@ -268,6 +268,17 @@ npm run deploy
   npx wrangler whoami
   ```
 
+#### GitHub リポジトリへの登録方法
+
+1. GitHub でこのリポジトリを開き、Settings タブを開く（リポジトリに対する admin 権限が必要）
+2. 左メニューの Secrets and variables → Actions を開く
+3. Secrets タブが選択された状態で「New repository secret」をクリック
+4. Name に `CLOUDFLARE_API_TOKEN`、Secret に取得したトークンの値を貼り付けて「Add secret」
+5. 同様に「New repository secret」から Name に `CLOUDFLARE_ACCOUNT_ID`、Secret にアカウントIDを貼り付けて追加
+6. 2つとも登録できたら、`main` へ push（または既存コミットの再実行）して Actions タブの Deploy ワークフローが成功することを確認する
+
+直接リンクで開く場合は `https://github.com/<owner>/<repo>/settings/secrets/actions` にアクセスしてもよい。
+
 ## リバースプロキシ配下(wagaya.org)での提供
 
 このアプリは自身のドメインを持たず、`wagaya.org` リポジトリの

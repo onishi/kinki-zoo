@@ -5439,7 +5439,7 @@ function renderAnimalTaxonomyFilterRow(
     .join("");
 
   return `<div class="taxonomy-filter-row">
-    <h3>${escapeHtml(label)}</h3>
+    <h3>${escapeHtml(label)}を選ぶ</h3>
     <div class="taxonomy-filter-values" aria-label="${escapeHtml(label)}で絞り込み">
       <a href="${escapeHtml(allHref)}" class="ui-chip ui-touch-target${selectedValue ? "" : " ui-chip--active"}"${selectedValue ? "" : ' aria-current="true"'}>すべての${escapeHtml(label)} <span>${allCount}</span></a>
       ${valueChips}
@@ -5483,80 +5483,137 @@ function renderAnimalsHtml(
   const prefLabel = activePref ? PREF_LABELS[activePref] : "近畿一円";
   const escapedQuery = escapeHtml(query ?? "");
 
-  const classRow = renderAnimalTaxonomyFilterRow(
-    "類",
-    classValues,
-    taxonomy.className,
-    allAnimals.length,
-    buildAnimalsUrl(filter, query),
-    (className) => buildAnimalsUrl(filter, query, { className })
-  );
-  const orderRow = taxonomy.className
-    ? renderAnimalTaxonomyFilterRow(
-        "目",
-        orderValues,
-        taxonomy.orderName,
-        classAnimals.length,
-        buildAnimalsUrl(filter, query, { className: taxonomy.className }),
-        (orderName) => buildAnimalsUrl(filter, query, {
-          className: taxonomy.className,
-          orderName,
-        })
-      )
-    : "";
-  const familyRow = taxonomy.className && taxonomy.orderName
-    ? renderAnimalTaxonomyFilterRow(
-        "科",
-        familyValues,
-        taxonomy.familyName,
-        orderAnimals.length,
-        buildAnimalsUrl(filter, query, {
-          className: taxonomy.className,
-          orderName: taxonomy.orderName,
-        }),
-        (familyName) => buildAnimalsUrl(filter, query, {
-          className: taxonomy.className,
-          orderName: taxonomy.orderName,
-          familyName,
-        })
-      )
-    : "";
-  const genusRow = taxonomy.className && taxonomy.orderName && taxonomy.familyName
-    ? renderAnimalTaxonomyFilterRow(
-        "属",
-        genusValues,
-        taxonomy.genusName,
-        familyAnimals.length,
-        buildAnimalsUrl(filter, query, {
-          className: taxonomy.className,
-          orderName: taxonomy.orderName,
-          familyName: taxonomy.familyName,
-        }),
-        (genusName) => buildAnimalsUrl(filter, query, {
-          className: taxonomy.className,
-          orderName: taxonomy.orderName,
-          familyName: taxonomy.familyName,
-          genusName,
-        })
-      )
-    : "";
-  const taxonomyFilterHtml = filter === "all" && (classValues.length > 0 || taxonomy.className)
-    ? `<section class="taxonomy-filter-panel" aria-labelledby="taxonomy-filter-title">
-        <div class="taxonomy-filter-heading">
-          <h2 id="taxonomy-filter-title">分類から絞り込む</h2>
-          <p>類を選ぶと目、目を選ぶと科、科を選ぶと属が表示されます。</p>
-        </div>
-        ${classRow}${orderRow}${familyRow}${genusRow}
-      </section>`
-    : "";
-
-  const selectedTaxonomy = [
-    taxonomy.className,
-    taxonomy.orderName,
-    taxonomy.familyName,
-    taxonomy.genusName,
-  ].filter((value): value is string => Boolean(value));
+  const selectedTaxonomyLevels = [
+    taxonomy.className
+      ? { label: "類", value: taxonomy.className, href: buildAnimalsUrl(filter, query) }
+      : null,
+    taxonomy.orderName
+      ? {
+          label: "目",
+          value: taxonomy.orderName,
+          href: buildAnimalsUrl(filter, query, { className: taxonomy.className }),
+        }
+      : null,
+    taxonomy.familyName
+      ? {
+          label: "科",
+          value: taxonomy.familyName,
+          href: buildAnimalsUrl(filter, query, {
+            className: taxonomy.className,
+            orderName: taxonomy.orderName,
+          }),
+        }
+      : null,
+    taxonomy.genusName
+      ? {
+          label: "属",
+          value: taxonomy.genusName,
+          href: buildAnimalsUrl(filter, query, {
+            className: taxonomy.className,
+            orderName: taxonomy.orderName,
+            familyName: taxonomy.familyName,
+          }),
+        }
+      : null,
+  ].filter((level): level is { label: string; value: string; href: string } => Boolean(level));
+  const selectedTaxonomy = selectedTaxonomyLevels.map((level) => level.value);
   const selectedTaxonomyLabel = selectedTaxonomy.map((value) => escapeHtml(value)).join(" › ");
+  const taxonomyBreadcrumbHtml = selectedTaxonomyLevels.length > 0
+    ? `<div class="taxonomy-selection">
+        <nav class="taxonomy-path" aria-label="選択中の分類">
+          ${selectedTaxonomyLevels
+            .map(
+              (level, index) => `${index > 0 ? '<span class="taxonomy-path-separator" aria-hidden="true">›</span>' : ""}<a href="${escapeHtml(level.href)}" title="${escapeHtml(level.label)}から選び直す"><small>${escapeHtml(level.label)}</small>${escapeHtml(level.value)}</a>`
+            )
+            .join("")}
+        </nav>
+        <a class="taxonomy-clear" href="${escapeHtml(buildAnimalsUrl(filter, query))}">${icon("close")}分類を解除</a>
+      </div>`
+    : `<p class="taxonomy-path-empty">分類はまだ選択されていません。</p>`;
+
+  let taxonomyChoiceRow: string;
+  let nextTaxonomyLabel: string;
+  if (!taxonomy.className) {
+    nextTaxonomyLabel = "類";
+    taxonomyChoiceRow = renderAnimalTaxonomyFilterRow(
+      nextTaxonomyLabel,
+      classValues,
+      null,
+      allAnimals.length,
+      buildAnimalsUrl(filter, query),
+      (className) => buildAnimalsUrl(filter, query, { className })
+    );
+  } else if (!taxonomy.orderName) {
+    nextTaxonomyLabel = "目";
+    taxonomyChoiceRow = renderAnimalTaxonomyFilterRow(
+      nextTaxonomyLabel,
+      orderValues,
+      null,
+      classAnimals.length,
+      buildAnimalsUrl(filter, query, { className: taxonomy.className }),
+      (orderName) => buildAnimalsUrl(filter, query, {
+        className: taxonomy.className,
+        orderName,
+      })
+    );
+  } else if (!taxonomy.familyName) {
+    nextTaxonomyLabel = "科";
+    taxonomyChoiceRow = renderAnimalTaxonomyFilterRow(
+      nextTaxonomyLabel,
+      familyValues,
+      null,
+      orderAnimals.length,
+      buildAnimalsUrl(filter, query, {
+        className: taxonomy.className,
+        orderName: taxonomy.orderName,
+      }),
+      (familyName) => buildAnimalsUrl(filter, query, {
+        className: taxonomy.className,
+        orderName: taxonomy.orderName,
+        familyName,
+      })
+    );
+  } else {
+    nextTaxonomyLabel = "属";
+    taxonomyChoiceRow = renderAnimalTaxonomyFilterRow(
+      nextTaxonomyLabel,
+      genusValues,
+      taxonomy.genusName,
+      familyAnimals.length,
+      buildAnimalsUrl(filter, query, {
+        className: taxonomy.className,
+        orderName: taxonomy.orderName,
+        familyName: taxonomy.familyName,
+      }),
+      (genusName) => buildAnimalsUrl(filter, query, {
+        className: taxonomy.className,
+        orderName: taxonomy.orderName,
+        familyName: taxonomy.familyName,
+        genusName,
+      })
+    );
+  }
+  const taxonomyPanelBody = `${taxonomyBreadcrumbHtml}${taxonomyChoiceRow}`;
+  const mobileTaxonomyStatus = selectedTaxonomyLabel || "未選択";
+  const taxonomyFilterHtml = filter === "all" && (classValues.length > 0 || taxonomy.className)
+    ? `<button type="button" class="taxonomy-filter-trigger ui-touch-target" data-taxonomy-filter-open aria-haspopup="dialog" aria-controls="taxonomy-filter-dialog" aria-expanded="false">
+        <span>分類で絞り込む</span>
+        <small>${mobileTaxonomyStatus}・${animals.length} 件</small>
+      </button>
+      <section class="taxonomy-filter-panel taxonomy-filter-panel--desktop" aria-labelledby="taxonomy-filter-title">
+        <div class="taxonomy-filter-heading">
+          <div><h2 id="taxonomy-filter-title">分類から絞り込む</h2><p>選択中の分類から、次の${nextTaxonomyLabel}を選べます。</p></div>
+        </div>
+        ${taxonomyPanelBody}
+      </section>
+      <dialog class="taxonomy-filter-dialog" id="taxonomy-filter-dialog" aria-labelledby="taxonomy-filter-dialog-title">
+        <div class="taxonomy-filter-heading">
+          <div><h2 id="taxonomy-filter-dialog-title">分類から絞り込む</h2><p>選択中の分類から、次の${nextTaxonomyLabel}を選べます。</p></div>
+          <button type="button" class="taxonomy-dialog-close ui-touch-target" data-taxonomy-filter-close aria-label="分類絞り込みを閉じる">${icon("close")}</button>
+        </div>
+        ${taxonomyPanelBody}
+      </dialog>`
+    : "";
   const summary =
     selectedTaxonomy.length > 0 && query
       ? `${prefLabel}で分類「${selectedTaxonomyLabel}」に属し、「${escapedQuery}」に一致する動物: ${animals.length} 件`
@@ -5627,12 +5684,23 @@ function renderAnimalsHtml(
     .tab { color: #1f5b45; text-decoration: none; font-size: 0.9rem; }
     .tab.active { font-weight: bold; text-decoration: underline; text-underline-offset: 0.2em; }
     .tab:hover { text-decoration: underline; text-underline-offset: 0.2em; }
-    .taxonomy-filter-panel { display: grid; gap: 0.8rem; padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; background: #fff; }
-    .taxonomy-filter-heading { display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; align-items: baseline; }
+    .taxonomy-filter-trigger, .taxonomy-filter-dialog { display: none; }
+    .taxonomy-filter-panel { display: grid; gap: 0.85rem; padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; background: #fff; }
+    .taxonomy-filter-heading { display: flex; justify-content: space-between; gap: 1rem; align-items: start; }
+    .taxonomy-filter-heading > div { display: grid; gap: 0.2rem; }
     .taxonomy-filter-heading h2 { font-size: 1rem; }
     .taxonomy-filter-heading p { color: #66736c; font-size: 0.78rem; line-height: 1.5; }
-    .taxonomy-filter-row { display: grid; grid-template-columns: 2rem minmax(0, 1fr); gap: 0.65rem; align-items: start; }
-    .taxonomy-filter-row h3 { padding-top: 0.42rem; color: #4d5d54; font-size: 0.78rem; }
+    .taxonomy-selection { display: flex; gap: 0.75rem; align-items: center; justify-content: space-between; min-width: 0; }
+    .taxonomy-path { display: flex; align-items: center; gap: 0.35rem; min-width: 0; overflow-x: auto; padding: 0.15rem 0; scrollbar-width: thin; }
+    .taxonomy-path a { display: inline-flex; flex: 0 0 auto; gap: 0.28rem; align-items: baseline; min-height: 40px; padding: 0.5rem 0.6rem; border: 1px solid #d3e4d8; background: #f7fbf8; color: #1f5b45; font-size: 0.82rem; font-weight: bold; text-decoration: none; white-space: nowrap; }
+    .taxonomy-path a:hover { background: #edf7f0; text-decoration: underline; text-underline-offset: 0.2em; }
+    .taxonomy-path a small { color: #6b7c72; font-size: 0.66rem; font-weight: normal; }
+    .taxonomy-path-separator { flex: 0 0 auto; color: #8b978f; }
+    .taxonomy-path-empty { color: #66736c; font-size: 0.82rem; }
+    .taxonomy-clear { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 0.25rem; min-height: 40px; color: #59685f; font-size: 0.78rem; text-decoration: none; }
+    .taxonomy-clear:hover { color: #1f5b45; text-decoration: underline; text-underline-offset: 0.2em; }
+    .taxonomy-filter-row { display: grid; gap: 0.55rem; min-width: 0; }
+    .taxonomy-filter-row h3 { color: #3e5046; font-size: 0.86rem; }
     .taxonomy-filter-values { display: flex; flex-wrap: wrap; gap: 0.4rem; min-width: 0; }
     .taxonomy-filter-values a { font: inherit; font-size: 0.82rem; }
     .taxonomy-filter-values span { opacity: 0.78; font-size: 0.72rem; }
@@ -5662,10 +5730,21 @@ function renderAnimalsHtml(
     footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; }
     @media (max-width: 700px) {
       .tabs { padding: 0.65rem 0.75rem; }
-      .taxonomy-filter-panel { padding: 0.8rem 0.75rem; }
-      .taxonomy-filter-heading { display: grid; gap: 0.2rem; }
-      .taxonomy-filter-row { grid-template-columns: 1fr; gap: 0.35rem; }
-      .taxonomy-filter-row h3 { padding-top: 0; }
+      .taxonomy-filter-panel--desktop { display: none; }
+      .taxonomy-filter-trigger { display: flex; width: calc(100% - 1.5rem); margin: 0.75rem; padding: 0.65rem 0.75rem; border: 1px solid #b9d4c2; background: #f4faf6; color: #1f5b45; align-items: center; justify-content: space-between; gap: 0.75rem; text-align: left; cursor: pointer; }
+      .taxonomy-filter-trigger span { font-size: 0.9rem; font-weight: bold; }
+      .taxonomy-filter-trigger small { min-width: 0; color: #59685f; font-size: 0.72rem; font-weight: normal; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .taxonomy-filter-dialog { width: 100%; max-width: none; max-height: 85vh; max-height: 85dvh; margin: auto 0 0; padding: 1rem 0.75rem calc(1rem + env(safe-area-inset-bottom)); border: 0; border-radius: 16px 16px 0 0; background: #fff; color: #222; overflow-y: auto; }
+      .taxonomy-filter-dialog[open] { display: grid; gap: 0.9rem; }
+      .taxonomy-filter-dialog::backdrop { background: rgba(13, 25, 18, 0.48); }
+      .taxonomy-dialog-close { display: inline-flex; flex: 0 0 auto; width: 44px; height: 44px; padding: 0; border: 1px solid #d5ddd8; background: #fff; color: #405047; align-items: center; justify-content: center; cursor: pointer; }
+      .taxonomy-selection { display: grid; gap: 0.35rem; }
+      .taxonomy-path { width: 100%; padding-bottom: 0.3rem; }
+      .taxonomy-path a { min-height: 44px; }
+      .taxonomy-clear { justify-self: start; min-height: 44px; }
+      .taxonomy-filter-row { gap: 0.45rem; }
+      .taxonomy-filter-values { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 0.45rem; scroll-snap-type: x proximity; scrollbar-width: thin; }
+      .taxonomy-filter-values a { flex: 0 0 auto; min-height: 44px; white-space: nowrap; scroll-snap-align: start; }
       .animal-search-form { display: grid; grid-template-columns: 1fr; padding: 0.65rem 0.75rem; }
       .animal-search-form input, .animal-search-form button, .animal-search-form a { max-width: none; min-height: 44px; }
       .tab { display: inline-flex; min-height: 44px; align-items: center; }
@@ -5705,6 +5784,38 @@ ${renderGlobalNav("/animals")}
   <script src="/favorites.js" defer></script>
 <script>
 (function () {
+  const taxonomyDialog = document.getElementById('taxonomy-filter-dialog');
+  const taxonomyOpenButton = document.querySelector('[data-taxonomy-filter-open]');
+  const taxonomyCloseButton = document.querySelector('[data-taxonomy-filter-close]');
+  if (taxonomyDialog && taxonomyOpenButton) {
+    function closeTaxonomyDialog() {
+      if (typeof taxonomyDialog.close === 'function') taxonomyDialog.close();
+      else {
+        taxonomyDialog.removeAttribute('open');
+        taxonomyOpenButton.setAttribute('aria-expanded', 'false');
+        taxonomyOpenButton.focus();
+      }
+    }
+
+    taxonomyOpenButton.addEventListener('click', () => {
+      if (typeof taxonomyDialog.showModal === 'function') taxonomyDialog.showModal();
+      else taxonomyDialog.setAttribute('open', '');
+      taxonomyOpenButton.setAttribute('aria-expanded', 'true');
+    });
+    taxonomyCloseButton?.addEventListener('click', closeTaxonomyDialog);
+    taxonomyDialog.addEventListener('click', (event) => {
+      if (event.target !== taxonomyDialog) return;
+      const rect = taxonomyDialog.getBoundingClientRect();
+      const outside = event.clientX < rect.left || event.clientX > rect.right ||
+        event.clientY < rect.top || event.clientY > rect.bottom;
+      if (outside) closeTaxonomyDialog();
+    });
+    taxonomyDialog.addEventListener('close', () => {
+      taxonomyOpenButton.setAttribute('aria-expanded', 'false');
+      taxonomyOpenButton.focus();
+    });
+  }
+
   const table = document.getElementById('animal-table');
   if (table) {
     const tbody = table.querySelector('tbody');

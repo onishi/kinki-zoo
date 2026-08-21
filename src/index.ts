@@ -5739,11 +5739,12 @@ function renderAnimalsHtml(
       .taxonomy-filter-dialog::backdrop { background: rgba(13, 25, 18, 0.48); }
       .taxonomy-dialog-close { display: inline-flex; flex: 0 0 auto; width: 44px; height: 44px; padding: 0; border: 1px solid #d5ddd8; background: #fff; color: #405047; align-items: center; justify-content: center; cursor: pointer; }
       .taxonomy-selection { display: grid; gap: 0.35rem; }
-      .taxonomy-path { width: 100%; padding-bottom: 0.3rem; }
+      .taxonomy-path { width: 100%; padding-bottom: 0.3rem; scrollbar-width: none; -ms-overflow-style: none; }
       .taxonomy-path a { min-height: 44px; }
       .taxonomy-clear { justify-self: start; min-height: 44px; }
       .taxonomy-filter-row { gap: 0.45rem; }
-      .taxonomy-filter-values { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 0.45rem; scroll-snap-type: x proximity; scrollbar-width: thin; }
+      .taxonomy-filter-values { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 0.45rem; scroll-snap-type: x proximity; scrollbar-width: none; -ms-overflow-style: none; }
+      .taxonomy-path::-webkit-scrollbar, .taxonomy-filter-values::-webkit-scrollbar { display: none; }
       .taxonomy-filter-values a { flex: 0 0 auto; min-height: 44px; white-space: nowrap; scroll-snap-align: start; }
       .animal-search-form { display: grid; grid-template-columns: 1fr; padding: 0.65rem 0.75rem; }
       .animal-search-form input, .animal-search-form button, .animal-search-form a { max-width: none; min-height: 44px; }

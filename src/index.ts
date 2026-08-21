@@ -5325,11 +5325,15 @@ function renderSearchHtml(
       .zoo-table { min-width: 0; border: 0; }
       .zoo-table thead { display: none; }
       .zoo-table tbody, .zoo-table tr, .zoo-table th, .zoo-table td { display: block; width: 100%; }
-      .zoo-table tr { margin-bottom: 0.75rem; border: 1px solid #d8ddd9; }
-      .zoo-table th, .zoo-table td { border: 0; border-bottom: 1px solid #e5e8e6; padding: 0.7rem 0.75rem; }
+      .zoo-table tr { margin-bottom: 0.5rem; border: 1px solid #d8ddd9; }
+      .zoo-table th, .zoo-table td { border: 0; border-bottom: 1px solid #e5e8e6; padding: 0.45rem 0.75rem; }
       .zoo-table tr > :last-child { border-bottom: 0; }
-      .zoo-table td::before { content: attr(data-label); display: block; margin-bottom: 0.35rem; color: #6a746d; font-size: 0.7rem; font-weight: bold; }
-      .zoo-name { background: #f7faf8; }
+      .zoo-table td::before { content: attr(data-label); display: block; margin-bottom: 0.25rem; color: #6a746d; font-size: 0.7rem; font-weight: bold; }
+      .zoo-table td[data-label="都道府県"],
+      .zoo-table td[data-label="動物種数"] { display: flex; align-items: baseline; gap: 0.5rem; }
+      .zoo-table td[data-label="都道府県"]::before,
+      .zoo-table td[data-label="動物種数"]::before { display: inline; margin-bottom: 0; flex: 0 0 auto; }
+      .zoo-name { background: #f7faf8; padding: 0.6rem 0.75rem; }
       footer { padding: 1rem 0.75rem; line-height: 1.5; }
     }
   </style>
@@ -5754,11 +5758,13 @@ function renderAnimalsHtml(
       .animal-table { min-width: 0; border: 0; }
       .animal-table thead { display: none; }
       .animal-table tbody, .animal-table tr, .animal-table th, .animal-table td { display: block; width: 100%; }
-      .animal-table tr { margin-bottom: 0.75rem; border: 1px solid #d8ddd9; }
-      .animal-table th, .animal-table td { border: 0; border-bottom: 1px solid #e5e8e6; padding: 0.7rem 0.75rem; }
+      .animal-table tr { margin-bottom: 0.5rem; border: 1px solid #d8ddd9; }
+      .animal-table th, .animal-table td { border: 0; border-bottom: 1px solid #e5e8e6; padding: 0.45rem 0.75rem; }
       .animal-table tr > :last-child { border-bottom: 0; }
-      .animal-table td::before { content: attr(data-label); display: block; margin-bottom: 0.35rem; color: #6a746d; font-size: 0.7rem; font-weight: bold; }
-      .animal-name { background: #f7faf8; }
+      .animal-table td::before { content: attr(data-label); display: block; margin-bottom: 0.25rem; color: #6a746d; font-size: 0.7rem; font-weight: bold; }
+      .animal-table td[data-label="施設数"] { display: flex; align-items: baseline; gap: 0.5rem; }
+      .animal-table td[data-label="施設数"]::before { display: inline; margin-bottom: 0; flex: 0 0 auto; }
+      .animal-name { background: #f7faf8; padding: 0.6rem 0.75rem; }
       .empty { padding: 1.5rem 0.75rem; }
       footer { padding: 1rem 0.75rem; line-height: 1.5; }
     }
@@ -6373,11 +6379,13 @@ function renderTaxonomyDetailHtml(
       .animal-table { min-width: 0; border: 0; }
       .animal-table thead { display: none; }
       .animal-table tbody, .animal-table tr, .animal-table th, .animal-table td { display: block; width: 100%; }
-      .animal-table tr { margin-bottom: 0.75rem; border: 1px solid #d8ddd9; }
-      .animal-table th, .animal-table td { border: 0; border-bottom: 1px solid #e5e8e6; padding: 0.7rem 0.75rem; }
+      .animal-table tr { margin-bottom: 0.5rem; border: 1px solid #d8ddd9; }
+      .animal-table th, .animal-table td { border: 0; border-bottom: 1px solid #e5e8e6; padding: 0.45rem 0.75rem; }
       .animal-table tr > :last-child { border-bottom: 0; }
-      .animal-table td::before { content: attr(data-label); display: block; margin-bottom: 0.35rem; color: #6a746d; font-size: 0.7rem; font-weight: bold; }
-      .animal-name { background: #f7faf8; }
+      .animal-table td::before { content: attr(data-label); display: block; margin-bottom: 0.25rem; color: #6a746d; font-size: 0.7rem; font-weight: bold; }
+      .animal-table td[data-label="施設数"] { display: flex; align-items: baseline; gap: 0.5rem; }
+      .animal-table td[data-label="施設数"]::before { display: inline; margin-bottom: 0; flex: 0 0 auto; }
+      .animal-name { background: #f7faf8; padding: 0.6rem 0.75rem; }
       footer { padding: 1rem 0.75rem; line-height: 1.5; }
     }
   </style>
@@ -7877,12 +7885,16 @@ function renderZoosShell(opts: {
       .zoo-table { min-width: 0; border: 0; }
       .zoo-table thead { display: none; }
       .zoo-table tbody, .zoo-table tr, .zoo-table th, .zoo-table td { display: block; width: 100%; }
-      .zoo-table tr { margin-bottom: 0.75rem; border: 1px solid #d8ddd9; }
-      .zoo-table th, .zoo-table td { border: 0; border-bottom: 1px solid #e5e8e6; padding: 0.7rem 0.75rem; }
+      .zoo-table tr { margin-bottom: 0.5rem; border: 1px solid #d8ddd9; }
+      .zoo-table th, .zoo-table td { border: 0; border-bottom: 1px solid #e5e8e6; padding: 0.45rem 0.75rem; }
       .zoo-table td:empty { display: none; }
       .zoo-table tr > :last-child { border-bottom: 0; }
-      .zoo-table td::before { content: attr(data-label); display: block; margin-bottom: 0.35rem; color: #6a746d; font-size: 0.7rem; font-weight: bold; }
-      .zoo-name { background: #f7faf8; }
+      .zoo-table td::before { content: attr(data-label); display: block; margin-bottom: 0.25rem; color: #6a746d; font-size: 0.7rem; font-weight: bold; }
+      .zoo-table td[data-label="都道府県"],
+      .zoo-table td[data-label="動物種数"] { display: flex; align-items: baseline; gap: 0.5rem; }
+      .zoo-table td[data-label="都道府県"]::before,
+      .zoo-table td[data-label="動物種数"]::before { display: inline; margin-bottom: 0; flex: 0 0 auto; }
+      .zoo-name { background: #f7faf8; padding: 0.6rem 0.75rem; }
       .empty { padding: 1.5rem 0.75rem; }
       .map-toolbar { padding: 0.5rem 0.75rem 0; }
       .share-btn, .location-btn { min-height: 44px; }

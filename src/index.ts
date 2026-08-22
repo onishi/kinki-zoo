@@ -2082,7 +2082,8 @@ async function loadAnimalsForTaxonomy(db: D1Database): Promise<AnimalTaxonomyRow
 
 async function loadAnimalImageManageItems(
   db: D1Database,
-  query: string | null = null
+  query: string | null = null,
+  noImage: boolean = false
 ): Promise<AnimalImageManageItem[]> {
   const result = await db
     .prepare(
@@ -2145,6 +2146,7 @@ async function loadAnimalImageManageItems(
     if (normalizedQuery && !normalizeAnimalNameForSearch(displayName).includes(normalizedQuery)) continue;
     seen.add(animalKey);
     const selected = selectedByKey.get(animalKey);
+    if (noImage && selected?.selectedGenerationId != null) continue;
     const generations = generationsByKey.get(animalKey) ?? [];
     items.push({
       displayName,
@@ -4733,7 +4735,8 @@ ${renderGlobalNav("/admin")}
 function renderAnimalImageManageListHtml(
   items: AnimalImageManageItem[],
   query: string | null,
-  notice?: string
+  notice?: string,
+  noImage: boolean = false
 ): string {
   const escapedQuery = query ? escapeHtml(query) : "";
   const modelOptions = GEMINI_IMAGE_MODELS.map(
@@ -4815,6 +4818,7 @@ function renderAnimalImageManageListHtml(
     .toolbar button, .toolbar a { min-height: 42px; display: inline-flex; align-items: center; border: 1px solid #1f5b45; padding: 0.45rem 0.7rem; font-size: 0.86rem; }
     .toolbar button { background: #1f5b45; color: #fff; cursor: pointer; }
     .toolbar a { color: #1f5b45; text-decoration: none; background: #fff; }
+    .toolbar-check { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.86rem; cursor: pointer; }
     .model-toolbar { display: grid; grid-template-columns: minmax(220px, 320px) minmax(220px, 1fr); gap: 0.75rem; align-items: end; padding: 0.75rem; background: #f7faf8; border: 1px solid #dce7df; }
     .model-field-group { display: grid; gap: 0.35rem; }
     .model-field-group label { color: #555; font-size: 0.82rem; font-weight: bold; }
@@ -4880,8 +4884,9 @@ ${renderGlobalNav("/admin")}
     </section>
     <form class="toolbar" action="/admin/animal-images" method="get">
       <input type="search" name="q" value="${escapedQuery}" placeholder="動物名で検索" aria-label="動物名で検索">
+      <label class="toolbar-check"><input type="checkbox" name="no_image" value="1"${noImage ? " checked" : ""}> 画像なしのみ</label>
       <button type="submit">検索</button>
-      ${query ? `<a href="/admin/animal-images">クリア</a>` : ""}
+      ${query || noImage ? `<a href="/admin/animal-images">クリア</a>` : ""}
     </form>
     <p class="summary">${items.length} 件</p>
     <section class="image-list">
@@ -8540,8 +8545,9 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
                 : imageStatus === "error"
                   ? `画像生成でエラーが発生しました。${imageError ? ` ${imageError}` : ""}`
                   : undefined;
-      const items = await loadAnimalImageManageItems(env.DB, query);
-      const html = renderAnimalImageManageListHtml(items, query, notice);
+      const noImage = url.searchParams.get("no_image") === "1";
+      const items = await loadAnimalImageManageItems(env.DB, query, noImage);
+      const html = renderAnimalImageManageListHtml(items, query, notice, noImage);
       return htmlResponse(html, url, activePref);
     }
 

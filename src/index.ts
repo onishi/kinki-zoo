@@ -5768,6 +5768,8 @@ function renderAnimalsHtml(
       .animal-table tr > :last-child { border-bottom: 0; }
       .animal-table td::before { content: attr(data-label); display: block; margin-bottom: 0.25rem; color: #6a746d; font-size: 0.7rem; font-weight: bold; }
       .animal-table td[data-label="施設数"] { display: none; }
+      .animal-table td[data-label="分類"]::before,
+      .animal-table td[data-label="施設一覧"]::before { display: none; }
       .animal-name { background: #f7faf8; padding: 0.6rem 0.75rem; }
       .empty { padding: 1.5rem 0.75rem; }
       footer { padding: 1rem 0.75rem; line-height: 1.5; }
@@ -5901,7 +5903,7 @@ function renderAnimalCards(animals: AnimalListItem[], imageKeys: AnimalImageVers
           <th scope="row" class="animal-name">${thumbHtml}<a href="${escapeHtml(titleHref)}">${title}</a>${renderFavoriteButton("animal", searchName, item.canonicalName ?? primaryDisplayName, titleHref)}</th>
           <td data-label="分類">${taxonomyRow}</td>
           <td data-label="施設数"><span class="facility-count">${item.zoos.length}</span></td>
-          <td data-label="施設一覧（${item.zoos.length}）"><div class="zoo-links">${zooLinks}</div></td>
+          <td data-label="施設一覧"><div class="zoo-links">${zooLinks}</div></td>
         </tr>`;
     })
     .join("\n");
@@ -6388,6 +6390,8 @@ function renderTaxonomyDetailHtml(
       .animal-table tr > :last-child { border-bottom: 0; }
       .animal-table td::before { content: attr(data-label); display: block; margin-bottom: 0.25rem; color: #6a746d; font-size: 0.7rem; font-weight: bold; }
       .animal-table td[data-label="施設数"] { display: none; }
+      .animal-table td[data-label="分類"]::before,
+      .animal-table td[data-label="施設一覧"]::before { display: none; }
       .animal-name { background: #f7faf8; padding: 0.6rem 0.75rem; }
       footer { padding: 1rem 0.75rem; line-height: 1.5; }
     }

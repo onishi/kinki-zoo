@@ -5752,9 +5752,8 @@ function renderAnimalsHtml(
       .taxonomy-path a { min-height: 44px; }
       .taxonomy-clear { justify-self: start; min-height: 44px; }
       .taxonomy-filter-row { gap: 0.45rem; }
-      .taxonomy-filter-values { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 0.45rem; scroll-snap-type: x proximity; scrollbar-width: none; -ms-overflow-style: none; }
-      .taxonomy-path::-webkit-scrollbar, .taxonomy-filter-values::-webkit-scrollbar { display: none; }
-      .taxonomy-filter-values a { flex: 0 0 auto; min-height: 44px; white-space: nowrap; scroll-snap-align: start; }
+      .taxonomy-path::-webkit-scrollbar { display: none; }
+      .taxonomy-filter-values a { min-height: 44px; white-space: nowrap; }
       .animal-search-form { display: grid; grid-template-columns: 1fr; padding: 0.65rem 0.75rem; }
       .animal-search-form input, .animal-search-form button, .animal-search-form a { max-width: none; min-height: 44px; }
       .tab { display: inline-flex; min-height: 44px; align-items: center; }

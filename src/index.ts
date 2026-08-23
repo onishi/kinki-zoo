@@ -4117,10 +4117,11 @@ const COMMON_STYLES = `
       .header-toggle .ht-icon-collapsed { display: none; }
       .header-toggle[aria-expanded="false"] .ht-icon-expanded { display: none; }
       .header-toggle[aria-expanded="false"] .ht-icon-collapsed { display: inline-flex; }
-      html.kz-header-collapsed .site-header { gap: 0.5rem; }
+      html.kz-header-collapsed .site-header { gap: 0.5rem; padding: 0.5rem 0.75rem; }
       html.kz-header-collapsed .site-header .site-heading p,
       html.kz-header-collapsed .header-search,
       html.kz-header-collapsed .pref-selector { display: none; }
+      html.kz-header-collapsed .global-nav { display: none; }
       .global-nav { display: flex; flex-wrap: nowrap; gap: 0; padding: 0; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
       .global-nav a { flex: 0 0 auto; display: flex; gap: 0.3rem; min-height: 44px; align-items: center; white-space: nowrap; padding: 0.55rem 0.85rem; border-right: 1px solid #eee; font-size: 0.82rem; }
       .global-nav a:last-child { border-right: 0; }
@@ -4137,7 +4138,7 @@ function renderSiteHeader(): string {
       <h1><a href="/">近畿動物園情報</a></h1>
       <p>近畿一円の動物園・施設をまとめて調べられます</p>
     </div>
-    <button type="button" class="header-toggle" data-header-toggle aria-expanded="true" aria-label="ヘッダーの開閉">${icon("expand_less", "ht-icon-expanded")}${icon("expand_more", "ht-icon-collapsed")}</button>
+    <button type="button" class="header-toggle" data-header-toggle aria-expanded="true" aria-label="ヘッダーとメニューの開閉">${icon("expand_less", "ht-icon-expanded")}${icon("expand_more", "ht-icon-collapsed")}</button>
   </header>`;
 }
 

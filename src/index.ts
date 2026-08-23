@@ -5770,7 +5770,7 @@ function renderAnimalsHtml(
       .animal-table td[data-label="施設数"] { display: none; }
       .animal-table td[data-label="分類"]::before,
       .animal-table td[data-label="施設一覧"]::before { display: none; }
-      .animal-name { background: #f7faf8; padding: 0.6rem 0.75rem; }
+      .animal-table th.animal-name { display: flex; align-items: center; background: #f7faf8; padding: 0.6rem 0.75rem; }
       .empty { padding: 1.5rem 0.75rem; }
       footer { padding: 1rem 0.75rem; line-height: 1.5; }
     }
@@ -6392,7 +6392,7 @@ function renderTaxonomyDetailHtml(
       .animal-table td[data-label="施設数"] { display: none; }
       .animal-table td[data-label="分類"]::before,
       .animal-table td[data-label="施設一覧"]::before { display: none; }
-      .animal-name { background: #f7faf8; padding: 0.6rem 0.75rem; }
+      .animal-table th.animal-name { display: flex; align-items: center; background: #f7faf8; padding: 0.6rem 0.75rem; }
       footer { padding: 1rem 0.75rem; line-height: 1.5; }
     }
   </style>

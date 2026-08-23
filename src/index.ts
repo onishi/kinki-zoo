@@ -7638,8 +7638,10 @@ function renderZoosHtml(
       kzZoos.forEach(function(zoo) {
         var matchLine = ${animal ? "true" : "false"} ? '<br><span>検索ヒット: ' + zoo.matchCount + ' 件</span>' : '';
         var animalCountLine = '<br><span>動物種数: ' + (zoo.animalCount > 0 ? zoo.animalCount + ' 種' : '未取得') + '</span>';
+        var mapAppUrl = 'https://www.google.com/maps/search/?api=1&query=' + zoo.lat + ',' + zoo.lon;
+        var mapAppLine = '<br><a class="popup-map-app" href="' + mapAppUrl + '" target="_blank" rel="noopener noreferrer">地図アプリで見る</a>';
         var marker = L.marker([zoo.lat, zoo.lon])
-          .bindPopup('<b><a href="/zoos/' + esc(zoo.id) + '${activePref ? `?pref=${activePref}` : ""}">' + esc(zoo.name) + '</a></b>' + matchLine + animalCountLine)
+          .bindPopup('<b><a href="/zoos/' + esc(zoo.id) + '${activePref ? `?pref=${activePref}` : ""}">' + esc(zoo.name) + '</a></b>' + matchLine + animalCountLine + mapAppLine)
           .addTo(map);
         marker.on('click', function() {
           activateResult(zoo.id, { openSheet: true, scroll: true });
@@ -7881,7 +7883,10 @@ function renderZoosShell(opts: {
     .result-animals a { color: #1f5b45; text-decoration: none; }
     .result-animals a:hover { text-decoration: underline; }
     .marker-active { filter: hue-rotate(160deg) saturate(2) brightness(1.1); }
+    .popup-map-app { display: none; }
     @media (max-width: 700px) {
+      .popup-map-app { display: inline-block; margin-top: 0.3rem; font-size: 0.78rem; color: #1f5b45; text-decoration: none; }
+      .popup-map-app:hover { text-decoration: underline; }
       .search-form { display: grid; grid-template-columns: 1fr auto; padding: 0.75rem; }
       .search-form input { width: 100%; max-width: none; min-width: 0; min-height: 44px; grid-column: 1 / -1; }
       .search-form button, .search-form a { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; }

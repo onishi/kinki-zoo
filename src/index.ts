@@ -4047,6 +4047,8 @@ const COMMON_STYLES = `
     .ui-touch-target { min-height: 40px; }
     .news-badge { display: inline-flex; align-items: center; font-size: 0.68rem; font-weight: bold; padding: 0.05rem 0.35rem; border-radius: 2px; flex-shrink: 0; }
     .news-badge--new { background: #dc2626; color: #fff; }
+    .news-animals a { display: inline-flex; align-items: center; gap: 0.3rem; }
+    .news-animal-thumb { display: block; width: 24px; height: 24px; flex: 0 0 24px; border-radius: 50%; object-fit: cover; background: #e7eee9; }
     .fav-toggle { border: 1px solid #d8c98a; background: #fff; color: #b8930b; cursor: pointer; }
     .fav-toggle:disabled { opacity: 0.4; cursor: not-allowed; }
     .fav-toggle--icon { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; width: 1.9rem; height: 1.9rem; padding: 0; font-size: 1.05rem; border-radius: 4px; margin-left: auto; }
@@ -4179,6 +4181,21 @@ function buildAnimalImageItemId(animalKey: string): string {
 function buildAnimalImageUrl(displayName: string, version?: number | null): string {
   const url = `/animal-images/${encodeURIComponent(displayName)}`;
   return version ? `${url}?v=${encodeURIComponent(String(version))}` : url;
+}
+
+function renderNewsAnimalLinks(
+  animals: string[],
+  imageKeys: AnimalImageVersionIndex = new Map()
+): string {
+  return animals
+    .map((name) => {
+      const animalKey = normalizeAnimalImageKey(name);
+      const thumb = imageKeys.has(animalKey)
+        ? `<img src="${buildAnimalImageUrl(name, imageKeys.get(animalKey))}" alt="" class="news-animal-thumb" loading="lazy" width="24" height="24">`
+        : "";
+      return `<a href="${buildZooAnimalUrl(name)}">${thumb}<span>${escapeHtml(name)}</span></a>`;
+    })
+    .join("");
 }
 
 function renderAnimalImagePlaceholder(
@@ -5069,7 +5086,8 @@ ${renderGlobalNav("/admin")}
 function renderHomeHtml(
   results: ZooSearchResult[],
   activePref: PrefectureCode | null,
-  latestNews: ZooNewsRow[] = []
+  latestNews: ZooNewsRow[] = [],
+  imageKeys: AnimalImageVersionIndex = new Map()
 ): string {
   const count = results.length;
   const totalAnimalCount = results.reduce((sum, result) => sum + result.animalCount, 0);
@@ -5184,7 +5202,7 @@ ${renderGlobalNav("/")}
         const zoo = zoos.find((z) => z.id === item.zoo_id);
         const animals = item.animal_names ? item.animal_names.split(",").filter(Boolean) : [];
         const animalsHtml = animals.length > 0
-          ? `<div class="news-animals">${animals.map((n) => `<a href="/animal/${encodeURIComponent(n)}">${escapeHtml(n)}</a>`).join("")}</div>`
+          ? `<div class="news-animals">${renderNewsAnimalLinks(animals, imageKeys)}</div>`
           : "";
         const badges = renderNewsItemBadges(item.title, item.published_at);
         return `<li>
@@ -6717,9 +6735,7 @@ ${renderGlobalNav("/zoos")}
                 ? item.animal_names.split(",").filter(Boolean)
                 : [];
               const animalsHtml = animals.length > 0
-                ? `<div class="news-animals">${animals
-                    .map((n) => `<a href="/animal/${encodeURIComponent(n)}">${escapeHtml(n)}</a>`)
-                    .join("")}</div>`
+                ? `<div class="news-animals">${renderNewsAnimalLinks(animals, imageKeys)}</div>`
                 : "";
               const badges = renderNewsItemBadges(item.title, item.published_at);
               return `<li>
@@ -6799,14 +6815,18 @@ ${renderGlobalNav("/zoos")}
 </html>`;
 }
 
-function renderNewsItems(news: ZooNewsRow[], emptyMessage = "お知らせはまだありません。"): string {
+function renderNewsItems(
+  news: ZooNewsRow[],
+  imageKeys: AnimalImageVersionIndex = new Map(),
+  emptyMessage = "お知らせはまだありません。"
+): string {
   if (news.length === 0) return `<li class="news-empty">${escapeHtml(emptyMessage)}</li>`;
   return news
     .map((item) => {
       const zoo = zoos.find((z) => z.id === item.zoo_id);
       const animals = item.animal_names ? item.animal_names.split(",").filter(Boolean) : [];
       const animalsHtml = animals.length > 0
-        ? `<div class="news-animals">${animals.map((n) => `<a href="/animal/${encodeURIComponent(n)}">${escapeHtml(n)}</a>`).join("")}</div>`
+        ? `<div class="news-animals">${renderNewsAnimalLinks(animals, imageKeys)}</div>`
         : "";
       const badges = renderNewsItemBadges(item.title, item.published_at);
       return `<li data-zoo="${escapeHtml(item.zoo_id)}" data-animals="${escapeHtml(animals.join(","))}">
@@ -6822,7 +6842,11 @@ function renderNewsItems(news: ZooNewsRow[], emptyMessage = "お知らせはま�
     .join("");
 }
 
-function renderNewsListHtml(news: ZooNewsRow[], activePref: PrefectureCode | null): string {
+function renderNewsListHtml(
+  news: ZooNewsRow[],
+  activePref: PrefectureCode | null,
+  imageKeys: AnimalImageVersionIndex = new Map()
+): string {
   const zooIds = [...new Set(news.map((n) => n.zoo_id))];
   const zooFilterHtml = zooIds.length > 1
     ? `<div class="news-zoo-filters">
@@ -6838,7 +6862,7 @@ function renderNewsListHtml(news: ZooNewsRow[], activePref: PrefectureCode | nul
       </div>`
     : "";
 
-  const itemsHtml = renderNewsItems(news);
+  const itemsHtml = renderNewsItems(news, imageKeys);
 
   return `<!DOCTYPE html>
 <html lang="ja">
@@ -8074,6 +8098,15 @@ const FAVORITES_JS = `(function () {
     });
   }
 
+  function favoriteAnimalThumb(label) {
+    var imageUrls = window.KinkiZooAnimalImageUrls || {};
+    var imageKey = String(label).toLocaleLowerCase("ja-JP").replace(/[\\s　]+/g, "");
+    var imageUrl = imageUrls[imageKey];
+    return imageUrl
+      ? '<img src="' + escapeHtml(imageUrl) + '" alt="" class="favorites-animal-thumb" loading="lazy" width="32" height="32">'
+      : "";
+  }
+
   function renderFavoritesPage() {
     var root = document.getElementById("favorites-root");
     if (!root) return;
@@ -8097,8 +8130,9 @@ const FAVORITES_JS = `(function () {
       }
       var items = entries
         .map(function (entry) {
+          var thumb = type === "animal" ? favoriteAnimalThumb(entry.label) : "";
           return (
-            '<li><a href="' + escapeHtml(entry.href) + '">' + escapeHtml(entry.label) + "</a>" +
+            '<li><a href="' + escapeHtml(entry.href) + '">' + thumb + '<span>' + escapeHtml(entry.label) + "</span></a>" +
             '<button type="button" class="ui-btn ui-btn--secondary favorites-remove" data-fav-remove aria-label="' +
             escapeHtml(entry.label) + 'をお気に入りから削除" data-fav-type="' +
             type + '" data-fav-id="' + escapeHtml(entry.id) + '">' +
@@ -8175,8 +8209,19 @@ const FAVORITES_JS = `(function () {
 })();
 `;
 
-function renderFavoritesHtml(news: ZooNewsRow[]): string {
-  const newsItemsHtml = news.length > 0 ? renderNewsItems(news) : "";
+function renderFavoritesHtml(
+  news: ZooNewsRow[],
+  imageKeys: AnimalImageVersionIndex = new Map()
+): string {
+  const newsItemsHtml = news.length > 0 ? renderNewsItems(news, imageKeys) : "";
+  const animalImageUrlsJson = JSON.stringify(
+    Object.fromEntries(
+      [...imageKeys].map(([animalKey, version]) => [
+        animalKey,
+        withBase(buildAnimalImageUrl(animalKey, version)),
+      ])
+    )
+  ).replace(/</g, "\\u003c");
   return `<!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -8195,8 +8240,10 @@ function renderFavoritesHtml(news: ZooNewsRow[]): string {
     .favorites-empty { color: #777; font-size: 0.88rem; border: 1px solid #e1e1e1; background: #f7f7f7; padding: 0.75rem; }
     .favorites-list { list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.4rem; }
     .favorites-list li { min-width: 0; display: flex; align-items: center; gap: 0.35rem; border: 1px solid #dce7df; padding: 0.35rem 0.4rem 0.35rem 0.65rem; }
-    .favorites-list a { flex: 1 1 auto; min-width: 0; color: #1f5b45; font-size: 0.88rem; font-weight: bold; line-height: 1.35; text-decoration: none; overflow-wrap: anywhere; }
+    .favorites-list a { display: flex; flex: 1 1 auto; min-width: 0; align-items: center; gap: 0.4rem; color: #1f5b45; font-size: 0.88rem; font-weight: bold; line-height: 1.35; text-decoration: none; overflow-wrap: anywhere; }
+    .favorites-list a span { min-width: 0; }
     .favorites-list a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+    .favorites-animal-thumb { display: block; width: 32px; height: 32px; flex: 0 0 32px; border-radius: 50%; object-fit: cover; background: #e7eee9; }
     .favorites-remove { flex: 0 0 2.25rem; width: 2.25rem; min-height: 2.25rem; padding: 0; border-color: transparent; }
     .favorites-remove .ui-icon { width: 1rem; height: 1rem; }
     .news-list { list-style: none; display: grid; gap: 0; }
@@ -8240,7 +8287,8 @@ ${renderGlobalNav("/favorites")}
     </section>
   </main>
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
-  <script src="/favorites.js" defer></script>
+  <script>window.KinkiZooAnimalImageUrls = ${animalImageUrlsJson};</script>
+  <script src="/favorites.js?v=2" defer></script>
 </body>
 </html>`;
 }
@@ -8685,7 +8733,7 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
         headers: {
           "Content-Type": generation.mimeType,
           "Cache-Control": "public, max-age=86400",
-          "X-Animal-Image-Key": generation.animalKey,
+          "X-Animal-Image-Key": encodeURIComponent(generation.animalKey),
         },
       });
     }
@@ -8707,7 +8755,7 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
             r2Object.body,
             {
               "Content-Type": r2Object.httpMetadata?.contentType ?? image.mimeType,
-              "X-Animal-Image-Key": image.animalKey,
+              "X-Animal-Image-Key": encodeURIComponent(image.animalKey),
             },
             url
           ),
@@ -8720,7 +8768,7 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
           base64ToUint8Array(image.imageBase64),
           {
             "Content-Type": image.mimeType,
-            "X-Animal-Image-Key": image.animalKey,
+            "X-Animal-Image-Key": encodeURIComponent(image.animalKey),
           },
           url
         ),
@@ -8847,11 +8895,14 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
 
     // HTML: /news
     if (pathname === "/news") {
-      const allNews = await loadAllZooNews(env.DB);
+      const [allNews, imageKeys] = await Promise.all([
+        loadAllZooNews(env.DB),
+        loadAnimalImageKeys(env.DB),
+      ]);
       const news = activePref
         ? allNews.filter((n) => zoos.find((z) => z.id === n.zoo_id)?.prefecture === activePref)
         : allNews;
-      return htmlResponse(renderNewsListHtml(news, activePref), url, activePref);
+      return htmlResponse(renderNewsListHtml(news, activePref, imageKeys), url, activePref);
     }
 
     // HTML: /search
@@ -9119,8 +9170,11 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
 
     // HTML: /favorites
     if (pathname === "/favorites") {
-      const news = await loadAllZooNews(env.DB, 500);
-      return htmlResponse(renderFavoritesHtml(news), url, activePref);
+      const [news, imageKeys] = await Promise.all([
+        loadAllZooNews(env.DB, 500),
+        loadAnimalImageKeys(env.DB),
+      ]);
+      return htmlResponse(renderFavoritesHtml(news, imageKeys), url, activePref);
     }
 
     // HTML: /
@@ -9131,11 +9185,12 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
         destination.search = url.search;
         return redirectResponse(`${destination.pathname}${destination.search}`, 301);
       }
-      const [results, latestNews] = await Promise.all([
+      const [results, latestNews, imageKeys] = await Promise.all([
         searchZoos(env.DB, activePref, null),
         loadAllZooNews(env.DB, 10),
+        loadAnimalImageKeys(env.DB),
       ]);
-      const html = renderHomeHtml(results, activePref, latestNews);
+      const html = renderHomeHtml(results, activePref, latestNews, imageKeys);
       return htmlResponse(html, url, activePref);
     }
 

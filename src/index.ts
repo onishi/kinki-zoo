@@ -8099,9 +8099,10 @@ const FAVORITES_JS = `(function () {
         .map(function (entry) {
           return (
             '<li><a href="' + escapeHtml(entry.href) + '">' + escapeHtml(entry.label) + "</a>" +
-            '<button type="button" class="ui-btn ui-btn--secondary favorites-remove" data-fav-remove data-fav-type="' +
+            '<button type="button" class="ui-btn ui-btn--secondary favorites-remove" data-fav-remove aria-label="' +
+            escapeHtml(entry.label) + 'をお気に入りから削除" data-fav-type="' +
             type + '" data-fav-id="' + escapeHtml(entry.id) + '">' +
-            '<svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1zM18 7H6v12c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7z"/></svg>削除</button></li>'
+            '<svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1zM18 7H6v12c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7z"/></svg></button></li>'
           );
         })
         .join("");
@@ -8187,15 +8188,17 @@ function renderFavoritesHtml(news: ZooNewsRow[]): string {
     body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
     main { max-width: 800px; margin: 0 auto; padding: 1.5rem; display: grid; gap: 1.25rem; }
     main > p.lead { color: #666; font-size: 0.9rem; line-height: 1.6; }
+    #favorites-root { display: grid; gap: 1.25rem; }
     .favorites-section { display: grid; gap: 0.6rem; }
     .favorites-section[hidden] { display: none; }
     .favorites-section h2 { font-size: 1.05rem; }
     .favorites-empty { color: #777; font-size: 0.88rem; border: 1px solid #e1e1e1; background: #f7f7f7; padding: 0.75rem; }
-    .favorites-list { list-style: none; display: grid; gap: 0.5rem; }
-    .favorites-list li { display: flex; align-items: center; justify-content: space-between; gap: 1rem; border: 1px solid #dce7df; padding: 0.65rem 0.85rem; }
-    .favorites-list a { color: #1f5b45; font-weight: bold; text-decoration: none; overflow-wrap: anywhere; }
+    .favorites-list { list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.4rem; }
+    .favorites-list li { min-width: 0; display: flex; align-items: center; gap: 0.35rem; border: 1px solid #dce7df; padding: 0.35rem 0.4rem 0.35rem 0.65rem; }
+    .favorites-list a { flex: 1 1 auto; min-width: 0; color: #1f5b45; font-size: 0.88rem; font-weight: bold; line-height: 1.35; text-decoration: none; overflow-wrap: anywhere; }
     .favorites-list a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
-    .favorites-remove { flex: 0 0 auto; font-size: 0.78rem; padding: 0.35rem 0.65rem; min-height: 0; }
+    .favorites-remove { flex: 0 0 2.25rem; width: 2.25rem; min-height: 2.25rem; padding: 0; border-color: transparent; }
+    .favorites-remove .ui-icon { width: 1rem; height: 1rem; }
     .news-list { list-style: none; display: grid; gap: 0; }
     .news-list[hidden] { display: none; }
     .news-list li { display: grid; gap: 0.3rem; border-bottom: 1px solid #eee; padding: 0.85rem 0.65rem; }
@@ -8216,7 +8219,6 @@ function renderFavoritesHtml(news: ZooNewsRow[]): string {
     footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; }
     @media (max-width: 640px) {
       main { padding: 0.85rem; }
-      .favorites-list li { flex-wrap: wrap; }
       .news-list li { padding: 0.75rem 0.35rem; }
     }
   </style>

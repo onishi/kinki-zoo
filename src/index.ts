@@ -429,7 +429,7 @@ function renderNewsItemBadges(title: string, publishedAt: string | null): string
 }
 
 function renderFavoriteButton(
-  type: "zoo" | "animal",
+  type: "zoo" | "animal" | "taxonomy",
   id: string,
   label: string,
   href: string,
@@ -5218,7 +5218,7 @@ ${renderGlobalNav("/")}
     </ul>
   </section>` : ""}
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
-  <script src="/favorites.js" defer></script>
+  <script src="/favorites.js?v=3" defer></script>
 </body>
 </html>`;
 }
@@ -5445,7 +5445,7 @@ ${renderGlobalNav("/search")}
     </section>` : ""}
   </main>
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
-  <script src="/favorites.js" defer></script>
+  <script src="/favorites.js?v=3" defer></script>
 </body>
 </html>`;
 }
@@ -5579,6 +5579,24 @@ function renderAnimalsHtml(
   ].filter((level): level is { label: string; value: string; href: string } => Boolean(level));
   const selectedTaxonomy = selectedTaxonomyLevels.map((level) => level.value);
   const selectedTaxonomyLabel = selectedTaxonomy.map((value) => escapeHtml(value)).join(" › ");
+  const favoriteTaxonomy = taxonomy.genusName
+    ? { rank: "genus", value: taxonomy.genusName }
+    : taxonomy.familyName
+    ? { rank: "family", value: taxonomy.familyName }
+    : taxonomy.orderName
+    ? { rank: "order", value: taxonomy.orderName }
+    : taxonomy.className
+    ? { rank: "class", value: taxonomy.className }
+    : null;
+  const taxonomyFavoriteButtonHtml = favoriteTaxonomy
+    ? renderFavoriteButton(
+        "taxonomy",
+        `${favoriteTaxonomy.rank}:${favoriteTaxonomy.value}`,
+        favoriteTaxonomy.value,
+        buildAnimalsUrl("all", null, taxonomy),
+        "large"
+      )
+    : "";
   const taxonomyBreadcrumbHtml = selectedTaxonomyLevels.length > 0
     ? `<div class="taxonomy-selection">
         <nav class="taxonomy-path" aria-label="選択中の分類">
@@ -5588,7 +5606,10 @@ function renderAnimalsHtml(
             )
             .join("")}
         </nav>
-        <a class="taxonomy-clear" href="${escapeHtml(buildAnimalsUrl(filter, query))}">${icon("close")}分類を解除</a>
+        <div class="taxonomy-selection-actions">
+          ${taxonomyFavoriteButtonHtml}
+          <a class="taxonomy-clear" href="${escapeHtml(buildAnimalsUrl(filter, query))}">${icon("close")}分類を解除</a>
+        </div>
       </div>`
     : `<p class="taxonomy-path-empty">分類はまだ選択されていません。</p>`;
 
@@ -5752,6 +5773,8 @@ function renderAnimalsHtml(
     .taxonomy-filter-heading h2 { font-size: 1rem; }
     .taxonomy-filter-heading p { color: #66736c; font-size: 0.78rem; line-height: 1.5; }
     .taxonomy-selection { display: flex; gap: 0.75rem; align-items: center; justify-content: space-between; min-width: 0; }
+    .taxonomy-selection-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 0.5rem; }
+    .taxonomy-selection-actions .fav-toggle { white-space: nowrap; }
     .taxonomy-path { display: flex; align-items: center; gap: 0.35rem; min-width: 0; overflow-x: auto; padding: 0.15rem 0; scrollbar-width: thin; }
     .taxonomy-path a { display: inline-flex; flex: 0 0 auto; gap: 0.28rem; align-items: baseline; min-height: 40px; padding: 0.5rem 0.6rem; border: 1px solid #d3e4d8; background: #f7fbf8; color: #1f5b45; font-size: 0.82rem; font-weight: bold; text-decoration: none; white-space: nowrap; }
     .taxonomy-path a:hover { background: #edf7f0; text-decoration: underline; text-underline-offset: 0.2em; }
@@ -5800,6 +5823,7 @@ function renderAnimalsHtml(
       .taxonomy-filter-dialog::backdrop { background: rgba(13, 25, 18, 0.48); }
       .taxonomy-dialog-close { display: inline-flex; flex: 0 0 auto; width: 44px; height: 44px; padding: 0; border: 1px solid #d5ddd8; background: #fff; color: #405047; align-items: center; justify-content: center; cursor: pointer; }
       .taxonomy-selection { display: grid; gap: 0.35rem; }
+      .taxonomy-selection-actions { width: 100%; flex-wrap: wrap; }
       .taxonomy-path { width: 100%; padding-bottom: 0.3rem; scrollbar-width: none; -ms-overflow-style: none; }
       .taxonomy-path a { min-height: 44px; }
       .taxonomy-clear { justify-self: start; min-height: 44px; }
@@ -5845,7 +5869,7 @@ ${renderGlobalNav("/animals")}
   <p class="summary">${summary}</p>
   ${animalListHtml}
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
-  <script src="/favorites.js" defer></script>
+  <script src="/favorites.js?v=3" defer></script>
 <script>
 (function () {
   const taxonomyDialog = document.getElementById('taxonomy-filter-dialog');
@@ -6231,7 +6255,7 @@ ${renderGlobalNav("/animals")}
     }
   </main>
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
-  <script src="/favorites.js" defer></script>
+  <script src="/favorites.js?v=3" defer></script>
 </body>
 </html>`;
 }
@@ -6303,6 +6327,15 @@ function renderTaxonomyDetailHtml(
   const escapedValue = escapeHtml(value);
   const items = renderAnimalCards(animals, imageKeys);
   const breadcrumb = renderTaxonomyBreadcrumb(levels);
+  const favoriteButtonHtml = rank.key !== "species"
+    ? renderFavoriteButton(
+        "taxonomy",
+        `${rank.key}:${value}`,
+        value,
+        buildTaxonomyPathUrl(levels.map((level) => level.value)),
+        "large"
+      )
+    : "";
 
   const zooAnimalCounts = new Map<string, { zoo: Zoo; count: number }>();
   for (const item of animals) {
@@ -6393,6 +6426,8 @@ function renderTaxonomyDetailHtml(
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
+    .taxonomy-detail-heading { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.85rem 1.5rem 0; }
+    .taxonomy-detail-heading h1 { min-width: 0; font-size: 1.35rem; overflow-wrap: anywhere; }
     .summary { padding: 0.75rem 1.5rem; font-size: 0.9rem; color: #666; }
     .child-taxonomy, .representative-section, .top-zoos-section { padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; }
     .child-taxonomy h2, .representative-section h2, .top-zoos-section h2 { font-size: 1.05rem; margin-bottom: 0.75rem; }
@@ -6430,6 +6465,7 @@ function renderTaxonomyDetailHtml(
     .empty { padding: 2rem 1.5rem; color: #888; }
     footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; }
     @media (max-width: 700px) {
+      .taxonomy-detail-heading { align-items: flex-start; padding-left: 0.75rem; padding-right: 0.75rem; }
       .summary, .child-taxonomy, .representative-section, .top-zoos-section { padding-left: 0.75rem; padding-right: 0.75rem; }
       .taxonomy-links { grid-template-columns: 1fr; }
       .animal-list { padding: 0.75rem; overflow: visible; }
@@ -6452,6 +6488,10 @@ function renderTaxonomyDetailHtml(
 ${renderSiteHeader()}
 ${renderGlobalNav("/animals")}
   ${breadcrumb}
+  <div class="taxonomy-detail-heading">
+    <h1>${escapedValue}</h1>
+    ${favoriteButtonHtml}
+  </div>
   <p class="summary">${escapeHtml(rank.label)}: ${escapedValue} / 動物: ${animals.length} 件 / 施設: ${zooAnimalCounts.size} 施設</p>
   ${representativeHtml}
   ${topZoosHtml}
@@ -6475,7 +6515,7 @@ ${renderGlobalNav("/animals")}
         ])
   }
   <footer>分類は利用者が探しやすい粒度で整理しています。最新情報は各施設の公式サイトでご確認ください。</footer>
-  <script src="/favorites.js" defer></script>
+  <script src="/favorites.js?v=3" defer></script>
 </body>
 </html>`;
 }
@@ -6771,7 +6811,7 @@ ${renderGlobalNav("/zoos")}
     </section>
     <div id="map"></div>
   </main>
-  <script src="/favorites.js" defer></script>
+  <script src="/favorites.js?v=3" defer></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script>
     var filterButtons = document.querySelectorAll('[data-class-filter]');
@@ -7992,7 +8032,7 @@ ${renderGlobalNav("/zoos")}
   <div class="cls-filter">${classChips}</div>
   ${bodyHtml}
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
-  <script src="/favorites.js" defer></script>${mapScript ?? ""}
+  <script src="/favorites.js?v=3" defer></script>${mapScript ?? ""}
 </body>
 </html>`;
 }
@@ -8011,17 +8051,18 @@ const FAVORITES_JS = `(function () {
   })();
 
   function loadFavorites() {
-    if (!hasStorage) return { zoos: {}, animals: {} };
+    if (!hasStorage) return { zoos: {}, animals: {}, taxonomies: {} };
     try {
       var raw = window.localStorage.getItem(STORAGE_KEY);
-      if (!raw) return { zoos: {}, animals: {} };
+      if (!raw) return { zoos: {}, animals: {}, taxonomies: {} };
       var parsed = JSON.parse(raw);
       return {
         zoos: parsed && typeof parsed.zoos === "object" && parsed.zoos ? parsed.zoos : {},
-        animals: parsed && typeof parsed.animals === "object" && parsed.animals ? parsed.animals : {}
+        animals: parsed && typeof parsed.animals === "object" && parsed.animals ? parsed.animals : {},
+        taxonomies: parsed && typeof parsed.taxonomies === "object" && parsed.taxonomies ? parsed.taxonomies : {}
       };
     } catch (e) {
-      return { zoos: {}, animals: {} };
+      return { zoos: {}, animals: {}, taxonomies: {} };
     }
   }
 
@@ -8035,7 +8076,9 @@ const FAVORITES_JS = `(function () {
   }
 
   function bucketFor(data, type) {
-    return type === "zoo" ? data.zoos : data.animals;
+    if (type === "zoo") return data.zoos;
+    if (type === "taxonomy") return data.taxonomies;
+    return data.animals;
   }
 
   function isFavorite(data, type, id) {
@@ -8107,6 +8150,102 @@ const FAVORITES_JS = `(function () {
       : "";
   }
 
+  function favoriteTaxonomyThumb(id) {
+    var rankingData = window.KinkiZooFavoriteRankingData || { animals: [] };
+    var animal = (rankingData.animals || []).find(function (item) {
+      return item.taxonomyIds.indexOf(id) >= 0 && item.imageUrl;
+    });
+    return animal && animal.imageUrl
+      ? '<img src="' + escapeHtml(animal.imageUrl) + '" alt="" class="favorites-animal-thumb" loading="lazy" width="32" height="32">'
+      : "";
+  }
+
+  function taxonomyRankLabel(id) {
+    var rank = String(id).split(":", 1)[0];
+    return { "class": "類", "order": "目", "family": "科", "genus": "属" }[rank] || "分類";
+  }
+
+  function normalizeFavoriteAnimalKey(value) {
+    return String(value).toLocaleLowerCase("ja-JP").replace(/[\\s　]+/g, "");
+  }
+
+  function renderFavoriteZooRanking(data) {
+    var rankingData = window.KinkiZooFavoriteRankingData || { animals: [], zoos: [] };
+    var favoriteAnimalKeys = new Set();
+    Object.keys(data.animals).forEach(function (id) {
+      favoriteAnimalKeys.add(normalizeFavoriteAnimalKey(id));
+      favoriteAnimalKeys.add(normalizeFavoriteAnimalKey(data.animals[id].label || id));
+    });
+    var favoriteTaxonomyIds = new Set(Object.keys(data.taxonomies));
+    var zooById = {};
+    (rankingData.zoos || []).forEach(function (zoo) { zooById[zoo.id] = zoo; });
+    var matchesByZoo = {};
+
+    (rankingData.animals || []).forEach(function (animal) {
+      var directMatch = animal.aliases.some(function (alias) { return favoriteAnimalKeys.has(alias); });
+      var taxonomyMatches = animal.taxonomyIds.filter(function (id) { return favoriteTaxonomyIds.has(id); });
+      if (!directMatch && taxonomyMatches.length === 0) return;
+      animal.zooIds.forEach(function (zooId) {
+        if (!zooById[zooId]) return;
+        var match = matchesByZoo[zooId] || { zoo: zooById[zooId], animals: {} };
+        var existing = match.animals[animal.key];
+        match.animals[animal.key] = existing || {
+          key: animal.key,
+          label: animal.label,
+          href: animal.href,
+          imageUrl: animal.imageUrl,
+          direct: false,
+          taxonomyIds: []
+        };
+        match.animals[animal.key].direct = match.animals[animal.key].direct || directMatch;
+        taxonomyMatches.forEach(function (id) {
+          if (match.animals[animal.key].taxonomyIds.indexOf(id) < 0) match.animals[animal.key].taxonomyIds.push(id);
+        });
+        matchesByZoo[zooId] = match;
+      });
+    });
+
+    var ranked = Object.keys(matchesByZoo).map(function (zooId) {
+      var match = matchesByZoo[zooId];
+      match.animalList = Object.keys(match.animals).map(function (key) { return match.animals[key]; });
+      return match;
+    }).sort(function (a, b) {
+      return b.animalList.length - a.animalList.length || a.zoo.name.localeCompare(b.zoo.name, "ja-JP");
+    });
+
+    var hasFavoriteTargets = favoriteAnimalKeys.size > 0 || favoriteTaxonomyIds.size > 0;
+    if (ranked.length === 0) {
+      var message = hasFavoriteTargets
+        ? "お気に入りに一致する動物園が見つかりませんでした。"
+        : "動物または分類をお気に入りに追加すると、たくさん会える動物園を表示します。";
+      return '<section class="favorites-section favorites-ranking"><h2>お気に入りに会える動物園</h2><p class="favorites-empty">' + message + "</p></section>";
+    }
+
+    var items = ranked.slice(0, 10).map(function (match, index) {
+      var directCount = match.animalList.filter(function (animal) { return animal.direct; }).length;
+      var taxonomyIds = [];
+      match.animalList.forEach(function (animal) {
+        animal.taxonomyIds.forEach(function (id) {
+          if (taxonomyIds.indexOf(id) < 0) taxonomyIds.push(id);
+        });
+      });
+      var taxonomyLabels = taxonomyIds.map(function (id) {
+        var entry = data.taxonomies[id];
+        return entry ? entry.label : id.split(":").slice(1).join(":");
+      });
+      var meta = [];
+      if (directCount > 0) meta.push("直接お気に入り " + directCount + "種");
+      if (taxonomyLabels.length > 0) meta.push(taxonomyLabels.join("・"));
+      var images = match.animalList.filter(function (animal) { return animal.imageUrl; }).slice(0, 6).map(function (animal) {
+        return '<img src="' + escapeHtml(animal.imageUrl) + '" alt="" loading="lazy" width="32" height="32">';
+      }).join("");
+      var labels = match.animalList.slice(0, 5).map(function (animal) { return animal.label; });
+      var more = match.animalList.length > labels.length ? "、ほか" + (match.animalList.length - labels.length) + "種" : "";
+      return '<li><a href="' + escapeHtml(match.zoo.href) + '"><span class="ranking-position">' + (index + 1) + '</span><span class="ranking-main"><span class="ranking-title">' + escapeHtml(match.zoo.name) + '</span><strong>' + match.animalList.length + '種に会えます</strong><small>' + escapeHtml(meta.join(" / ")) + '</small><span class="ranking-animals">' + images + '<span>' + escapeHtml(labels.join("、") + more) + '</span></span></span></a></li>';
+    }).join("");
+    return '<section class="favorites-section favorites-ranking"><div class="favorites-ranking-heading"><h2>お気に入りに会える動物園</h2><small>掲載中の動物を重複せず集計</small></div><ol class="favorites-ranking-list">' + items + "</ol></section>";
+  }
+
   function renderFavoritesPage() {
     var root = document.getElementById("favorites-root");
     if (!root) return;
@@ -8123,6 +8262,10 @@ const FAVORITES_JS = `(function () {
       var entry = data.animals[id];
       return { id: id, label: entry.label || id, href: entry.href || "#" };
     });
+    var taxonomyEntries = Object.keys(data.taxonomies).map(function (id) {
+      var entry = data.taxonomies[id];
+      return { id: id, label: entry.label || id, href: entry.href || "#" };
+    });
 
     function renderSection(type, title, entries, emptyMessage) {
       if (entries.length === 0) {
@@ -8130,9 +8273,14 @@ const FAVORITES_JS = `(function () {
       }
       var items = entries
         .map(function (entry) {
-          var thumb = type === "animal" ? favoriteAnimalThumb(entry.label) : "";
+          var thumb = type === "animal"
+            ? favoriteAnimalThumb(entry.label)
+            : type === "taxonomy"
+            ? favoriteTaxonomyThumb(entry.id)
+            : "";
+          var rank = type === "taxonomy" ? '<small>' + taxonomyRankLabel(entry.id) + "</small>" : "";
           return (
-            '<li><a href="' + escapeHtml(entry.href) + '">' + thumb + '<span>' + escapeHtml(entry.label) + "</span></a>" +
+            '<li><a href="' + escapeHtml(entry.href) + '">' + thumb + '<span>' + escapeHtml(entry.label) + rank + "</span></a>" +
             '<button type="button" class="ui-btn ui-btn--secondary favorites-remove" data-fav-remove aria-label="' +
             escapeHtml(entry.label) + 'をお気に入りから削除" data-fav-type="' +
             type + '" data-fav-id="' + escapeHtml(entry.id) + '">' +
@@ -8144,8 +8292,10 @@ const FAVORITES_JS = `(function () {
     }
 
     root.innerHTML =
-      renderSection("zoo", "動物園", zooEntries, "お気に入りの動物園はまだありません。") +
-      renderSection("animal", "動物", animalEntries, "お気に入りの動物はまだありません。");
+      renderFavoriteZooRanking(data) +
+      renderSection("taxonomy", "分類", taxonomyEntries, "お気に入りの分類はまだありません。") +
+      renderSection("animal", "動物", animalEntries, "お気に入りの動物はまだありません。") +
+      renderSection("zoo", "動物園", zooEntries, "お気に入りの動物園はまだありません。");
 
     root.querySelectorAll("[data-fav-remove]").forEach(function (button) {
       button.addEventListener("click", function () {
@@ -8211,7 +8361,9 @@ const FAVORITES_JS = `(function () {
 
 function renderFavoritesHtml(
   news: ZooNewsRow[],
-  imageKeys: AnimalImageVersionIndex = new Map()
+  imageKeys: AnimalImageVersionIndex = new Map(),
+  animals: AnimalListItem[] = [],
+  activePref: PrefectureCode | null = null
 ): string {
   const newsItemsHtml = news.length > 0 ? renderNewsItems(news, imageKeys) : "";
   const animalImageUrlsJson = JSON.stringify(
@@ -8222,6 +8374,48 @@ function renderFavoritesHtml(
       ])
     )
   ).replace(/</g, "\\u003c");
+  const rankingAnimals = animals.map((animal) => {
+    const primaryDisplayName = animal.displayNames[0] ?? animal.canonicalName ?? "";
+    const label = animal.canonicalName ?? primaryDisplayName;
+    const key = normalizeAnimalImageKey(label);
+    const aliases = uniqueDisplayNames(
+      [animal.canonicalName, ...animal.displayNames]
+        .filter((name): name is string => Boolean(name))
+        .map(normalizeAnimalImageKey)
+    );
+    const taxonomyIds = [
+      animal.className ? `class:${animal.className}` : null,
+      animal.orderName ? `order:${animal.orderName}` : null,
+      animal.familyName ? `family:${animal.familyName}` : null,
+      animal.genusName ? `genus:${animal.genusName}` : null,
+    ].filter((id): id is string => Boolean(id));
+    const imageDisplayName = [animal.canonicalName, ...animal.displayNames]
+      .filter((name): name is string => Boolean(name))
+      .find((name) => imageKeys.has(normalizeAnimalImageKey(name)));
+    const imageUrl = imageDisplayName
+      ? withBase(buildAnimalImageUrl(imageDisplayName, imageKeys.get(normalizeAnimalImageKey(imageDisplayName))))
+      : null;
+    return {
+      key,
+      label,
+      href: withBase(addPrefectureToInternalUrl(buildZooAnimalUrl(primaryDisplayName), activePref)),
+      aliases,
+      taxonomyIds,
+      zooIds: animal.zoos.map((zoo) => zoo.id),
+      imageUrl,
+    };
+  });
+  const rankingZooIds = new Set(rankingAnimals.flatMap((animal) => animal.zooIds));
+  const favoriteRankingDataJson = JSON.stringify({
+    animals: rankingAnimals,
+    zoos: zoos
+      .filter((zoo) => rankingZooIds.has(zoo.id))
+      .map((zoo) => ({
+        id: zoo.id,
+        name: zoo.name,
+        href: withBase(addPrefectureToInternalUrl(`/zoos/${encodeURIComponent(zoo.id)}`, activePref)),
+      })),
+  }).replace(/</g, "\\u003c");
   return `<!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -8242,10 +8436,25 @@ function renderFavoritesHtml(
     .favorites-list li { min-width: 0; display: flex; align-items: center; gap: 0.35rem; border: 1px solid #dce7df; padding: 0.35rem 0.4rem 0.35rem 0.65rem; }
     .favorites-list a { display: flex; flex: 1 1 auto; min-width: 0; align-items: center; gap: 0.4rem; color: #1f5b45; font-size: 0.88rem; font-weight: bold; line-height: 1.35; text-decoration: none; overflow-wrap: anywhere; }
     .favorites-list a span { min-width: 0; }
+    .favorites-list a small { display: block; margin-top: 0.1rem; color: #718078; font-size: 0.68rem; font-weight: normal; }
     .favorites-list a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .favorites-animal-thumb { display: block; width: 32px; height: 32px; flex: 0 0 32px; border-radius: 50%; object-fit: cover; background: #e7eee9; }
     .favorites-remove { flex: 0 0 2.25rem; width: 2.25rem; min-height: 2.25rem; padding: 0; border-color: transparent; }
     .favorites-remove .ui-icon { width: 1rem; height: 1rem; }
+    .favorites-ranking-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.25rem 0.75rem; }
+    .favorites-ranking-heading small { color: #718078; font-size: 0.72rem; }
+    .favorites-ranking-list { list-style: none; display: grid; gap: 0.45rem; counter-reset: favorite-ranking; }
+    .favorites-ranking-list li { min-width: 0; border: 1px solid #d6e3da; background: #fbfdfb; }
+    .favorites-ranking-list li:first-child { border-color: #91b8a0; background: #f3f9f5; }
+    .favorites-ranking-list a { display: flex; min-width: 0; gap: 0.7rem; align-items: flex-start; padding: 0.7rem; color: inherit; text-decoration: none; }
+    .favorites-ranking-list a:hover { background: #edf7f0; }
+    .ranking-position { display: inline-flex; width: 2rem; height: 2rem; flex: 0 0 2rem; align-items: center; justify-content: center; border-radius: 50%; background: #1f5b45; color: #fff; font-size: 0.82rem; font-weight: bold; }
+    .ranking-main { display: grid; min-width: 0; flex: 1 1 auto; gap: 0.18rem; }
+    .ranking-title { color: #1f5b45; font-size: 0.95rem; font-weight: bold; }
+    .ranking-main > strong { font-size: 0.82rem; }
+    .ranking-main > small { color: #66736c; font-size: 0.72rem; }
+    .ranking-animals { display: flex; min-width: 0; flex-wrap: wrap; gap: 0.3rem; align-items: center; margin-top: 0.25rem; color: #536159; font-size: 0.72rem; line-height: 1.4; }
+    .ranking-animals img { width: 32px; height: 32px; flex: 0 0 32px; border-radius: 50%; object-fit: cover; background: #e7eee9; }
     .news-list { list-style: none; display: grid; gap: 0; }
     .news-list[hidden] { display: none; }
     .news-list li { display: grid; gap: 0.3rem; border-bottom: 1px solid #eee; padding: 0.85rem 0.65rem; }
@@ -8276,7 +8485,7 @@ ${renderGlobalNav("/favorites")}
   <main>
     <div>
       <h1>お気に入り</h1>
-      <p class="lead">お気に入りに追加した動物園・動物は、このブラウザの端末内にのみ保存されます。他の端末やブラウザとは共有されません。</p>
+      <p class="lead">お気に入りに追加した動物園・動物・分類は、このブラウザの端末内にのみ保存されます。他の端末やブラウザとは共有されません。</p>
     </div>
     <noscript><p>お気に入り機能を利用するには JavaScript を有効にしてください。</p></noscript>
     <div id="favorites-root"></div>
@@ -8287,8 +8496,8 @@ ${renderGlobalNav("/favorites")}
     </section>
   </main>
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
-  <script>window.KinkiZooAnimalImageUrls = ${animalImageUrlsJson};</script>
-  <script src="/favorites.js?v=2" defer></script>
+  <script>window.KinkiZooAnimalImageUrls = ${animalImageUrlsJson};window.KinkiZooFavoriteRankingData = ${favoriteRankingDataJson};</script>
+  <script src="/favorites.js?v=3" defer></script>
 </body>
 </html>`;
 }
@@ -9170,11 +9379,12 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
 
     // HTML: /favorites
     if (pathname === "/favorites") {
-      const [news, imageKeys] = await Promise.all([
+      const [news, imageKeys, animals] = await Promise.all([
         loadAllZooNews(env.DB, 500),
         loadAnimalImageKeys(env.DB),
+        loadAnimalList(env.DB, "all", activePref),
       ]);
-      return htmlResponse(renderFavoritesHtml(news, imageKeys), url, activePref);
+      return htmlResponse(renderFavoritesHtml(news, imageKeys, animals, activePref), url, activePref);
     }
 
     // HTML: /

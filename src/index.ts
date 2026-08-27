@@ -508,6 +508,7 @@ const ANIMAL_DISPLAY_NAME_OVERRIDES: Array<{ pattern: RegExp; label: string }> =
   { pattern: /^ノマ$/, label: "ノマウマ" },
   { pattern: /^ヒツジ\(家畜\)?$/, label: "ヒツジ" },
   { pattern: /^ブラックバック\(メス\)?$/, label: "ブラックバック" },
+  { pattern: /^アジアの森サソリ$/, label: "アジアンフォレストスコーピオン" },
 ];
 
 function formatAnimalDisplayName(value: string): string {
@@ -5238,7 +5239,7 @@ ${renderGlobalNav("/")}
     </ul>
   </section>` : ""}
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
-  <script src="/favorites.js?v=4" defer></script>
+  <script src="/favorites.js?v=5" defer></script>
 </body>
 </html>`;
 }
@@ -5469,7 +5470,7 @@ ${renderGlobalNav("/search")}
     </section>` : ""}
   </main>
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
-  <script src="/favorites.js?v=4" defer></script>
+  <script src="/favorites.js?v=5" defer></script>
 </body>
 </html>`;
 }
@@ -5893,7 +5894,7 @@ ${renderGlobalNav("/animals")}
   <p class="summary">${summary}</p>
   ${animalListHtml}
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
-  <script src="/favorites.js?v=4" defer></script>
+  <script src="/favorites.js?v=5" defer></script>
 <script>
 (function () {
   const taxonomyDialog = document.getElementById('taxonomy-filter-dialog');
@@ -6280,7 +6281,7 @@ ${renderGlobalNav("/animals")}
     }
   </main>
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
-  <script src="/favorites.js?v=4" defer></script>
+  <script src="/favorites.js?v=5" defer></script>
 </body>
 </html>`;
 }
@@ -6541,7 +6542,7 @@ ${renderGlobalNav("/animals")}
         ])
   }
   <footer>分類は利用者が探しやすい粒度で整理しています。最新情報は各施設の公式サイトでご確認ください。</footer>
-  <script src="/favorites.js?v=4" defer></script>
+  <script src="/favorites.js?v=5" defer></script>
 </body>
 </html>`;
 }
@@ -6837,7 +6838,7 @@ ${renderGlobalNav("/zoos")}
     </section>
     <div id="map"></div>
   </main>
-  <script src="/favorites.js?v=4" defer></script>
+  <script src="/favorites.js?v=5" defer></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script>
     var filterButtons = document.querySelectorAll('[data-class-filter]');
@@ -8058,7 +8059,7 @@ ${renderGlobalNav("/zoos")}
   <div class="cls-filter">${classChips}</div>
   ${bodyHtml}
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
-  <script src="/favorites.js?v=4" defer></script>${mapScript ?? ""}
+  <script src="/favorites.js?v=5" defer></script>${mapScript ?? ""}
 </body>
 </html>`;
 }
@@ -8169,7 +8170,7 @@ const FAVORITES_JS = `(function () {
 
   function favoriteAnimalThumb(label) {
     var imageUrls = window.KinkiZooAnimalImageUrls || {};
-    var imageKey = String(label).toLocaleLowerCase("ja-JP").replace(/[\\s　]+/g, "");
+    var imageKey = String(formatFavoriteAnimalLabel(label)).toLocaleLowerCase("ja-JP").replace(/[\\s　]+/g, "");
     var imageUrl = imageUrls[imageKey];
     return imageUrl
       ? '<img src="' + escapeHtml(imageUrl) + '" alt="" class="favorites-animal-thumb" loading="lazy" width="32" height="32">'
@@ -8208,7 +8209,8 @@ const FAVORITES_JS = `(function () {
       "ヒツジ(家畜)": "ヒツジ",
       "ヒツジ(家畜": "ヒツジ",
       "ブラックバック(メス)": "ブラックバック",
-      "ブラックバック(メス": "ブラックバック"
+      "ブラックバック(メス": "ブラックバック",
+      "アジアの森サソリ": "アジアンフォレストスコーピオン"
     };
     return overrides[normalized] || value;
   }
@@ -8360,17 +8362,27 @@ const FAVORITES_JS = `(function () {
     var emptyMsg = document.getElementById("favorites-news-empty");
     if (!section || !list) return;
     var data = loadFavorites();
-    var hasAnyFavorite = Object.keys(data.zoos).length > 0 || Object.keys(data.animals).length > 0;
+    var hasAnyFavorite = Object.keys(data.zoos).length > 0 || Object.keys(data.animals).length > 0 || Object.keys(data.taxonomies).length > 0;
     if (!hasStorage || !hasAnyFavorite) {
       section.hidden = true;
       return;
+    }
+    var favoriteTaxonomyIds = new Set(Object.keys(data.taxonomies));
+    var taxonomyFavoriteAnimalKeys = new Set();
+    if (favoriteTaxonomyIds.size > 0) {
+      var rankingData = window.KinkiZooFavoriteRankingData || { animals: [] };
+      (rankingData.animals || []).forEach(function (animal) {
+        var taxonomyMatch = animal.taxonomyIds.some(function (id) { return favoriteTaxonomyIds.has(id); });
+        if (!taxonomyMatch) return;
+        animal.aliases.forEach(function (alias) { taxonomyFavoriteAnimalKeys.add(alias); });
+      });
     }
     var visibleCount = 0;
     list.querySelectorAll("li[data-zoo]").forEach(function (item) {
       var zooId = item.getAttribute("data-zoo");
       var animalNames = (item.getAttribute("data-animals") || "").split(",").filter(Boolean);
       var match = isFavorite(data, "zoo", zooId) || animalNames.some(function (name) {
-        return isFavorite(data, "animal", name);
+        return isFavorite(data, "animal", name) || taxonomyFavoriteAnimalKeys.has(normalizeFavoriteAnimalKey(name));
       });
       item.classList.toggle("is-hidden", !match);
       if (match) visibleCount++;
@@ -8543,7 +8555,7 @@ ${renderGlobalNav("/favorites")}
   </main>
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
   <script>window.KinkiZooAnimalImageUrls = ${animalImageUrlsJson};window.KinkiZooFavoriteRankingData = ${favoriteRankingDataJson};</script>
-  <script src="/favorites.js?v=4" defer></script>
+  <script src="/favorites.js?v=5" defer></script>
 </body>
 </html>`;
 }

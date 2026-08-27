@@ -3652,7 +3652,7 @@ function renderSpotlightSection(
             (animal) => `
           <a class="spotlight-animal-card ui-card-link ui-touch-target" href="${buildZooAnimalUrl(animal.displayName)}">
             <img src="${buildAnimalImageUrl(animal.displayName, animal.imageVersion)}" alt="" class="spotlight-animal-img" width="72" height="72" loading="lazy">
-            <span>${escapeHtml(animal.displayName)}</span>
+            <span>${escapeHtml(formatAnimalDisplayName(animal.displayName))}</span>
             <small>${animal.zooCount} 施設</small>
           </a>`
           )
@@ -4635,11 +4635,13 @@ function renderAnimalTaxonomyAdminHtml(animals: AnimalTaxonomyRow[], notice?: st
     const group = a.animal_id !== null ? "applied" : a.candidate_status !== null ? "partial" : "none";
     const statusText = a.candidate_status ? (statusLabel[a.candidate_status] ?? a.candidate_status) : "未取得";
     const taxonomyText = [a.class_name, a.order_name, a.family_name].filter(Boolean).join(" / ") || "—";
+    const displayLabel = formatAnimalDisplayName(a.display_name);
+    const canonicalLabel = a.canonical_name ? formatAnimalDisplayName(a.canonical_name) : null;
     const classifyBtn = group === "applied"
       ? `<button class="classify-btn classify-btn--rerun" data-name="${escapeHtml(a.display_name)}">再分類</button>`
       : `<button class="classify-btn" data-name="${escapeHtml(a.display_name)}">分類</button>`;
     return `<tr data-group="${group}">
-      <td class="name-cell"><a href="/animal/${encodeURIComponent(a.display_name)}">${escapeHtml(a.display_name)}</a>${a.canonical_name && a.canonical_name !== a.display_name ? `<br><small>${escapeHtml(a.canonical_name)}</small>` : ""}</td>
+      <td class="name-cell"><a href="/animal/${encodeURIComponent(a.display_name)}">${escapeHtml(displayLabel)}</a>${canonicalLabel && canonicalLabel !== displayLabel ? `<br><small>${escapeHtml(canonicalLabel)}</small>` : ""}</td>
       <td><span class="status-badge status-${escapeHtml(a.candidate_status ?? "none")}">${statusText}</span></td>
       <td class="taxonomy-cell">${escapeHtml(taxonomyText)}</td>
       <td>${a.confidence != null ? `${Math.round(a.confidence * 100)}%` : "—"}</td>
@@ -4811,11 +4813,12 @@ function renderAnimalImageManageListHtml(
   ).join("");
   const rows = items
     .map((item) => {
+      const displayLabel = formatAnimalDisplayName(item.displayName);
       const selected = item.selectedGenerationId
         ? `<span class="status selected">選択済み #${item.selectedGenerationId}</span>`
         : `<span class="status empty">未選択</span>`;
       const preview = item.selectedGenerationId
-        ? `<img src="/animal-images/${encodeURIComponent(item.displayName)}?v=${item.selectedGenerationId}" alt="${escapeHtml(item.displayName)}">`
+        ? `<img src="/animal-images/${encodeURIComponent(item.displayName)}?v=${item.selectedGenerationId}" alt="${escapeHtml(displayLabel)}">`
         : `<div class="image-placeholder">No image</div>`;
       const generations = item.generations
         .map((generation) => {
@@ -4826,7 +4829,7 @@ function renderAnimalImageManageListHtml(
           return `
             <article class="generation-thumb">
               <div class="thumb-image">
-                <img src="/admin/animal-image-generations/${generation.id}" alt="${escapeHtml(item.displayName)} #${generation.id}">
+                <img src="/admin/animal-image-generations/${generation.id}" alt="${escapeHtml(displayLabel)} #${generation.id}">
                 ${selectedBadge}
               </div>
               <div class="thumb-meta">
@@ -4847,7 +4850,7 @@ function renderAnimalImageManageListHtml(
           <div class="preview">${preview}</div>
           <div class="image-list-body">
             <div class="image-list-heading">
-              <h2>${escapeHtml(item.displayName)}</h2>
+              <h2>${escapeHtml(displayLabel)}</h2>
               <form class="inline-generate-form" action="/admin/animal-images/generate" method="post">
                 <input type="hidden" name="displayName" value="${escapeHtml(item.displayName)}">
                 <input type="hidden" name="model" class="model-field">
@@ -4982,7 +4985,8 @@ function renderAnimalImageManageDetailHtml(
   generations: AnimalImageGenerationRecord[],
   notice?: string
 ): string {
-  const escapedName = escapeHtml(displayName);
+  const displayLabel = formatAnimalDisplayName(displayName);
+  const escapedName = escapeHtml(displayLabel);
   const modelOptions = GEMINI_IMAGE_MODELS.map(
     (model) => `<option value="${escapeHtml(model)}">${escapeHtml(model)}</option>`
   ).join("");
@@ -5064,7 +5068,7 @@ ${ADMIN_BREADCRUMB_CSS}
 ${renderSiteHeader()}
 ${renderGlobalNav("/admin")}
   <main>
-    ${renderAdminBreadcrumb([{ href: "/admin/animal-images", label: "画像管理" }, { label: displayName }])}
+    ${renderAdminBreadcrumb([{ href: "/admin/animal-images", label: "画像管理" }, { label: displayLabel }])}
     <h1 class="page-title">${escapedName}</h1>
     ${noticeHtml}
     <div class="detail-layout">

@@ -501,6 +501,20 @@ function normalizeAnimalNameForSearch(value: string): string {
   return value.toLocaleLowerCase("ja-JP");
 }
 
+const ANIMAL_DISPLAY_NAME_OVERRIDES: Array<{ pattern: RegExp; label: string }> = [
+  { pattern: /^カイウサギ\(家畜\)?$/, label: "カイウサギ" },
+  { pattern: /^テンジクネズミ\(家畜\)?$/, label: "テンジクネズミ" },
+  { pattern: /^ノマウマ\(野間馬\)?$/, label: "ノマウマ" },
+  { pattern: /^ノマ$/, label: "ノマウマ" },
+  { pattern: /^ヒツジ\(家畜\)?$/, label: "ヒツジ" },
+  { pattern: /^ブラックバック\(メス\)?$/, label: "ブラックバック" },
+];
+
+function formatAnimalDisplayName(value: string): string {
+  const normalized = value.normalize("NFKC").trim();
+  return ANIMAL_DISPLAY_NAME_OVERRIDES.find(({ pattern }) => pattern.test(normalized))?.label ?? value;
+}
+
 function normalizeAnimalNameForDiff(value: string): string {
   return normalizeAnimalNameForSearch(value).replace(/[\s　]+/g, "");
 }
@@ -3461,14 +3475,15 @@ function toApiZoo(result: ZooSearchResult, includeMatches: boolean): Zoo & {
 function renderMatchedValues(
   label: string,
   values: string[],
-  linkBuilder?: (value: string) => string
+  linkBuilder?: (value: string) => string,
+  valueFormatter: (value: string) => string = (value) => value
 ): string {
   if (values.length === 0) return "";
   const visibleValues = values.slice(0, 8);
   const hiddenCount = values.length - visibleValues.length;
   const chips = visibleValues
     .map((value) => {
-      const escapedValue = escapeHtml(value);
+      const escapedValue = escapeHtml(valueFormatter(value));
       return linkBuilder
         ? `<a class="match-chip ui-chip ui-pill" href="${escapeHtml(linkBuilder(value))}">${escapedValue}</a>`
         : `<span class="match-chip ui-chip ui-pill">${escapedValue}</span>`;
@@ -3487,7 +3502,8 @@ function renderMatchSummary(result: ZooSearchResult): string {
   const animalMatches = renderMatchedValues(
     "ヒットした動物・分類",
     result.matchedAnimals,
-    buildZooAnimalUrl
+    buildZooAnimalUrl,
+    formatAnimalDisplayName
   );
   const featureMatches = renderMatchedValues("ヒットした施設情報", result.matchedFeatures);
 
@@ -4193,7 +4209,7 @@ function renderNewsAnimalLinks(
       const thumb = imageKeys.has(animalKey)
         ? `<img src="${buildAnimalImageUrl(name, imageKeys.get(animalKey))}" alt="" class="news-animal-thumb" loading="lazy" width="24" height="24">`
         : "";
-      return `<a href="${buildZooAnimalUrl(name)}">${thumb}<span>${escapeHtml(name)}</span></a>`;
+      return `<a href="${buildZooAnimalUrl(name)}">${thumb}<span>${escapeHtml(formatAnimalDisplayName(name))}</span></a>`;
     })
     .join("");
 }
@@ -5218,7 +5234,7 @@ ${renderGlobalNav("/")}
     </ul>
   </section>` : ""}
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
-  <script src="/favorites.js?v=3" defer></script>
+  <script src="/favorites.js?v=4" defer></script>
 </body>
 </html>`;
 }
@@ -5230,14 +5246,18 @@ function renderSearchAnimalCards(
   return animals
     .map((item) => {
       const primaryDisplayName = item.displayNames[0] ?? item.canonicalName ?? "";
-      const title = item.canonicalName ?? primaryDisplayName;
+      const rawTitle = item.canonicalName ?? primaryDisplayName;
+      const title = formatAnimalDisplayName(rawTitle);
+      const primaryDisplayLabel = formatAnimalDisplayName(primaryDisplayName);
       const imageDisplayName = item.displayNames.find((name) => imageKeys.has(normalizeAnimalImageKey(name)));
       const imageVersion = imageDisplayName ? imageKeys.get(normalizeAnimalImageKey(imageDisplayName)) : null;
       const thumb = imageDisplayName
         ? `<img src="${buildAnimalImageUrl(imageDisplayName, imageVersion)}" alt="" class="search-animal-thumb ui-thumb" loading="lazy" width="56" height="56">`
         : renderAnimalImagePlaceholder("search-animal-thumb", { compact: true, ariaHidden: true });
       const taxonomy = [item.className, item.orderName, item.familyName].filter(Boolean).join(" / ");
-      const aliases = item.displayNames.filter((name) => name !== title).slice(0, 3);
+      const aliases = uniqueDisplayNames(item.displayNames.map(formatAnimalDisplayName))
+        .filter((name) => name !== title)
+        .slice(0, 3);
       const aliasText = aliases.length > 0 ? `<p class="search-alias">別名: ${aliases.map(escapeHtml).join("、")}</p>` : "";
       const zooLinks = item.zoos
         .slice(0, 8)
@@ -5252,10 +5272,10 @@ function renderSearchAnimalCards(
               ${thumb}
               <span>
                 <strong>${escapeHtml(title)}</strong>
-                ${primaryDisplayName && title !== primaryDisplayName ? `<small>${escapeHtml(primaryDisplayName)}</small>` : ""}
+                ${primaryDisplayName && title !== primaryDisplayLabel ? `<small>${escapeHtml(primaryDisplayLabel)}</small>` : ""}
               </span>
             </a>
-            ${renderFavoriteButton("animal", title, title, buildZooAnimalUrl(primaryDisplayName))}
+            ${renderFavoriteButton("animal", rawTitle, title, buildZooAnimalUrl(primaryDisplayName))}
           </div>
           ${taxonomy ? `<p class="search-taxonomy">${escapeHtml(taxonomy)}</p>` : `<p class="search-taxonomy">分類未設定</p>`}
           ${aliasText}
@@ -5445,7 +5465,7 @@ ${renderGlobalNav("/search")}
     </section>` : ""}
   </main>
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
-  <script src="/favorites.js?v=3" defer></script>
+  <script src="/favorites.js?v=4" defer></script>
 </body>
 </html>`;
 }
@@ -5869,7 +5889,7 @@ ${renderGlobalNav("/animals")}
   <p class="summary">${summary}</p>
   ${animalListHtml}
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
-  <script src="/favorites.js?v=3" defer></script>
+  <script src="/favorites.js?v=4" defer></script>
 <script>
 (function () {
   const taxonomyDialog = document.getElementById('taxonomy-filter-dialog');
@@ -5945,9 +5965,8 @@ function renderAnimalCards(animals: AnimalListItem[], imageKeys: AnimalImageVers
         .join("");
       const primaryDisplayName = item.displayNames[0] ?? item.canonicalName ?? "";
       const searchName = item.canonicalName ?? primaryDisplayName;
-      const title = item.canonicalName
-        ? escapeHtml(item.canonicalName)
-        : escapeHtml(primaryDisplayName);
+      const displayTitle = formatAnimalDisplayName(searchName);
+      const title = escapeHtml(displayTitle);
       const titleHref = primaryDisplayName ? buildZooAnimalUrl(primaryDisplayName) : buildAnimalSearchUrl(searchName);
       const imageDisplayName = item.displayNames.find((n) => imageKeys.has(normalizeAnimalImageKey(n)));
       const imageVersion = imageDisplayName ? imageKeys.get(normalizeAnimalImageKey(imageDisplayName)) : null;
@@ -5975,7 +5994,7 @@ function renderAnimalCards(animals: AnimalListItem[], imageKeys: AnimalImageVers
       const sortZoo = escapeHtml(item.zoos[0]?.name ?? "\u{FFFF}");
       return `
         <tr data-name="${sortName}" data-class="${sortClass}" data-count="${item.zoos.length}" data-zoo="${sortZoo}">
-          <th scope="row" class="animal-name">${thumbHtml}<a href="${escapeHtml(titleHref)}">${title}</a>${renderFavoriteButton("animal", searchName, item.canonicalName ?? primaryDisplayName, titleHref)}</th>
+          <th scope="row" class="animal-name">${thumbHtml}<a href="${escapeHtml(titleHref)}">${title}</a>${renderFavoriteButton("animal", searchName, displayTitle, titleHref)}</th>
           <td data-label="分類">${taxonomyRow}</td>
           <td data-label="施設数"><span class="facility-count">${item.zoos.length}</span></td>
           <td data-label="施設一覧"><div class="zoo-links">${zooLinks}</div></td>
@@ -5994,9 +6013,11 @@ function renderZooAnimalDetailHtml(
   animalNews: AnimalNewsRow[] = [],
   pastZoos: AnimalPastZoo[] = []
 ): string {
-  const escapedDisplayName = escapeHtml(detail.displayName);
-  const title = detail.canonicalName && detail.canonicalName !== detail.displayName
-    ? `${escapeHtml(detail.canonicalName)} | ${escapedDisplayName}`
+  const displayLabel = formatAnimalDisplayName(detail.displayName);
+  const canonicalLabel = detail.canonicalName ? formatAnimalDisplayName(detail.canonicalName) : null;
+  const escapedDisplayName = escapeHtml(displayLabel);
+  const title = canonicalLabel && canonicalLabel !== displayLabel
+    ? `${escapeHtml(canonicalLabel)} | ${escapedDisplayName}`
     : escapedDisplayName;
   const taxonomyDetails = buildTaxonomyDisplayParts([
     ["類", detail.className],
@@ -6016,14 +6037,14 @@ function renderZooAnimalDetailHtml(
   const breadcrumb = renderBreadcrumb([
     { href: "/animals", label: "動物一覧" },
     ...(detail.className ? [{ href: buildTaxonomyPathUrl([detail.className]), label: detail.className }] : []),
-    { label: detail.displayName },
+    { label: displayLabel },
   ]);
   const taxonomyHtml = taxonomyDetails
     ? `<dl class="taxonomy-details">${taxonomyDetails}</dl>`
     : `<p class="unclassified">分類未設定</p>`;
   const canonicalHtml =
-    detail.canonicalName && detail.canonicalName !== detail.displayName
-      ? `<p class="canonical">分類マスタ: ${escapeHtml(detail.canonicalName)}</p>`
+    canonicalLabel && canonicalLabel !== displayLabel
+      ? `<p class="canonical">分類マスタ: ${escapeHtml(canonicalLabel)}</p>`
       : "";
   const wikipediaTitle = detail.speciesName ?? detail.canonicalName ?? detail.displayName;
   const externalLinksHtml = `<p class="animal-external-links">
@@ -6074,7 +6095,7 @@ function renderZooAnimalDetailHtml(
           .map((item) => {
             const zooLabels = item.zoos.map((zoo) => escapeHtml(zoo.name)).join("、");
             return `<a href="${buildZooAnimalUrl(item.displayName)}" class="alias-card ui-card-link ui-touch-target">
-              <span>${escapeHtml(item.displayName)}</span>
+              <span>${escapeHtml(formatAnimalDisplayName(item.displayName))}</span>
               <small>${zooLabels}</small>
             </a>`;
           })
@@ -6095,7 +6116,7 @@ function renderZooAnimalDetailHtml(
     const thumb = displayKey
       ? `<img src="${buildAnimalImageUrl(displayKey, imageVersion)}" alt="" class="related-thumb" loading="lazy" width="72" height="72">`
       : renderAnimalImagePlaceholder("related-thumb related-thumb--empty", { compact: true, ariaHidden: true });
-    const label = item.canonicalName ?? name;
+    const label = formatAnimalDisplayName(item.canonicalName ?? name);
     const taxonomy = [item.className, item.orderName, item.familyName].filter(Boolean).join(" / ");
     const visibleZoos = item.zoos.slice(0, 2);
     const zooChips = visibleZoos
@@ -6213,7 +6234,7 @@ ${renderGlobalNav("/animals")}
           ${renderFavoriteButton(
             "animal",
             detail.canonicalName ?? detail.displayName,
-            detail.canonicalName ?? detail.displayName,
+            canonicalLabel ?? displayLabel,
             buildZooAnimalUrl(detail.displayName),
             "large"
           )}
@@ -6255,16 +6276,17 @@ ${renderGlobalNav("/animals")}
     }
   </main>
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
-  <script src="/favorites.js?v=3" defer></script>
+  <script src="/favorites.js?v=4" defer></script>
 </body>
 </html>`;
 }
 
 function renderAnimalGoneHtml(displayName: string, pastZoos: AnimalPastZoo[]): string {
-  const escapedDisplayName = escapeHtml(displayName);
+  const displayLabel = formatAnimalDisplayName(displayName);
+  const escapedDisplayName = escapeHtml(displayLabel);
   const breadcrumb = renderBreadcrumb([
     { href: "/animals", label: "動物一覧" },
-    { label: displayName },
+    { label: displayLabel },
   ]);
   const pastZooListHtml = pastZoos
     .map(
@@ -6515,7 +6537,7 @@ ${renderGlobalNav("/animals")}
         ])
   }
   <footer>分類は利用者が探しやすい粒度で整理しています。最新情報は各施設の公式サイトでご確認ください。</footer>
-  <script src="/favorites.js?v=3" defer></script>
+  <script src="/favorites.js?v=4" defer></script>
 </body>
 </html>`;
 }
@@ -6575,7 +6597,7 @@ function renderZooDetailHtml(
               return `
                 <a class="featured-animal" href="${buildZooAnimalUrl(animal)}">
                   <img src="${buildAnimalImageUrl(animal, imageKeys.get(animalKey))}" alt="" loading="lazy" width="96" height="96">
-                  <span>${escapeHtml(animal)}</span>
+                  <span>${escapeHtml(formatAnimalDisplayName(animal))}</span>
                   <small>${escapeHtml(className)}</small>
                 </a>`;
             })
@@ -6590,7 +6612,7 @@ function renderZooDetailHtml(
       const thumb = imageKeys.has(animalKey)
         ? `<img src="${buildAnimalImageUrl(animal, imageKeys.get(animalKey))}" alt="" class="animal-thumb ui-thumb ui-thumb--36" loading="lazy" width="36" height="36">`
         : renderAnimalImagePlaceholder("animal-thumb ui-thumb--36", { compact: true, ariaHidden: true });
-      return `<li data-class="${escapeHtml(className)}"><a href="${buildZooAnimalUrl(animal)}">${thumb}<span>${escapeHtml(animal)}</span><small>${escapeHtml(className)}</small></a></li>`;
+      return `<li data-class="${escapeHtml(className)}"><a href="${buildZooAnimalUrl(animal)}">${thumb}<span>${escapeHtml(formatAnimalDisplayName(animal))}</span><small>${escapeHtml(className)}</small></a></li>`;
     })
     .join("\n");
   const updatedAt = new Date(scraped.scrapedAt).toLocaleString("ja-JP");
@@ -6811,7 +6833,7 @@ ${renderGlobalNav("/zoos")}
     </section>
     <div id="map"></div>
   </main>
-  <script src="/favorites.js?v=3" defer></script>
+  <script src="/favorites.js?v=4" defer></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script>
     var filterButtons = document.querySelectorAll('[data-class-filter]');
@@ -7322,7 +7344,7 @@ function renderCompareHtml(
   });
 
   const animalLink = (name: string) =>
-    `<li><a href="/animal/${encodeURIComponent(name)}">${escapeHtml(name)}</a></li>`;
+    `<li><a href="/animal/${encodeURIComponent(name)}">${escapeHtml(formatAnimalDisplayName(name))}</a></li>`;
 
   const zooOptions = (sel: string, name: string) =>
     `<div class="select-group"><select name="${escapeHtml(name)}"><option value="">（なし）</option>${
@@ -7554,7 +7576,7 @@ function renderZoosHtml(
   const showPanel = Boolean(animal || taxClass);
   const resultListHtml = showPanel
     ? results.map((r) => {
-        const matched = r.matchedAnimals.map((a) => `<a href="/animal/${encodeURIComponent(a)}">${escapeHtml(a)}</a>`).join("、");
+        const matched = r.matchedAnimals.map((a) => `<a href="/animal/${encodeURIComponent(a)}">${escapeHtml(formatAnimalDisplayName(a))}</a>`).join("、");
         const cnt = r.matchedAnimals.length;
         return `<li class="result-item" data-zoo-id="${escapeHtml(r.zoo.id)}">
           <a class="result-link" href="/zoos/${encodeURIComponent(r.zoo.id)}${activePref ? `?pref=${activePref}` : ""}">
@@ -8032,7 +8054,7 @@ ${renderGlobalNav("/zoos")}
   <div class="cls-filter">${classChips}</div>
   ${bodyHtml}
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
-  <script src="/favorites.js?v=3" defer></script>${mapScript ?? ""}
+  <script src="/favorites.js?v=4" defer></script>${mapScript ?? ""}
 </body>
 </html>`;
 }
@@ -8169,6 +8191,24 @@ const FAVORITES_JS = `(function () {
     return String(value).toLocaleLowerCase("ja-JP").replace(/[\\s　]+/g, "");
   }
 
+  function formatFavoriteAnimalLabel(value) {
+    var normalized = String(value).normalize("NFKC").trim();
+    var overrides = {
+      "カイウサギ(家畜)": "カイウサギ",
+      "カイウサギ(家畜": "カイウサギ",
+      "テンジクネズミ(家畜)": "テンジクネズミ",
+      "テンジクネズミ(家畜": "テンジクネズミ",
+      "ノマウマ(野間馬)": "ノマウマ",
+      "ノマウマ(野間馬": "ノマウマ",
+      "ノマ": "ノマウマ",
+      "ヒツジ(家畜)": "ヒツジ",
+      "ヒツジ(家畜": "ヒツジ",
+      "ブラックバック(メス)": "ブラックバック",
+      "ブラックバック(メス": "ブラックバック"
+    };
+    return overrides[normalized] || value;
+  }
+
   function renderFavoriteZooRanking(data) {
     var rankingData = window.KinkiZooFavoriteRankingData || { animals: [], zoos: [] };
     var favoriteAnimalKeys = new Set();
@@ -8273,6 +8313,7 @@ const FAVORITES_JS = `(function () {
       }
       var items = entries
         .map(function (entry) {
+          var displayLabel = type === "animal" ? formatFavoriteAnimalLabel(entry.label) : entry.label;
           var thumb = type === "animal"
             ? favoriteAnimalThumb(entry.label)
             : type === "taxonomy"
@@ -8280,9 +8321,9 @@ const FAVORITES_JS = `(function () {
             : "";
           var rank = type === "taxonomy" ? '<small>' + taxonomyRankLabel(entry.id) + "</small>" : "";
           return (
-            '<li><a href="' + escapeHtml(entry.href) + '">' + thumb + '<span>' + escapeHtml(entry.label) + rank + "</span></a>" +
+            '<li><a href="' + escapeHtml(entry.href) + '">' + thumb + '<span>' + escapeHtml(displayLabel) + rank + "</span></a>" +
             '<button type="button" class="ui-btn ui-btn--secondary favorites-remove" data-fav-remove aria-label="' +
-            escapeHtml(entry.label) + 'をお気に入りから削除" data-fav-type="' +
+            escapeHtml(displayLabel) + 'をお気に入りから削除" data-fav-type="' +
             type + '" data-fav-id="' + escapeHtml(entry.id) + '">' +
             '<svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M16 9v10H8V9h8m-1.5-6h-5l-1 1H5v2h14V4h-3.5l-1-1zM18 7H6v12c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7z"/></svg></button></li>'
           );
@@ -8292,10 +8333,10 @@ const FAVORITES_JS = `(function () {
     }
 
     root.innerHTML =
-      renderFavoriteZooRanking(data) +
       renderSection("taxonomy", "分類", taxonomyEntries, "お気に入りの分類はまだありません。") +
       renderSection("animal", "動物", animalEntries, "お気に入りの動物はまだありません。") +
-      renderSection("zoo", "動物園", zooEntries, "お気に入りの動物園はまだありません。");
+      renderSection("zoo", "動物園", zooEntries, "お気に入りの動物園はまだありません。") +
+      renderFavoriteZooRanking(data);
 
     root.querySelectorAll("[data-fav-remove]").forEach(function (button) {
       button.addEventListener("click", function () {
@@ -8376,8 +8417,9 @@ function renderFavoritesHtml(
   ).replace(/</g, "\\u003c");
   const rankingAnimals = animals.map((animal) => {
     const primaryDisplayName = animal.displayNames[0] ?? animal.canonicalName ?? "";
-    const label = animal.canonicalName ?? primaryDisplayName;
-    const key = normalizeAnimalImageKey(label);
+    const rawLabel = animal.canonicalName ?? primaryDisplayName;
+    const label = formatAnimalDisplayName(rawLabel);
+    const key = normalizeAnimalImageKey(rawLabel);
     const aliases = uniqueDisplayNames(
       [animal.canonicalName, ...animal.displayNames]
         .filter((name): name is string => Boolean(name))
@@ -8441,20 +8483,20 @@ function renderFavoritesHtml(
     .favorites-animal-thumb { display: block; width: 32px; height: 32px; flex: 0 0 32px; border-radius: 50%; object-fit: cover; background: #e7eee9; }
     .favorites-remove { flex: 0 0 2.25rem; width: 2.25rem; min-height: 2.25rem; padding: 0; border-color: transparent; }
     .favorites-remove .ui-icon { width: 1rem; height: 1rem; }
-    .favorites-ranking-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.25rem 0.75rem; }
+    .favorites-ranking { border-top: 1px solid #e5e9e6; padding-top: 1rem; }
+    .favorites-ranking-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.25rem 0.75rem; color: #4f5d55; }
     .favorites-ranking-heading small { color: #718078; font-size: 0.72rem; }
-    .favorites-ranking-list { list-style: none; display: grid; gap: 0.45rem; counter-reset: favorite-ranking; }
-    .favorites-ranking-list li { min-width: 0; border: 1px solid #d6e3da; background: #fbfdfb; }
-    .favorites-ranking-list li:first-child { border-color: #91b8a0; background: #f3f9f5; }
-    .favorites-ranking-list a { display: flex; min-width: 0; gap: 0.7rem; align-items: flex-start; padding: 0.7rem; color: inherit; text-decoration: none; }
-    .favorites-ranking-list a:hover { background: #edf7f0; }
-    .ranking-position { display: inline-flex; width: 2rem; height: 2rem; flex: 0 0 2rem; align-items: center; justify-content: center; border-radius: 50%; background: #1f5b45; color: #fff; font-size: 0.82rem; font-weight: bold; }
+    .favorites-ranking-list { list-style: none; display: grid; gap: 0; }
+    .favorites-ranking-list li { min-width: 0; border-bottom: 1px solid #e5e9e6; }
+    .favorites-ranking-list a { display: flex; min-width: 0; gap: 0.6rem; align-items: flex-start; padding: 0.6rem 0.35rem; color: inherit; text-decoration: none; }
+    .favorites-ranking-list a:hover { background: #f7faf8; }
+    .ranking-position { display: inline-flex; width: 1.5rem; height: 1.5rem; flex: 0 0 1.5rem; align-items: center; justify-content: center; border-radius: 50%; background: #edf2ef; color: #5b6a61; font-size: 0.72rem; font-weight: bold; }
     .ranking-main { display: grid; min-width: 0; flex: 1 1 auto; gap: 0.18rem; }
-    .ranking-title { color: #1f5b45; font-size: 0.95rem; font-weight: bold; }
-    .ranking-main > strong { font-size: 0.82rem; }
+    .ranking-title { color: #315f4c; font-size: 0.88rem; font-weight: bold; }
+    .ranking-main > strong { color: #45534b; font-size: 0.78rem; }
     .ranking-main > small { color: #66736c; font-size: 0.72rem; }
     .ranking-animals { display: flex; min-width: 0; flex-wrap: wrap; gap: 0.3rem; align-items: center; margin-top: 0.25rem; color: #536159; font-size: 0.72rem; line-height: 1.4; }
-    .ranking-animals img { width: 32px; height: 32px; flex: 0 0 32px; border-radius: 50%; object-fit: cover; background: #e7eee9; }
+    .ranking-animals img { width: 28px; height: 28px; flex: 0 0 28px; border-radius: 50%; object-fit: cover; background: #e7eee9; }
     .news-list { list-style: none; display: grid; gap: 0; }
     .news-list[hidden] { display: none; }
     .news-list li { display: grid; gap: 0.3rem; border-bottom: 1px solid #eee; padding: 0.85rem 0.65rem; }
@@ -8497,7 +8539,7 @@ ${renderGlobalNav("/favorites")}
   </main>
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
   <script>window.KinkiZooAnimalImageUrls = ${animalImageUrlsJson};window.KinkiZooFavoriteRankingData = ${favoriteRankingDataJson};</script>
-  <script src="/favorites.js?v=3" defer></script>
+  <script src="/favorites.js?v=4" defer></script>
 </body>
 </html>`;
 }

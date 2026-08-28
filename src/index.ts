@@ -4103,7 +4103,6 @@ const COMMON_STYLES = `
     .global-nav a .ui-icon { width: 1.05em; height: 1.05em; opacity: 0.85; }
     .global-nav a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .global-nav a[aria-current="page"] { font-weight: bold; text-decoration: underline; text-underline-offset: 0.2em; }
-    .global-nav .nav-admin { margin-left: auto; color: #888; font-size: 0.82rem; }
     .breadcrumb { border-bottom: 1px solid #e5e5e5; color: #777; font-size: 0.78rem; }
     .breadcrumb ol { display: flex; flex-wrap: wrap; gap: 0.35rem 0.45rem; align-items: center; padding: 0.65rem 1.5rem; list-style: none; }
     .breadcrumb li { display: flex; min-width: 0; align-items: center; gap: 0.45rem; }
@@ -4126,6 +4125,7 @@ const COMMON_STYLES = `
     .ui-state-message { line-height: 1.6; }
     .ui-state-actions { display: flex; flex-wrap: wrap; gap: 0.45rem; }
     @media (max-width: 640px) {
+      body { padding-bottom: calc(58px + env(safe-area-inset-bottom)); }
       .ui-btn, .ui-touch-target { min-height: 44px; }
       .site-header { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.6rem; padding: 0.75rem; }
       .site-heading { flex: 1 1 100%; }
@@ -4146,11 +4146,11 @@ const COMMON_STYLES = `
       html.kz-header-collapsed .site-header .site-heading p,
       html.kz-header-collapsed .header-search,
       html.kz-header-collapsed .pref-selector { display: none; }
-      html.kz-header-collapsed .global-nav { display: none; }
-      .global-nav { display: flex; flex-wrap: nowrap; gap: 0; padding: 0; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
-      .global-nav a { flex: 0 0 auto; display: flex; gap: 0.3rem; min-height: 44px; align-items: center; white-space: nowrap; padding: 0.55rem 0.85rem; border-right: 1px solid #eee; font-size: 0.82rem; }
-      .global-nav a:last-child { border-right: 0; }
-      .global-nav .nav-admin { margin-left: 0; }
+      .global-nav { position: fixed; right: 0; bottom: 0; left: 0; z-index: 3000; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; padding: 0 0 env(safe-area-inset-bottom); border-top: 1px solid #d8e2dc; border-bottom: 0; background: #fff; box-shadow: 0 -2px 10px rgba(0,0,0,0.08); }
+      .global-nav a { display: flex; flex-direction: column; justify-content: center; gap: 0.15rem; min-width: 0; min-height: 58px; padding: 0.35rem 0.2rem; color: #647168; font-size: 0.68rem; line-height: 1.15; text-align: center; white-space: nowrap; }
+      .global-nav a .ui-icon { width: 1.4rem; height: 1.4rem; opacity: 1; }
+      .global-nav a:hover { text-decoration: none; }
+      .global-nav a[aria-current="page"] { background: #eff7f2; color: #1f5b45; text-decoration: none; }
       .breadcrumb ol { padding: 0.6rem 0.75rem; }
       .page-nav { gap: 0.5rem; }
       .page-nav a { display: inline-flex; align-items: center; min-height: 44px; }
@@ -4163,7 +4163,7 @@ function renderSiteHeader(): string {
       <h1><a href="/">近畿動物園情報</a></h1>
       <p>近畿一円の動物園・施設をまとめて調べられます</p>
     </div>
-    <button type="button" class="header-toggle" data-header-toggle aria-expanded="true" aria-label="ヘッダーとメニューの開閉">${icon("expand_less", "ht-icon-expanded")}${icon("expand_more", "ht-icon-collapsed")}</button>
+    <button type="button" class="header-toggle" data-header-toggle aria-expanded="true" aria-label="ヘッダーの開閉">${icon("expand_less", "ht-icon-expanded")}${icon("expand_more", "ht-icon-collapsed")}</button>
   </header>`;
 }
 
@@ -4171,16 +4171,13 @@ function renderGlobalNav(activePath: string): string {
   const navItems: [href: string, iconName: IconName, label: string][] = [
     ["/", "home", "トップ"],
     ["/zoos", "location_city", "動物園"],
-    ["/animals", "pets", "動物一覧"],
-    ["/news", "campaign", "お知らせ"],
+    ["/animals", "pets", "動物"],
     ["/favorites", "star_border", "お気に入り"],
-    ["/admin", "admin_panel_settings", "管理"],
   ];
   const links = navItems
-    .map(([href, iconName, label], i) => {
+    .map(([href, iconName, label]) => {
       const isActive = href === "/" ? activePath === "/" : activePath === href || activePath.startsWith(`${href}/`);
-      const cls = i === navItems.length - 1 ? ' class="nav-admin"' : "";
-      return `<a href="${href}"${cls}${isActive ? ' aria-current="page"' : ""}>${icon(iconName)}<span>${label}</span></a>`;
+      return `<a href="${href}"${isActive ? ' aria-current="page"' : ""}>${icon(iconName)}<span>${label}</span></a>`;
     })
     .join("\n    ");
   return `  <nav class="global-nav" aria-label="サイトナビゲーション">
@@ -7343,6 +7340,8 @@ function renderCompareIndexHtml(
     html.has-compare-selection body { padding-bottom: 4.5rem; }
     @media (max-width: 640px) {
       main { padding: 0.75rem 0.5rem 5rem; }
+      .compare-bar { bottom: calc(58px + env(safe-area-inset-bottom)); }
+      html.has-compare-selection body { padding-bottom: calc(4.5rem + 58px + env(safe-area-inset-bottom)); }
     }
   </style>
 </head>
@@ -8190,6 +8189,11 @@ function renderZoosShell(opts: {
       .compare-bar { gap: 0.55rem; padding: 0.6rem 0.75rem calc(0.6rem + env(safe-area-inset-bottom)); }
       .compare-bar-text { flex: 1 1 100%; min-width: 0; }
       html.has-compare-selection body { padding-bottom: 7.5rem; }
+    }
+    @media (max-width: 640px) {
+      .share-toast { bottom: calc(58px + env(safe-area-inset-bottom) + 0.75rem); }
+      .compare-bar { bottom: calc(58px + env(safe-area-inset-bottom)); padding-bottom: 0.6rem; }
+      html.has-compare-selection body { padding-bottom: calc(7.5rem + 58px + env(safe-area-inset-bottom)); }
     }
   </style>
 </head>

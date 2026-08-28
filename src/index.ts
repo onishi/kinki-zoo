@@ -3526,6 +3526,10 @@ function renderZooCard(result: ZooSearchResult, includeMatchSummary: boolean): s
           ${renderFavoriteButton("zoo", zoo.id, zoo.name, `/zoos/${zooId}`)}
         </div>
         <p class="kana">${escapeHtml(zoo.nameKana)}</p>
+        <label class="zoo-compare-option">
+          <input type="checkbox" data-compare-zoo="${escapeHtml(zoo.id)}" data-compare-name="${escapeHtml(zoo.name)}">
+          <span data-compare-label>比較に追加</span>
+        </label>
       </th>
       <td data-label="都道府県">${prefLabel}</td>
       <td data-label="動物種数">${result.animalCount > 0 ? `${result.animalCount} 種` : "未取得"}</td>
@@ -3533,16 +3537,18 @@ function renderZooCard(result: ZooSearchResult, includeMatchSummary: boolean): s
     </tr>`;
 }
 
+type ZooView = "list" | "map" | "taxonomy";
+
 function buildZoosUrl(
   pref: PrefectureCode | null,
   animal: string | null,
-  opts: { cls?: string | null; view?: "list" | "map" } = {}
+  opts: { cls?: string | null; view?: ZooView } = {}
 ): string {
   const params = new URLSearchParams();
   if (pref) params.set("pref", pref);
   if (animal) params.set("animal", animal);
   if (opts.cls) params.set("cls", opts.cls);
-  if (opts.view === "map") params.set("view", "map");
+  if (opts.view && opts.view !== "list") params.set("view", opts.view);
   const query = params.toString();
   return query ? `/zoos?${query}` : "/zoos";
 }
@@ -3614,7 +3620,7 @@ function renderExploreCards(activePref: PrefectureCode | null, facilityCount: nu
   <section class="explore-section" aria-labelledby="explore-title">
     <div class="explore-heading">
       <h2 id="explore-title">主要ページ</h2>
-      <a href="/compare" class="section-link">動物園を比較 →</a>
+      <a href="${buildZoosUrl(activePref, null, { view: "taxonomy" })}" class="section-link">動物園を比較 →</a>
     </div>
     <div class="explore-grid">
       ${cards
@@ -4164,9 +4170,8 @@ function renderSiteHeader(): string {
 function renderGlobalNav(activePath: string): string {
   const navItems: [href: string, iconName: IconName, label: string][] = [
     ["/", "home", "トップ"],
-    ["/zoos", "location_city", "動物園一覧"],
+    ["/zoos", "location_city", "動物園"],
     ["/animals", "pets", "動物一覧"],
-    ["/compare", "compare_arrows", "動物園を比較"],
     ["/news", "campaign", "お知らせ"],
     ["/favorites", "star_border", "お気に入り"],
     ["/admin", "admin_panel_settings", "管理"],
@@ -7033,12 +7038,182 @@ async function loadTaxonomyCountsByZoo(db: D1Database): Promise<TaxonomyCountRow
 
 const CLASS_SORT_ORDER = ["魚類", "鳥類", "軟骨魚類", "爬虫類", "哺乳類", "無脊椎動物", "両生類"];
 
-function renderCompareIndexHtml(countRows: TaxonomyCountRow[], animalCounts: Map<string, number>): string {
+function renderZooViewTabs(
+  activePref: PrefectureCode | null,
+  activeView: ZooView,
+  animal: string | null = null,
+  taxClass: string | null = null
+): string {
+  const tabs: Array<{ view: ZooView; label: string; iconName: IconName }> = [
+    { view: "list", label: "一覧", iconName: "view_list" },
+    { view: "map", label: "地図", iconName: "map" },
+    { view: "taxonomy", label: "分類表", iconName: "compare_arrows" },
+  ];
+  return `<nav class="view-toggle" aria-label="動物園の表示切り替え">
+    ${tabs.map((tab) => {
+      const preserveFilters = tab.view !== "taxonomy";
+      const href = buildZoosUrl(
+        activePref,
+        preserveFilters ? animal : null,
+        { cls: preserveFilters ? taxClass : null, view: tab.view }
+      );
+      return `<a href="${escapeHtml(href)}" class="view-toggle-btn${tab.view === activeView ? " view-toggle-btn--active" : ""}"${tab.view === activeView ? ' aria-current="page"' : ""}>${icon(tab.iconName)}${tab.label}</a>`;
+    }).join("")}
+  </nav>`;
+}
+
+function renderZooCompareBar(): string {
+  return `<div class="compare-bar" id="compare-bar" hidden>
+    <span class="compare-bar-text" id="compare-bar-text" aria-live="polite"></span>
+    <button type="button" class="compare-go" id="compare-go" disabled>${icon("compare_arrows")}比較する</button>
+    <button type="button" class="compare-clear" id="compare-clear">${icon("close")}クリア</button>
+  </div>`;
+}
+
+function renderZooCompareScript(activePref: PrefectureCode | null): string {
+  const allowedZooIds = zoos
+    .filter((zoo) => !activePref || zoo.prefecture === activePref)
+    .map((zoo) => zoo.id);
+  return `<script>
+  (function() {
+    var storageKey = 'kinkizoo:compare:v1';
+    var allowedZooIds = new Set(${JSON.stringify(allowedZooIds)});
+    var selected = [];
+    try {
+      var parsed = JSON.parse(window.sessionStorage.getItem(storageKey) || '[]');
+      if (Array.isArray(parsed)) {
+        selected = parsed.filter(function(item) {
+          return item && typeof item.id === 'string' && typeof item.name === 'string' && allowedZooIds.has(item.id);
+        }).slice(0, 3);
+      }
+    } catch (e) {
+      selected = [];
+    }
+
+    var bar = document.getElementById('compare-bar');
+    var barText = document.getElementById('compare-bar-text');
+    var goBtn = document.getElementById('compare-go');
+    var clearBtn = document.getElementById('compare-clear');
+
+    function save() {
+      try { window.sessionStorage.setItem(storageKey, JSON.stringify(selected)); } catch (e) {}
+    }
+
+    function selectedIndex(id) {
+      return selected.findIndex(function(item) { return item.id === id; });
+    }
+
+    function syncTableHighlight() {
+      var heads = Array.prototype.slice.call(document.querySelectorAll('.zoo-head'));
+      heads.forEach(function(head) {
+        var control = head.querySelector('[data-compare-zoo]');
+        head.classList.toggle('is-checked', Boolean(control && selectedIndex(control.dataset.compareZoo) >= 0));
+      });
+      document.querySelectorAll('.cnt-cell').forEach(function(cell) {
+        cell.classList.remove('is-checked-a', 'is-checked-b', 'is-checked-c');
+      });
+      selected.forEach(function(item, selectedPosition) {
+        var columnPosition = heads.findIndex(function(head) {
+          var control = head.querySelector('[data-compare-zoo]');
+          return control && control.dataset.compareZoo === item.id;
+        });
+        if (columnPosition < 0) return;
+        document.querySelectorAll('.pivot-table tbody tr').forEach(function(row) {
+          var cell = row.children[columnPosition + 1];
+          if (cell) cell.classList.add(['is-checked-a', 'is-checked-b', 'is-checked-c'][selectedPosition]);
+        });
+      });
+    }
+
+    function sync() {
+      document.querySelectorAll('[data-compare-zoo]').forEach(function(control) {
+        var active = selectedIndex(control.dataset.compareZoo) >= 0;
+        if (control.tagName === 'INPUT') {
+          control.checked = active;
+          control.disabled = !active && selected.length >= 3;
+          var labelText = control.parentElement && control.parentElement.querySelector('[data-compare-label]');
+          if (labelText) labelText.textContent = active ? '比較から外す' : '比較に追加';
+        } else {
+          control.setAttribute('aria-pressed', active ? 'true' : 'false');
+          control.disabled = !active && selected.length >= 3;
+          control.textContent = active ? '比較から外す' : '比較に追加';
+        }
+      });
+      document.querySelectorAll('.zoo-table tbody tr').forEach(function(row) {
+        var control = row.querySelector('[data-compare-zoo]');
+        row.classList.toggle('is-compare-selected', Boolean(control && selectedIndex(control.dataset.compareZoo) >= 0));
+      });
+      syncTableHighlight();
+      if (bar && barText && goBtn) {
+        bar.hidden = selected.length === 0;
+        document.documentElement.classList.toggle('has-compare-selection', selected.length > 0);
+        barText.textContent = selected.length + '/3園: ' + selected.map(function(item) { return item.name; }).join('・');
+        goBtn.disabled = selected.length < 2;
+      }
+    }
+
+    function toggle(id, name, nextActive) {
+      var index = selectedIndex(id);
+      var shouldAdd = typeof nextActive === 'boolean' ? nextActive : index < 0;
+      if (shouldAdd && index < 0 && selected.length < 3) selected.push({ id: id, name: name || id });
+      if (!shouldAdd && index >= 0) selected.splice(index, 1);
+      save();
+      sync();
+    }
+
+    document.addEventListener('change', function(event) {
+      var control = event.target && event.target.closest ? event.target.closest('input[data-compare-zoo]') : null;
+      if (!control) return;
+      toggle(control.dataset.compareZoo, control.dataset.compareName, control.checked);
+    });
+
+    document.addEventListener('click', function(event) {
+      var control = event.target && event.target.closest ? event.target.closest('button[data-compare-zoo]') : null;
+      if (!control) return;
+      event.preventDefault();
+      toggle(control.dataset.compareZoo, control.dataset.compareName);
+    });
+
+    if (goBtn) {
+      goBtn.addEventListener('click', function() {
+        if (selected.length < 2) return;
+        var params = new URLSearchParams();
+        ['a', 'b', 'c'].forEach(function(key, index) {
+          if (selected[index]) params.set(key, selected[index].id);
+        });
+        ${activePref ? `params.set('pref', ${JSON.stringify(activePref)});` : ""}
+        location.href = (window.__BASE_PATH__ || '') + '/zoos?' + params.toString();
+      });
+    }
+
+    if (clearBtn) {
+      clearBtn.addEventListener('click', function() {
+        selected = [];
+        save();
+        sync();
+      });
+    }
+
+    window.KinkiZooCompare = { sync: sync };
+    save();
+    sync();
+  })();
+  </script>`;
+}
+
+function renderCompareIndexHtml(
+  countRows: TaxonomyCountRow[],
+  animalCounts: Map<string, number>,
+  activePref: PrefectureCode | null
+): string {
   // Build lookup: zooId -> className -> orderName -> count
   const lookup = new Map<string, Map<string, Map<string, number>>>();
   const classOrderMap = new Map<string, Set<string>>();
+  const eligibleZoos = zoos.filter((zoo) => !activePref || zoo.prefecture === activePref);
+  const eligibleZooIds = new Set(eligibleZoos.map((zoo) => zoo.id));
 
   for (const row of countRows) {
+    if (!eligibleZooIds.has(row.zoo_id)) continue;
     const cls = row.cls ?? "未分類";
     const ord = row.ord ?? "不明";
     if (!lookup.has(row.zoo_id)) lookup.set(row.zoo_id, new Map());
@@ -7057,7 +7232,8 @@ function renderCompareIndexHtml(countRows: TaxonomyCountRow[], animalCounts: Map
     return a === "未分類" ? 1 : b === "未分類" ? -1 : a.localeCompare(b, "ja");
   });
 
-  const sortedZoos = [...zoos].sort((a, b) => (animalCounts.get(b.id) ?? 0) - (animalCounts.get(a.id) ?? 0));
+  const sortedZoos = eligibleZoos
+    .sort((a, b) => (animalCounts.get(b.id) ?? 0) - (animalCounts.get(a.id) ?? 0));
 
   // Column-local heat scale: each zoo列は自分の最も展示数が多い「目」を基準に
   // 濃淡を付けるので、動物園ごとの得意な分類が規模差に関わらず浮かび上がる。
@@ -7075,7 +7251,7 @@ function renderCompareIndexHtml(countRows: TaxonomyCountRow[], animalCounts: Map
     .map(
       (zoo) => `<th class="zoo-head" scope="col">
         <label class="zoo-label">
-          <input type="checkbox" class="zoo-check" value="${escapeHtml(zoo.id)}" data-name="${escapeHtml(zoo.name)}">
+          <input type="checkbox" class="zoo-check" value="${escapeHtml(zoo.id)}" data-compare-zoo="${escapeHtml(zoo.id)}" data-compare-name="${escapeHtml(zoo.name)}">
           <span class="zoo-name">${escapeHtml(zoo.name)}</span>
           <span class="zoo-cnt">${animalCounts.get(zoo.id) ?? 0}種</span>
         </label>
@@ -7117,12 +7293,18 @@ function renderCompareIndexHtml(countRows: TaxonomyCountRow[], animalCounts: Map
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>動物園を比較 | 近畿動物園情報</title>
+  <title>動物園の分類表 | 近畿動物園情報</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
     main { max-width: 1040px; margin: 0 auto; padding: 1.25rem 1.5rem 5rem; display: grid; gap: 1.25rem; }
     h1 { font-size: 1.15rem; }
+    .taxonomy-view-heading { display: grid; gap: 0.35rem; }
+    .taxonomy-view-heading h2 { font-size: 1rem; }
+    .taxonomy-view-heading p { color: #666; font-size: 0.82rem; line-height: 1.5; }
+    .view-toggle { display: inline-flex; gap: 0.3rem; border: 1px solid #d3e0d8; background: #f3f7f4; padding: 0.25rem; border-radius: 6px; width: fit-content; }
+    .view-toggle-btn { display: inline-flex; align-items: center; gap: 0.35rem; border-radius: 4px; color: #4c5d53; padding: 0.4rem 0.9rem; font-size: 0.85rem; font-weight: bold; text-decoration: none; }
+    .view-toggle-btn--active { background: #1f5b45; color: #fff; }
     .table-wrap { overflow-x: auto; border: 1px solid #ddd; }
     .pivot-table { border-collapse: separate; border-spacing: 0; font-size: 0.8rem; border: 1px solid #ddd; }
     .pivot-table th, .pivot-table td { border-right: 1px solid #e8e8e8; border-bottom: 1px solid #e8e8e8; }
@@ -7143,8 +7325,7 @@ function renderCompareIndexHtml(countRows: TaxonomyCountRow[], animalCounts: Map
     .cnt-cell.heat-2 { background: #c9e3d8; }
     .cnt-cell.heat-3 { background: #b7dacb; }
     .cnt-cell.heat-4 { background: #a5d0be; }
-    .cnt-cell.is-checked-a { background: #e8f5ee; }
-    .cnt-cell.is-checked-b { background: #e8f5ee; }
+    .cnt-cell.is-checked-a, .cnt-cell.is-checked-b, .cnt-cell.is-checked-c { box-shadow: inset 0 0 0 2px #4f8f71; }
     .heat-legend { display: flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; color: #777; }
     .heat-legend-scale { display: flex; }
     .heat-legend-scale span { width: 1.1rem; height: 0.75rem; }
@@ -7154,10 +7335,12 @@ function renderCompareIndexHtml(countRows: TaxonomyCountRow[], animalCounts: Map
     .heat-legend-scale span:nth-child(4) { background: #b7dacb; }
     .heat-legend-scale span:nth-child(5) { background: #a5d0be; }
     .compare-bar { position: fixed; bottom: 0; left: 0; right: 0; background: #1f5b45; color: #fff; padding: 0.75rem 1.5rem; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; z-index: 100; box-shadow: 0 -2px 8px rgba(0,0,0,0.15); }
+    .compare-bar[hidden] { display: none; }
     .compare-bar-text { flex: 1; font-size: 0.88rem; }
     .compare-go { display: inline-flex; align-items: center; gap: 0.3rem; border: 2px solid #fff; background: #fff; color: #1f5b45; padding: 0.4rem 1rem; cursor: pointer; font-size: 0.88rem; font-weight: bold; }
     .compare-go:disabled { opacity: 0.5; cursor: default; }
     .compare-clear { display: inline-flex; align-items: center; gap: 0.3rem; border: 1px solid rgba(255,255,255,0.5); background: transparent; color: #fff; padding: 0.4rem 0.75rem; cursor: pointer; font-size: 0.82rem; }
+    html.has-compare-selection body { padding-bottom: 4.5rem; }
     @media (max-width: 640px) {
       main { padding: 0.75rem 0.5rem 5rem; }
     }
@@ -7165,9 +7348,14 @@ function renderCompareIndexHtml(countRows: TaxonomyCountRow[], animalCounts: Map
 </head>
 <body>
 ${renderSiteHeader()}
-${renderGlobalNav("/compare")}
+${renderGlobalNav("/zoos")}
   <main>
-    <h1>動物園を比較 <span style="font-size:0.82rem;font-weight:normal;color:#888">2〜3つ選んで比較できます</span></h1>
+    <h1>動物園</h1>
+    ${renderZooViewTabs(activePref, "taxonomy")}
+    <div class="taxonomy-view-heading">
+      <h2>分類表</h2>
+      <p>分類ごとの掲載数を見ながら、比較したい動物園を2〜3園選べます。</p>
+    </div>
     <p class="heat-legend">各列内で展示数が多い「目」ほど濃い色: <span class="heat-legend-scale"><span></span><span></span><span></span><span></span><span></span></span> 少ない→多い</p>
     <div class="table-wrap">
       <table class="pivot-table">
@@ -7181,76 +7369,8 @@ ${renderGlobalNav("/compare")}
       </table>
     </div>
   </main>
-  <div class="compare-bar" id="compare-bar" hidden>
-    <span class="compare-bar-text" id="compare-bar-text"></span>
-    <button class="compare-go" id="compare-go" disabled>${icon("compare_arrows")}比較する</button>
-    <button class="compare-clear" id="compare-clear">${icon("close")}クリア</button>
-  </div>
-  <script>
-    var checked = [];
-    var bar = document.getElementById('compare-bar');
-    var barText = document.getElementById('compare-bar-text');
-    var goBtn = document.getElementById('compare-go');
-    var clearBtn = document.getElementById('compare-clear');
-
-    function colIndex(zooId) {
-      var heads = document.querySelectorAll('.zoo-head');
-      for (var i = 0; i < heads.length; i++) {
-        if (heads[i].querySelector('.zoo-check').value === zooId) return i + 2;
-      }
-      return -1;
-    }
-
-    function updateHighlight() {
-      document.querySelectorAll('.zoo-head').forEach(function(th) {
-        th.classList.toggle('is-checked', checked.some(function(c) { return c.id === th.querySelector('.zoo-check').value; }));
-      });
-      document.querySelectorAll('.cnt-cell').forEach(function(td) { td.classList.remove('is-checked-a', 'is-checked-b'); });
-      checked.forEach(function(c, i) {
-        var idx = colIndex(c.id);
-        document.querySelectorAll('.pivot-table tbody tr').forEach(function(tr) {
-          var td = tr.children[idx - 1];
-          if (td) td.classList.add(i === 0 ? 'is-checked-a' : 'is-checked-b');
-        });
-      });
-    }
-
-    function updateBar() {
-      bar.hidden = checked.length === 0;
-      if (checked.length > 0) {
-        barText.textContent = checked.map(function(c) { return c.name; }).join(' と ');
-        goBtn.disabled = checked.length < 2;
-      }
-    }
-
-    document.querySelectorAll('.zoo-check').forEach(function(cb) {
-      cb.addEventListener('change', function() {
-        if (cb.checked) {
-          if (checked.length >= 3) { cb.checked = false; return; }
-          checked.push({ id: cb.value, name: cb.dataset.name });
-        } else {
-          checked = checked.filter(function(c) { return c.id !== cb.value; });
-        }
-        updateHighlight();
-        updateBar();
-      });
-    });
-
-    goBtn.addEventListener('click', function() {
-      if (checked.length >= 2) {
-        var keys = ['a', 'b', 'c'];
-        var params = checked.map(function(c, i) { return keys[i] + '=' + encodeURIComponent(c.id); }).join('&');
-        location.href = (window.__BASE_PATH__ || '') + '/compare?' + params;
-      }
-    });
-
-    clearBtn.addEventListener('click', function() {
-      checked = [];
-      document.querySelectorAll('.zoo-check').forEach(function(cb) { cb.checked = false; });
-      updateHighlight();
-      updateBar();
-    });
-  </script>
+  ${renderZooCompareBar()}
+  ${renderZooCompareScript(activePref)}
 </body>
 </html>`;
 }
@@ -7278,7 +7398,8 @@ async function loadZooAnimalsForCompare(db: D1Database, zooId: string): Promise<
 
 function renderCompareHtml(
   selected: { zoo: Zoo; animals: CompareAnimalRow[] }[],
-  animalCounts: Map<string, number>
+  animalCounts: Map<string, number>,
+  activePref: PrefectureCode | null
 ): string {
   const n = selected.length;
   const nameSets = selected.map(({ animals }) => new Set(animals.map((a) => a.display_name)));
@@ -7353,7 +7474,7 @@ function renderCompareHtml(
 
   const zooOptions = (sel: string, name: string) =>
     `<div class="select-group"><select name="${escapeHtml(name)}"><option value="">（なし）</option>${
-      zoos.map((z) => {
+      zoos.filter((z) => !activePref || z.prefecture === activePref).map((z) => {
         const cnt = animalCounts.get(z.id);
         const text = cnt != null ? `${z.name}（${cnt}種）` : z.name;
         return `<option value="${escapeHtml(z.id)}"${z.id === sel ? " selected" : ""}>${escapeHtml(text)}</option>`;
@@ -7427,6 +7548,8 @@ function renderCompareHtml(
     body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
     main { max-width: 1040px; margin: 0 auto; padding: 1.25rem 1.5rem 3rem; display: grid; gap: 1.5rem; }
     h1 { font-size: 1.15rem; }
+    .compare-back { width: fit-content; color: #1f5b45; font-size: 0.85rem; font-weight: bold; text-decoration: none; }
+    .compare-back:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .compare-form { display: flex; flex-wrap: nowrap; gap: 0.5rem; align-items: center; padding: 0.75rem; background: #f8fbf9; border: 1px solid #dce7df; }
     .select-group { flex: 1 1 0; min-width: 0; }
     .select-group select { width: 100%; min-height: 42px; border: 1px solid #bbb; padding: 0.4rem 0.6rem; background: #fff; }
@@ -7477,10 +7600,12 @@ function renderCompareHtml(
 </head>
 <body>
 ${renderSiteHeader()}
-${renderGlobalNav("/compare")}
+${renderGlobalNav("/zoos")}
   <main>
     <h1>動物園を比較</h1>
-    <form class="compare-form" action="/compare" method="get">
+    <a class="compare-back" href="${escapeHtml(buildZoosUrl(activePref, null))}">← 動物園を選び直す</a>
+    <form class="compare-form" action="/zoos" method="get">
+      ${activePref ? `<input type="hidden" name="pref" value="${escapeHtml(activePref)}">` : ""}
       ${zooOptions(selected[0]?.zoo.id ?? "", "a")}
       ${zooOptions(selected[1]?.zoo.id ?? "", "b")}
       ${zooOptions(selected[2]?.zoo.id ?? "", "c")}
@@ -7502,7 +7627,7 @@ function renderZoosHtml(
   activePref: PrefectureCode | null,
   animal: string | null,
   taxClass: string | null = null,
-  view: "list" | "map" = "list",
+  view: Exclude<ZooView, "taxonomy"> = "list",
   initialLat: number | null = null,
   initialLon: number | null = null,
   initialZoom: number | null = null
@@ -7588,6 +7713,7 @@ function renderZoosHtml(
             <span class="result-name">${escapeHtml(r.zoo.name)}<span class="result-count">${cnt}種</span></span>
           </a>
           <p class="result-animals">${matched}</p>
+          <button type="button" class="map-compare-toggle" data-compare-zoo="${escapeHtml(r.zoo.id)}" data-compare-name="${escapeHtml(r.zoo.name)}">比較に追加</button>
         </li>`;
       }).join("\n")
     : "";
@@ -7765,11 +7891,15 @@ function renderZoosHtml(
         var animalCountLine = '<br><span>動物種数: ' + (zoo.animalCount > 0 ? zoo.animalCount + ' 種' : '未取得') + '</span>';
         var mapAppUrl = 'https://www.google.com/maps/search/?api=1&query=' + zoo.lat + ',' + zoo.lon;
         var mapAppLine = '<br><a class="popup-map-app" href="' + mapAppUrl + '" target="_blank" rel="noopener noreferrer">地図アプリで見る</a>';
+        var compareLine = '<br><button type="button" class="map-compare-toggle map-compare-toggle--popup" data-compare-zoo="' + esc(zoo.id) + '" data-compare-name="' + esc(zoo.name) + '">比較に追加</button>';
         var marker = L.marker([zoo.lat, zoo.lon])
-          .bindPopup('<b><a href="/zoos/' + esc(zoo.id) + '${activePref ? `?pref=${activePref}` : ""}">' + esc(zoo.name) + '</a></b>' + matchLine + animalCountLine + mapAppLine)
+          .bindPopup('<b><a href="/zoos/' + esc(zoo.id) + '${activePref ? `?pref=${activePref}` : ""}">' + esc(zoo.name) + '</a></b>' + matchLine + animalCountLine + mapAppLine + compareLine)
           .addTo(map);
         marker.on('click', function() {
           activateResult(zoo.id, { openSheet: true, scroll: true });
+        });
+        marker.on('popupopen', function() {
+          if (window.KinkiZooCompare) window.KinkiZooCompare.sync();
         });
         markers[zoo.id] = marker;
       });
@@ -7923,10 +8053,7 @@ function renderZoosHtml(
     view,
     classChips,
     bodyHtml: `<p class="summary">${summary}</p>
-  <div class="view-toggle" role="tablist" aria-label="表示切り替え">
-    <button type="button" class="view-toggle-btn" data-view-btn="list" role="tab" aria-selected="${view === "list" ? "true" : "false"}">${icon("view_list")}リスト</button>
-    <button type="button" class="view-toggle-btn" data-view-btn="map" role="tab" aria-selected="${view === "map" ? "true" : "false"}">${icon("map")}地図</button>
-  </div>
+  ${renderZooViewTabs(activePref, view, animal, taxClass)}
   ${listPaneHtml}
   ${mapPaneHtml}`,
     showResultPanel: showPanel,
@@ -7939,7 +8066,7 @@ function renderZoosShell(opts: {
   animal: string | null;
   escapedAnimal: string;
   taxClass: string | null;
-  view: "list" | "map";
+  view: Exclude<ZooView, "taxonomy">;
   classChips: string;
   bodyHtml: string;
   showResultPanel?: boolean;
@@ -7955,6 +8082,7 @@ function renderZoosShell(opts: {
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
+    .zoo-page-title { padding: 1rem 1.5rem 0; font-size: 1.15rem; }
     .search-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; }
     .search-form input { flex: 1 1 220px; max-width: 320px; padding: 0.55rem 0.75rem; border: 1px solid #bbb; font-size: 0.95rem; }
     .search-form button, .search-form a { font-size: 0.875rem; padding: 0.5rem 0.9rem; }
@@ -7964,7 +8092,7 @@ function renderZoosShell(opts: {
     .cls-chip--active { background: #1f5b45; color: #fff; border-color: #1f5b45; }
     .summary { padding: 0.75rem 1.5rem 0; font-size: 0.9rem; color: #666; }
     .view-toggle { display: inline-flex; gap: 0.3rem; margin: 0.75rem 1.5rem; border: 1px solid #d3e0d8; background: #f3f7f4; padding: 0.25rem; border-radius: 6px; width: fit-content; }
-    .view-toggle-btn { display: inline-flex; align-items: center; gap: 0.35rem; border: 0; background: transparent; color: #4c5d53; padding: 0.4rem 0.9rem; font-size: 0.85rem; font-weight: bold; cursor: pointer; border-radius: 4px; }
+    .view-toggle-btn { display: inline-flex; align-items: center; gap: 0.35rem; border: 0; background: transparent; color: #4c5d53; padding: 0.4rem 0.9rem; font-size: 0.85rem; font-weight: bold; cursor: pointer; border-radius: 4px; text-decoration: none; }
     .view-toggle-btn--active { background: #1f5b45; color: #fff; }
     .view-pane[hidden] { display: none; }
     .zoo-list { padding: 0 1.5rem 1.5rem; overflow-x: auto; }
@@ -7974,6 +8102,9 @@ function renderZoosShell(opts: {
     .zoo-name a { color: #2d6a4f; text-decoration: none; font-size: 1rem; }
     .zoo-name a:hover { text-decoration: underline; }
     .kana { font-size: 0.8rem; color: #888; margin-top: 0.25rem; }
+    .zoo-compare-option { display: inline-flex; align-items: center; gap: 0.35rem; margin-top: 0.45rem; color: #4f6257; font-size: 0.75rem; font-weight: normal; cursor: pointer; }
+    .zoo-compare-option input { width: 1rem; height: 1rem; accent-color: #1f5b45; }
+    .zoo-table tr.is-compare-selected { background: #f0fbf4; }
     .match-box { padding: 0.55rem; border: 1px solid #d7eadc; border-radius: 6px; background: #f3fbf5; display: grid; gap: 0.45rem; }
     .match-row { display: grid; gap: 0.35rem; }
     .match-label { color: #456052; font-size: 0.75rem; font-weight: bold; }
@@ -8007,12 +8138,24 @@ function renderZoosShell(opts: {
     .result-animals { font-size: 0.72rem; color: #666; line-height: 1.6; padding: 0 0.85rem 0.5rem; overflow-wrap: anywhere; }
     .result-animals a { color: #1f5b45; text-decoration: none; }
     .result-animals a:hover { text-decoration: underline; }
+    .map-compare-toggle { margin: 0 0.85rem 0.55rem; border: 1px solid #87ad99; background: #fff; color: #1f5b45; padding: 0.25rem 0.6rem; font-size: 0.72rem; font-weight: bold; cursor: pointer; }
+    .map-compare-toggle[aria-pressed="true"] { background: #1f5b45; color: #fff; }
+    .map-compare-toggle:disabled { opacity: 0.5; cursor: default; }
+    .map-compare-toggle--popup { margin: 0.45rem 0 0; }
     .marker-active { filter: hue-rotate(160deg) saturate(2) brightness(1.1); }
     .popup-map-app { display: none; }
+    .compare-bar { position: fixed; bottom: 0; left: 0; right: 0; background: #1f5b45; color: #fff; padding: 0.75rem 1.5rem; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; z-index: 2000; box-shadow: 0 -2px 8px rgba(0,0,0,0.15); }
+    .compare-bar[hidden] { display: none; }
+    .compare-bar-text { flex: 1; min-width: 12rem; font-size: 0.82rem; line-height: 1.4; }
+    .compare-go { display: inline-flex; align-items: center; gap: 0.3rem; border: 2px solid #fff; background: #fff; color: #1f5b45; padding: 0.4rem 1rem; cursor: pointer; font-size: 0.88rem; font-weight: bold; }
+    .compare-go:disabled { opacity: 0.5; cursor: default; }
+    .compare-clear { display: inline-flex; align-items: center; gap: 0.3rem; border: 1px solid rgba(255,255,255,0.5); background: transparent; color: #fff; padding: 0.4rem 0.75rem; cursor: pointer; font-size: 0.82rem; }
+    html.has-compare-selection body { padding-bottom: 4.5rem; }
     @media (max-width: 700px) {
       .popup-map-app { display: inline-block; margin-top: 0.3rem; font-size: 0.78rem; color: #1f5b45; text-decoration: none; }
       .popup-map-app:hover { text-decoration: underline; }
       .search-form { display: grid; grid-template-columns: 1fr auto; padding: 0.75rem; }
+      .zoo-page-title { padding: 0.85rem 0.75rem 0; }
       .search-form input { width: 100%; max-width: none; min-width: 0; min-height: 44px; grid-column: 1 / -1; }
       .search-form button, .search-form a { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; }
       .summary { padding: 0.7rem 0.75rem 0; line-height: 1.5; }
@@ -8031,6 +8174,7 @@ function renderZoosShell(opts: {
       .zoo-table td[data-label="都道府県"]::before,
       .zoo-table td[data-label="動物種数"]::before { display: inline; margin-bottom: 0; flex: 0 0 auto; }
       .zoo-name { background: #f7faf8; padding: 0.6rem 0.75rem; }
+      .zoo-table tr.is-compare-selected .zoo-name { background: #e7f5ec; }
       .empty { padding: 1.5rem 0.75rem; }
       .map-toolbar { padding: 0.5rem 0.75rem 0; }
       .share-btn, .location-btn { min-height: 44px; }
@@ -8043,12 +8187,16 @@ function renderZoosShell(opts: {
       .result-sheet-toggle[aria-expanded="false"] .rst-icon-expanded { display: none; }
       .result-sheet-toggle[aria-expanded="false"] .rst-icon-collapsed { display: inline-flex; }
       footer { padding: 1rem 0.75rem; line-height: 1.5; }
+      .compare-bar { gap: 0.55rem; padding: 0.6rem 0.75rem calc(0.6rem + env(safe-area-inset-bottom)); }
+      .compare-bar-text { flex: 1 1 100%; min-width: 0; }
+      html.has-compare-selection body { padding-bottom: 7.5rem; }
     }
   </style>
 </head>
 <body>
 ${renderSiteHeader()}
 ${renderGlobalNav("/zoos")}
+  <h1 class="zoo-page-title">動物園</h1>
   <form class="search-form" action="/zoos" method="get">
     <input type="search" name="animal" value="${escapedAnimal}" placeholder="動物名で検索（例: パンダ）" aria-label="動物名で検索">
     ${taxClass ? `<input type="hidden" name="cls" value="${escapeHtml(taxClass)}">` : ""}
@@ -8058,8 +8206,10 @@ ${renderGlobalNav("/zoos")}
   </form>
   <div class="cls-filter">${classChips}</div>
   ${bodyHtml}
+  ${renderZooCompareBar()}
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
   <script src="/favorites.js?v=5" defer></script>${mapScript ?? ""}
+  ${renderZooCompareScript(activePref)}
 </body>
 </html>`;
 }
@@ -8626,7 +8776,6 @@ async function loadSitemapEntries(db: D1Database): Promise<SitemapEntry[]> {
     { path: "/" },
     { path: "/zoos" },
     { path: "/animals" },
-    { path: "/compare" },
     { path: "/news" },
   ];
 
@@ -9203,11 +9352,34 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
       return htmlResponse(html, url, activePref);
     }
 
-    // HTML: /zoos（一覧・地図の統合ページ）
+    // HTML: /zoos（一覧・地図・分類表・比較の統合ページ）
     if (pathname === "/zoos") {
+      const selectedZoos = ["a", "b", "c"]
+        .map((key) => url.searchParams.get(key) ?? "")
+        .map((id) => zoos.find((zoo) => zoo.id === id) ?? null)
+        .filter((zoo): zoo is Zoo => Boolean(zoo && (!activePref || zoo.prefecture === activePref)))
+        .filter((zoo, index, items) => items.findIndex((item) => item.id === zoo.id) === index);
+      if (selectedZoos.length >= 2) {
+        const [animalLists, animalCounts] = await Promise.all([
+          Promise.all(selectedZoos.map((zoo) => loadZooAnimalsForCompare(env.DB, zoo.id))),
+          loadZooAnimalCounts(env.DB, zoos.map((zoo) => zoo.id)),
+        ]);
+        const selected = selectedZoos.map((zoo, index) => ({ zoo, animals: animalLists[index] }));
+        return htmlResponse(renderCompareHtml(selected, animalCounts, activePref), url, activePref);
+      }
+
+      const requestedView = url.searchParams.get("view");
+      if (requestedView === "taxonomy") {
+        const [countRows, animalCounts] = await Promise.all([
+          loadTaxonomyCountsByZoo(env.DB),
+          loadZooAnimalCounts(env.DB, zoos.map((zoo) => zoo.id)),
+        ]);
+        return htmlResponse(renderCompareIndexHtml(countRows, animalCounts, activePref), url, activePref);
+      }
+
       const animal = normalizeSearchTerm(url.searchParams.get("animal"));
       const taxClass = url.searchParams.get("cls") ?? null;
-      const view = url.searchParams.get("view") === "map" ? "map" : "list";
+      const view: Exclude<ZooView, "taxonomy"> = requestedView === "map" ? "map" : "list";
       const latParam = parseFloat(url.searchParams.get("lat") ?? "");
       const lonParam = parseFloat(url.searchParams.get("lon") ?? "");
       const zoomParam = parseFloat(url.searchParams.get("z") ?? "");
@@ -9405,26 +9577,21 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
     }
 
     // HTML: /map
-    // HTML: /compare
+    // /compare は /zoos の分類表・比較結果へ統合済み。既存リンク・ブックマークのため恒久リダイレクトする。
     if (pathname === "/compare") {
-      const paramKeys = ["a", "b", "c"];
-      const selectedZoos = paramKeys
-        .map((k) => url.searchParams.get(k) ?? "")
-        .map((id) => zoos.find((z) => z.id === id) ?? null)
-        .filter((z): z is Zoo => z !== null);
-      if (selectedZoos.length >= 2) {
-        const [animalLists, animalCounts] = await Promise.all([
-          Promise.all(selectedZoos.map((z) => loadZooAnimalsForCompare(env.DB, z.id))),
-          loadZooAnimalCounts(env.DB, zoos.map((z) => z.id)),
-        ]);
-        const selected = selectedZoos.map((zoo, i) => ({ zoo, animals: animalLists[i] }));
-        return htmlResponse(renderCompareHtml(selected, animalCounts), url, activePref);
+      const destination = new URL("/zoos", url.origin);
+      destination.search = url.search;
+      const validSelectedIds = new Set(["a", "b", "c"].map((key) => {
+        const id = destination.searchParams.get(key);
+        return id && zoos.some((zoo) => zoo.id === id && (!activePref || zoo.prefecture === activePref)) ? id : null;
+      }).filter((id): id is string => id !== null));
+      if (validSelectedIds.size < 2) {
+        destination.searchParams.delete("a");
+        destination.searchParams.delete("b");
+        destination.searchParams.delete("c");
+        destination.searchParams.set("view", "taxonomy");
       }
-      const [countRows, animalCounts] = await Promise.all([
-        loadTaxonomyCountsByZoo(env.DB),
-        loadZooAnimalCounts(env.DB, zoos.map((z) => z.id)),
-      ]);
-      return htmlResponse(renderCompareIndexHtml(countRows, animalCounts), url, activePref);
+      return redirectResponse(`${destination.pathname}${destination.search}`, 301);
     }
 
     // /map は /zoos の地図タブへ統合済み。既存リンク・ブックマークのため恒久リダイレクトする。

@@ -7302,7 +7302,7 @@ function renderCompareIndexHtml(
     .view-toggle { display: inline-flex; gap: 0.3rem; border: 1px solid #d3e0d8; background: #f3f7f4; padding: 0.25rem; border-radius: 6px; width: fit-content; }
     .view-toggle-btn { display: inline-flex; align-items: center; gap: 0.35rem; border-radius: 4px; color: #4c5d53; padding: 0.4rem 0.9rem; font-size: 0.85rem; font-weight: bold; text-decoration: none; }
     .view-toggle-btn--active { background: #1f5b45; color: #fff; }
-    .table-wrap { overflow-x: auto; border: 1px solid #ddd; }
+    .table-wrap { overflow: auto; max-height: 70vh; border: 1px solid #ddd; }
     .pivot-table { border-collapse: separate; border-spacing: 0; font-size: 0.8rem; border: 1px solid #ddd; }
     .pivot-table th, .pivot-table td { border-right: 1px solid #e8e8e8; border-bottom: 1px solid #e8e8e8; }
     .zoo-head { position: sticky; top: 0; background: #fff; z-index: 2; min-width: 72px; vertical-align: bottom; padding: 0.4rem 0.35rem; border-bottom: 2px solid #ccc !important; text-align: center; }

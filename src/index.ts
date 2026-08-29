@@ -5869,7 +5869,13 @@ ${renderGlobalNav("/animals")}
   const taxonomyDialog = document.getElementById('taxonomy-filter-dialog');
   const taxonomyOpenButton = document.querySelector('[data-taxonomy-filter-open]');
   const taxonomyCloseButton = document.querySelector('[data-taxonomy-filter-close]');
+  const taxonomyFilterActive = ${taxonomy.className ? "true" : "false"};
   if (taxonomyDialog && taxonomyOpenButton) {
+    function openTaxonomyDialog() {
+      if (typeof taxonomyDialog.showModal === 'function') taxonomyDialog.showModal();
+      else taxonomyDialog.setAttribute('open', '');
+      taxonomyOpenButton.setAttribute('aria-expanded', 'true');
+    }
     function closeTaxonomyDialog() {
       if (typeof taxonomyDialog.close === 'function') taxonomyDialog.close();
       else {
@@ -5879,11 +5885,7 @@ ${renderGlobalNav("/animals")}
       }
     }
 
-    taxonomyOpenButton.addEventListener('click', () => {
-      if (typeof taxonomyDialog.showModal === 'function') taxonomyDialog.showModal();
-      else taxonomyDialog.setAttribute('open', '');
-      taxonomyOpenButton.setAttribute('aria-expanded', 'true');
-    });
+    taxonomyOpenButton.addEventListener('click', openTaxonomyDialog);
     taxonomyCloseButton?.addEventListener('click', closeTaxonomyDialog);
     taxonomyDialog.addEventListener('click', (event) => {
       if (event.target !== taxonomyDialog) return;
@@ -5896,6 +5898,11 @@ ${renderGlobalNav("/animals")}
       taxonomyOpenButton.setAttribute('aria-expanded', 'false');
       taxonomyOpenButton.focus();
     });
+
+    // 分類絞り込み中は、次の階層を続けて選べるようメニューを開いたままにする。
+    if (taxonomyFilterActive && window.matchMedia('(max-width: 700px)').matches) {
+      openTaxonomyDialog();
+    }
   }
 
   const table = document.getElementById('animal-table');

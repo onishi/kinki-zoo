@@ -3568,11 +3568,9 @@ function renderHomeOverview(
   totalAnimalCount: number,
 ): string {
   const prefLabel = activePref ? PREF_LABELS[activePref] : "近畿一円";
-  const prefectureCount = activePref ? 1 : new Set(zoos.map((zoo) => zoo.prefecture)).size;
   const stats = [
-    { label: "掲載施設", value: `${facilityCount}`, unit: "施設" },
-    { label: "登録動物", value: `${totalAnimalCount}`, unit: "件" },
-    { label: "対象地域", value: `${prefectureCount}`, unit: "府県" },
+    { label: "掲載施設", value: `${facilityCount}`, unit: "施設", href: buildBrowseUrl(activePref, null) },
+    { label: "登録動物", value: `${totalAnimalCount}`, unit: "件", href: activePref ? `/animals?pref=${activePref}` : "/animals" },
   ];
 
   return `
@@ -3585,10 +3583,10 @@ function renderHomeOverview(
     </div>
     <dl class="home-stats">
       ${stats.map((stat) => `
-      <div>
+      <a href="${stat.href}">
         <dt>${escapeHtml(stat.label)}</dt>
         <dd><strong>${escapeHtml(stat.value)}</strong><span>${escapeHtml(stat.unit)}</span></dd>
-      </div>`).join("")}
+      </a>`).join("")}
     </dl>
   </section>`;
 }
@@ -5131,8 +5129,10 @@ function renderHomeHtml(
     .home-lead { max-width: 44rem; color: #4c5d53; font-size: 0.92rem; line-height: 1.65; }
     .home-primary-actions { display: flex; flex-wrap: wrap; gap: 0.55rem; margin-top: 0.15rem; }
     .home-overview-side { display: grid; gap: 0.65rem; align-content: start; min-width: 0; }
-    .home-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.45rem; }
-    .home-stats div { min-width: 0; border: 1px solid #e0e8e3; background: #fff; padding: 0.6rem 0.65rem; }
+    .home-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.45rem; }
+    .home-stats a { min-width: 0; border: 1px solid #e0e8e3; background: #fff; padding: 0.6rem 0.65rem; text-decoration: none; }
+    .home-stats a:hover { border-color: #9bc4ab; background: #f4f9f6; }
+    .home-stats a:focus-visible { outline: 2px solid #1f5b45; outline-offset: 2px; }
     .home-stats dt { color: #66756b; font-size: 0.72rem; margin-bottom: 0.2rem; }
     .home-stats dd { display: flex; align-items: baseline; gap: 0.22rem; color: #222; }
     .home-stats strong { font-size: 1.25rem; line-height: 1; }
@@ -5196,8 +5196,8 @@ function renderHomeHtml(
       .home-overview h2 { font-size: 1.15rem; }
       .home-lead { font-size: 0.86rem; }
       .home-primary-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .home-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-      .home-stats div { padding: 0.55rem 0.45rem; }
+      .home-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .home-stats a { padding: 0.55rem 0.45rem; }
       .home-stats strong { font-size: 1.05rem; }
       .explore-section { padding: 0.75rem; }
       .explore-heading { display: grid; gap: 0.25rem; }

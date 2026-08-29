@@ -3825,28 +3825,6 @@ function renderHeaderSearch(url: URL, activePref: PrefectureCode | null): string
   </form>`;
 }
 
-const HEADER_TOGGLE_SCRIPT = `(function () {
-  var STORAGE_KEY = "kz-header-collapsed";
-  var collapsed = false;
-  try {
-    collapsed = window.localStorage.getItem(STORAGE_KEY) === "1";
-  } catch (e) {}
-  if (collapsed) document.documentElement.classList.add("kz-header-collapsed");
-  document.addEventListener("DOMContentLoaded", function () {
-    var btn = document.querySelector("[data-header-toggle]");
-    if (!btn) return;
-    btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
-    btn.addEventListener("click", function () {
-      collapsed = !collapsed;
-      document.documentElement.classList.toggle("kz-header-collapsed", collapsed);
-      btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
-      try {
-        window.localStorage.setItem(STORAGE_KEY, collapsed ? "1" : "0");
-      } catch (e) {}
-    });
-  });
-})();`;
-
 function htmlResponse(html: string, url: URL, activePref: PrefectureCode | null): Response {
   const canonicalUrl = escapeHtml(buildCanonicalUrl(url));
   const basePath = getBasePath();
@@ -3855,8 +3833,7 @@ function htmlResponse(html: string, url: URL, activePref: PrefectureCode | null)
       element(element) {
         element.prepend(
           `<script>window.__BASE_PATH__=${JSON.stringify(basePath)};</script>` +
-            `<link rel="canonical" href="${canonicalUrl}">` +
-            `<script>${HEADER_TOGGLE_SCRIPT}</script>`,
+            `<link rel="canonical" href="${canonicalUrl}">`,
           { html: true }
         );
       },
@@ -4095,7 +4072,6 @@ const COMMON_STYLES = `
     .pref-selector label { color: #555; font-size: 0.82rem; font-weight: bold; }
     .pref-selector select { min-width: 9rem; border: 1px solid #aaa; background: #fff; padding: 0.45rem 2rem 0.45rem 0.6rem; font: inherit; }
     .pref-selector button { border: 1px solid #1f5b45; background: #fff; color: #1f5b45; padding: 0.4rem 0.65rem; }
-    .header-toggle { display: none; }
     .global-nav { display: flex; flex-wrap: wrap; gap: 1rem; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; }
     .global-nav a { display: inline-flex; align-items: center; gap: 0.3rem; color: #1f5b45; text-decoration: none; font-size: 0.9rem; }
     .global-nav a .ui-icon { width: 1.05em; height: 1.05em; opacity: 0.85; }
@@ -4136,14 +4112,6 @@ const COMMON_STYLES = `
       .pref-selector label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
       .pref-selector select { flex: 1 1 auto; min-width: 0; max-width: 8rem; min-height: 44px; }
       .pref-selector button { min-height: 44px; }
-      .header-toggle { display: inline-flex; align-items: center; justify-content: center; order: 2; margin-left: auto; width: 40px; height: 40px; padding: 0; border: 1px solid #cddbd2; background: #fff; color: #1f5b45; cursor: pointer; }
-      .header-toggle .ht-icon-collapsed { display: none; }
-      .header-toggle[aria-expanded="false"] .ht-icon-expanded { display: none; }
-      .header-toggle[aria-expanded="false"] .ht-icon-collapsed { display: inline-flex; }
-      html.kz-header-collapsed .site-header { gap: 0.5rem; padding: 0.5rem 0.75rem; }
-      html.kz-header-collapsed .site-header .site-heading p,
-      html.kz-header-collapsed .header-search,
-      html.kz-header-collapsed .pref-selector { display: none; }
       .global-nav { position: fixed; right: 0; bottom: 0; left: 0; z-index: 3000; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; padding: 0 0 env(safe-area-inset-bottom); border-top: 1px solid #d8e2dc; border-bottom: 0; background: #fff; box-shadow: 0 -2px 10px rgba(0,0,0,0.08); }
       .global-nav a { display: flex; flex-direction: column; justify-content: center; gap: 0.15rem; min-width: 0; min-height: 58px; padding: 0.35rem 0.2rem; color: #647168; font-size: 0.68rem; line-height: 1.15; text-align: center; white-space: nowrap; }
       .global-nav a .ui-icon { width: 1.4rem; height: 1.4rem; opacity: 1; }
@@ -4161,7 +4129,6 @@ function renderSiteHeader(): string {
       <h1><a href="/">近畿動物園情報</a></h1>
       <p>近畿一円の動物園・施設をまとめて調べられます</p>
     </div>
-    <button type="button" class="header-toggle" data-header-toggle aria-expanded="true" aria-label="ヘッダーの開閉">${icon("expand_less", "ht-icon-expanded")}${icon("expand_more", "ht-icon-collapsed")}</button>
   </header>`;
 }
 

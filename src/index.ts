@@ -3995,6 +3995,13 @@ const COMMON_STYLES = `
     .ui-chip--active { background: #1f5b45; border-color: #1f5b45; color: #fff; }
     .ui-pill { border-radius: 999px; font-weight: bold; }
     .ui-btn:focus-visible, .ui-card-link:focus-visible, .ui-chip:focus-visible { outline: 2px solid #1f5b45; outline-offset: 2px; }
+    /* キーボード操作時のフォーカス位置を全ページで分かるようにする */
+    a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible,
+    textarea:focus-visible, summary:focus-visible, [tabindex]:focus-visible { outline: 2px solid #1f5b45; outline-offset: 2px; }
+    /* スキップリンクの移動先。リング表示は不要なので抑制する */
+    main:focus, main:focus-visible { outline: none; }
+    .skip-link { position: fixed; top: 0.5rem; left: 0.5rem; z-index: 4000; padding: 0.6rem 1rem; background: #1f5b45; color: #fff; font-size: 0.9rem; text-decoration: none; transform: translateY(-250%); }
+    .skip-link:focus { transform: translateY(0); }
     .ui-thumb { display: block; object-fit: cover; flex-shrink: 0; border-radius: 2px; background: #f0f0f0; }
     .ui-thumb--36 { width: 36px; height: 36px; }
     .ui-animal-placeholder {
@@ -4148,7 +4155,8 @@ const COMMON_STYLES = `
     }`;
 
 function renderSiteHeader(): string {
-  return `  <header class="site-header">
+  return `  <a class="skip-link" href="#main-content">本文へスキップ</a>
+  <header class="site-header">
     <div class="site-heading">
       <h1><a href="/">近畿動物園情報</a></h1>
       <p>近畿一円の動物園・施設をまとめて調べられます</p>
@@ -4303,7 +4311,7 @@ function renderScrapeStatusHtml(rows: ScrapeStatusRow[]): string {
 <body>
 ${renderSiteHeader()}
 ${renderGlobalNav("/admin")}
-  <main>
+  <main id="main-content" tabindex="-1">
     ${renderAdminBreadcrumb([{ label: "スクレイプ状況" }])}
     <h1>スクレイプ状況</h1>
     <table>
@@ -4336,7 +4344,7 @@ function renderAdminTopHtml(): string {
 <body>
 ${renderSiteHeader()}
 ${renderGlobalNav("/admin")}
-  <main>
+  <main id="main-content" tabindex="-1">
     ${renderAdminBreadcrumb([])}
     <h1>管理</h1>
     <ul class="admin-nav">
@@ -4452,7 +4460,7 @@ function renderScrapeHealthAdminHtml(items: ScrapeHealthItem[]): string {
 <body>
 ${renderSiteHeader()}
 ${renderGlobalNav("/admin")}
-  <main>
+  <main id="main-content" tabindex="-1">
     ${renderAdminBreadcrumb([{ label: "スクレイプ監視" }])}
     <h1>スクレイプ監視</h1>
     <dl class="summary-grid">
@@ -4600,7 +4608,7 @@ function renderScrapeHistoryAdminHtml(items: ScrapeHistoryItem[], zooId: string 
 <body>
 ${renderSiteHeader()}
 ${renderGlobalNav("/admin")}
-  <main>
+  <main id="main-content" tabindex="-1">
     ${renderAdminBreadcrumb([{ label: "データ更新履歴" }])}
     <h1>データ更新履歴</h1>
     <p class="summary">直近 ${items.length} 件のスクレイピング実行から、追加・削除・名称変更候補・警告を表示します。</p>
@@ -4697,7 +4705,7 @@ ${ADMIN_BREADCRUMB_CSS}
 <body>
 ${renderSiteHeader()}
 ${renderGlobalNav("/admin")}
-  <main>
+  <main id="main-content" tabindex="-1">
     ${renderAdminBreadcrumb([{ href: "/admin/animal-taxonomy", label: "分類管理" }])}
     <h1>分類管理</h1>
     ${noticeHtml}
@@ -4932,7 +4940,7 @@ function renderAnimalImageManageListHtml(
 <body>
 ${renderSiteHeader()}
 ${renderGlobalNav("/admin")}
-  <main>
+  <main id="main-content" tabindex="-1">
     ${renderAdminBreadcrumb([{ href: "/admin/animal-images", label: "画像管理" }])}
     <h1 class="page-title">画像管理</h1>
     ${noticeHtml}
@@ -5061,7 +5069,7 @@ ${ADMIN_BREADCRUMB_CSS}
 <body>
 ${renderSiteHeader()}
 ${renderGlobalNav("/admin")}
-  <main>
+  <main id="main-content" tabindex="-1">
     ${renderAdminBreadcrumb([{ href: "/admin/animal-images", label: "画像管理" }, { label: displayLabel }])}
     <h1 class="page-title">${escapedName}</h1>
     ${noticeHtml}
@@ -5209,6 +5217,7 @@ function renderHomeHtml(
 <body>
 ${renderSiteHeader()}
 ${renderGlobalNav("/")}
+  <main id="main-content" tabindex="-1">
   ${renderHomeOverview(activePref, count, totalAnimalCount)}
   ${latestNews.length > 0 ? `<section class="latest-news-section">
     <div class="latest-news-heading">
@@ -5235,6 +5244,7 @@ ${renderGlobalNav("/")}
       }).join("")}
     </ul>
   </section>` : ""}
+  </main>
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
   <script src="/favorites.js?v=5" defer></script>
 </body>
@@ -5420,7 +5430,7 @@ function renderSearchHtml(
 <body>
 ${renderSiteHeader()}
 ${renderGlobalNav("/search")}
-  <main>
+  <main id="main-content" tabindex="-1">
     <div class="search-title">
       <h1>検索</h1>
       <p>${escapeHtml(prefLabel)}の動物、動物園、分類をまとめて探せます。</p>
@@ -5876,6 +5886,7 @@ function renderAnimalsHtml(
 <body>
 ${renderSiteHeader()}
 ${renderGlobalNav("/animals")}
+  <main id="main-content" tabindex="-1">
   <nav class="tabs">
     <a href="${buildAnimalsUrl("all", query)}" class="tab${filter === "all" ? " active" : ""}">すべて</a>
     <a href="${buildAnimalsUrl("unclassified", query)}" class="tab${filter === "unclassified" ? " active" : ""}">分類未設定</a>
@@ -5890,6 +5901,7 @@ ${renderGlobalNav("/animals")}
   ${taxonomyFilterHtml}
   <p class="summary">${summary}</p>
   ${animalListHtml}
+  </main>
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
   <script src="/favorites.js?v=5" defer></script>
 <script>
@@ -6233,7 +6245,7 @@ function renderZooAnimalDetailHtml(
 ${renderSiteHeader()}
 ${renderGlobalNav("/animals")}
   ${breadcrumb}
-  <main>
+  <main id="main-content" tabindex="-1">
     ${noticeHtml ? `<div style="padding:0.6rem 1.5rem">${noticeHtml}</div>` : ""}
     <div class="hero">
       ${imageHtml}
@@ -6329,7 +6341,7 @@ function renderAnimalGoneHtml(displayName: string, pastZoos: AnimalPastZoo[]): s
 <body>
 ${renderSiteHeader()}
 ${renderGlobalNav("/animals")}
-  <main>
+  <main id="main-content" tabindex="-1">
     ${breadcrumb}
     <h1>${escapedDisplayName}</h1>
     <p class="gone-note">現在、この表示名で確認できる施設はありません。過去の取得結果からの推定であり、展示終了を断定するものではありません。</p>
@@ -6518,6 +6530,7 @@ function renderTaxonomyDetailHtml(
 <body>
 ${renderSiteHeader()}
 ${renderGlobalNav("/animals")}
+  <main id="main-content" tabindex="-1">
   ${breadcrumb}
   <div class="taxonomy-detail-heading">
     <h1>${escapedValue}</h1>
@@ -6545,6 +6558,7 @@ ${renderGlobalNav("/animals")}
           { href: buildAnimalsUrl("all"), label: "動物一覧を見る" },
         ])
   }
+  </main>
   <footer>分類は利用者が探しやすい粒度で整理しています。最新情報は各施設の公式サイトでご確認ください。</footer>
   <script src="/favorites.js?v=5" defer></script>
 </body>
@@ -6758,7 +6772,7 @@ function renderZooDetailHtml(
 ${renderSiteHeader()}
 ${renderGlobalNav("/zoos")}
   ${breadcrumb}
-  <main>
+  <main id="main-content" tabindex="-1">
     <nav class="page-nav">
       ${news.length > 0 ? `<a href="#zoo-news">お知らせ</a>` : ""}
       <a href="#animals">動物一覧</a>
@@ -6840,7 +6854,7 @@ ${renderGlobalNav("/zoos")}
       ${animalListHtml}
       <p class="animal-meta">最終取得: ${escapeHtml(updatedAt)}</p>
     </section>
-    <div id="map"></div>
+    <div id="map" role="region" aria-label="この施設の場所を示す地図"></div>
   </main>
   <script src="/favorites.js?v=5" defer></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
@@ -6969,7 +6983,7 @@ function renderNewsListHtml(
 <body>
 ${renderSiteHeader()}
 ${renderGlobalNav("/news")}
-  <main>
+  <main id="main-content" tabindex="-1">
     <h1>お知らせ一覧</h1>
     ${zooFilterHtml}
     <ul class="news-list">${itemsHtml}</ul>
@@ -7062,7 +7076,7 @@ function renderZooViewTabs(
 }
 
 function renderZooCompareBar(): string {
-  return `<div class="compare-bar" id="compare-bar" hidden>
+  return `<div class="compare-bar" id="compare-bar" role="region" aria-label="比較する動物園の選択状況" hidden>
     <span class="compare-bar-text" id="compare-bar-text" aria-live="polite"></span>
     <button type="button" class="compare-go" id="compare-go" disabled>${icon("compare_arrows")}比較する</button>
     <button type="button" class="compare-clear" id="compare-clear">${icon("close")}クリア</button>
@@ -7136,6 +7150,11 @@ function renderZooCompareScript(activePref: PrefectureCode | null): string {
           control.setAttribute('aria-pressed', active ? 'true' : 'false');
           control.disabled = !active && selected.length >= 3;
           control.textContent = active ? '比較から外す' : '比較に追加';
+          // 一覧に同じ文言のボタンが並ぶため、どの施設かを読み上げで区別できるようにする
+          var compareName = control.dataset.compareName;
+          if (compareName) {
+            control.setAttribute('aria-label', compareName + (active ? 'を比較から外す' : 'を比較に追加'));
+          }
         }
       });
       document.querySelectorAll('.zoo-table tbody tr').forEach(function(row) {
@@ -7350,7 +7369,7 @@ function renderCompareIndexHtml(
 <body>
 ${renderSiteHeader()}
 ${renderGlobalNav("/zoos")}
-  <main>
+  <main id="main-content" tabindex="-1">
     <h1>動物園</h1>
     ${renderZooViewTabs(activePref, "taxonomy")}
     <div class="taxonomy-view-heading">
@@ -7602,7 +7621,7 @@ function renderCompareHtml(
 <body>
 ${renderSiteHeader()}
 ${renderGlobalNav("/zoos")}
-  <main>
+  <main id="main-content" tabindex="-1">
     <h1>動物園を比較</h1>
     <a class="compare-back" href="${escapeHtml(buildZoosUrl(activePref, null))}">← 動物園を選び直す</a>
     <form class="compare-form" action="/zoos" method="get">
@@ -7714,20 +7733,20 @@ function renderZoosHtml(
             <span class="result-name">${escapeHtml(r.zoo.name)}<span class="result-count">${cnt}種</span></span>
           </a>
           <p class="result-animals">${matched}</p>
-          <button type="button" class="map-compare-toggle" data-compare-zoo="${escapeHtml(r.zoo.id)}" data-compare-name="${escapeHtml(r.zoo.name)}">比較に追加</button>
+          <button type="button" class="map-compare-toggle" data-compare-zoo="${escapeHtml(r.zoo.id)}" data-compare-name="${escapeHtml(r.zoo.name)}" aria-label="${escapeHtml(r.zoo.name)}を比較に追加">比較に追加</button>
         </li>`;
       }).join("\n")
     : "";
 
   const mapPaneHtml = `<div class="view-pane" id="view-map"${view === "map" ? "" : " hidden"}>
-    <nav class="map-toolbar">
+    <nav class="map-toolbar" aria-label="地図の操作">
       <div class="map-toolbar-actions">
         <button type="button" class="location-btn" id="location-btn">${icon("my_location")}現在地から探す</button>
         <button type="button" class="share-btn" id="share-btn" aria-label="現在の地図状態のリンクをコピー">${icon("link")}リンクをコピー</button>
       </div>
     </nav>
     <div class="map-body">
-      <div id="map"></div>
+      <div id="map" role="region" aria-label="動物園の地図"></div>
       <aside class="result-list-panel" aria-label="検索結果一覧">
         <button type="button" class="result-sheet-toggle" aria-expanded="true">${icon("expand_less", "rst-icon-expanded")}${icon("expand_more", "rst-icon-collapsed")}<span class="rst-label">検索結果を閉じる</span></button>
         <div class="result-list-scroll">
@@ -8202,6 +8221,7 @@ function renderZoosShell(opts: {
 <body>
 ${renderSiteHeader()}
 ${renderGlobalNav("/zoos")}
+  <main id="main-content" tabindex="-1">
   <h1 class="zoo-page-title">動物園</h1>
   <form class="search-form" action="/zoos" method="get">
     <input type="search" name="animal" value="${escapedAnimal}" placeholder="動物名で検索（例: パンダ）" aria-label="動物名で検索">
@@ -8212,6 +8232,7 @@ ${renderGlobalNav("/zoos")}
   </form>
   <div class="cls-filter">${classChips}</div>
   ${bodyHtml}
+  </main>
   ${renderZooCompareBar()}
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
   <script src="/favorites.js?v=5" defer></script>${mapScript ?? ""}
@@ -8696,7 +8717,7 @@ function renderFavoritesHtml(
 <body>
 ${renderSiteHeader()}
 ${renderGlobalNav("/favorites")}
-  <main>
+  <main id="main-content" tabindex="-1">
     <div>
       <h1>お気に入り</h1>
       <p class="lead">お気に入りに追加した動物園・動物・分類は、このブラウザの端末内にのみ保存されます。他の端末やブラウザとは共有されません。</p>

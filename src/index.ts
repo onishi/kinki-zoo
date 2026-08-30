@@ -4077,6 +4077,7 @@ const COMMON_STYLES = `
     .global-nav a .ui-icon { width: 1.05em; height: 1.05em; opacity: 0.85; }
     .global-nav a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .global-nav a[aria-current="page"] { font-weight: bold; text-decoration: underline; text-underline-offset: 0.2em; }
+    .global-nav .nav-admin { margin-left: auto; color: #888; font-size: 0.82rem; }
     .breadcrumb { border-bottom: 1px solid #e5e5e5; color: #777; font-size: 0.78rem; }
     .breadcrumb ol { display: flex; flex-wrap: wrap; gap: 0.35rem 0.45rem; align-items: center; padding: 0.65rem 1.5rem; list-style: none; }
     .breadcrumb li { display: flex; min-width: 0; align-items: center; gap: 0.45rem; }
@@ -4117,6 +4118,7 @@ const COMMON_STYLES = `
       .global-nav a .ui-icon { width: 1.4rem; height: 1.4rem; opacity: 1; }
       .global-nav a:hover { text-decoration: none; }
       .global-nav a[aria-current="page"] { background: #eff7f2; color: #1f5b45; text-decoration: none; }
+      .global-nav .nav-admin { display: none; }
       .breadcrumb ol { padding: 0.6rem 0.75rem; }
       .page-nav { gap: 0.5rem; }
       .page-nav a { display: inline-flex; align-items: center; min-height: 44px; }
@@ -4138,11 +4140,13 @@ function renderGlobalNav(activePath: string): string {
     ["/zoos", "location_city", "動物園"],
     ["/animals", "pets", "動物"],
     ["/favorites", "star_border", "お気に入り"],
+    ["/admin", "admin_panel_settings", "管理"],
   ];
   const links = navItems
     .map(([href, iconName, label]) => {
       const isActive = href === "/" ? activePath === "/" : activePath === href || activePath.startsWith(`${href}/`);
-      return `<a href="${href}"${isActive ? ' aria-current="page"' : ""}>${icon(iconName)}<span>${label}</span></a>`;
+      const cls = href === "/admin" ? ' class="nav-admin"' : "";
+      return `<a href="${href}"${cls}${isActive ? ' aria-current="page"' : ""}>${icon(iconName)}<span>${label}</span></a>`;
     })
     .join("\n    ");
   return `  <nav class="global-nav" aria-label="サイトナビゲーション">

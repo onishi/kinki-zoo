@@ -5142,6 +5142,8 @@ function renderHomeHtml(
     .latest-news-section { padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; display: grid; gap: 0.65rem; background: #fafcfb; }
     .latest-news-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
     .latest-news-heading h2 { font-size: 1.08rem; }
+    .latest-news-heading h2 a { color: inherit; text-decoration: none; }
+    .latest-news-heading h2 a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .section-link { font-size: 0.8rem; color: #1f5b45; text-decoration: none; white-space: nowrap; }
     .section-link:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .latest-news-list { list-style: none; display: grid; gap: 0; }
@@ -5184,7 +5186,7 @@ ${renderGlobalNav("/")}
   ${renderHomeOverview(activePref, count, totalAnimalCount)}
   ${latestNews.length > 0 ? `<section class="latest-news-section">
     <div class="latest-news-heading">
-      <h2 class="icon-heading">${icon("campaign")}最新のお知らせ</h2>
+      <h2><a class="icon-heading" href="/news">${icon("campaign")}最新のお知らせ</a></h2>
       <a href="/news" class="section-link">すべて見る →</a>
     </div>
     <ul class="latest-news-list">

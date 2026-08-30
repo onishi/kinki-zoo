@@ -3245,10 +3245,27 @@ async function loadAllZooAnimalNames(db: D1Database): Promise<Set<string>> {
   return new Set((rows.results ?? []).map((r) => r.display_name));
 }
 
+// カタカナが続く位置での部分一致を弾くための文字クラス（長音符を含む）。
+const KATAKANA_CONTINUATION = /[\u30A1-\u30F6\u30FC]/;
+
+// 「トラ」が「セントラルパーク」「アトラクション」に部分一致してしまうのを防ぐ。
+// 日本語の動物名は「アムールトラ」「スマトラトラ」のように前へ修飾語が付く形で
+// 複合するため、直後にカタカナが続く場合だけ別語の一部とみなして除外する。
+function matchesAnimalNameAsWord(text: string, name: string): boolean {
+  if (!KATAKANA_CONTINUATION.test(name.slice(-1))) return text.includes(name);
+  for (let from = 0; ; from = from + 1) {
+    const at = text.indexOf(name, from);
+    if (at < 0) return false;
+    const next = text[at + name.length];
+    if (next === undefined || !KATAKANA_CONTINUATION.test(next)) return true;
+    from = at;
+  }
+}
+
 function extractAnimalNamesFromText(text: string, animalNames: Set<string>): string[] {
   const found: string[] = [];
   for (const name of animalNames) {
-    if (name.length >= 2 && text.includes(name)) {
+    if (name.length >= 2 && matchesAnimalNameAsWord(text, name)) {
       found.push(name);
     }
   }
@@ -3279,24 +3296,29 @@ async function saveZooNews(
     )
   );
 
-  // Extract and save animal name links
-  const animalInserts: ReturnType<D1Database["prepare"]>[] = [];
+  // Extract and save animal name links.
+  // 抽出ルールの変更や本文更新で古い紐付けが残らないよう、
+  // 対象ニュースの既存リンクを削除してから入れ直す。
+  const animalStatements: ReturnType<D1Database["prepare"]>[] = [];
   for (const item of items) {
     const row = await db
       .prepare(`SELECT id FROM zoo_news WHERE zoo_id = ? AND url = ?`)
       .bind(zooId, item.url)
       .first<{ id: number }>();
     if (!row) continue;
+    animalStatements.push(
+      db.prepare(`DELETE FROM zoo_news_animals WHERE news_id = ?`).bind(row.id)
+    );
     const text = `${item.title} ${item.body ?? ""}`;
     for (const name of extractAnimalNamesFromText(text, allAnimalNames)) {
-      animalInserts.push(
+      animalStatements.push(
         db
           .prepare(`INSERT OR IGNORE INTO zoo_news_animals (news_id, animal_name) VALUES (?, ?)`)
           .bind(row.id, name)
       );
     }
   }
-  if (animalInserts.length > 0) await db.batch(animalInserts);
+  if (animalStatements.length > 0) await db.batch(animalStatements);
 }
 
 async function loadAnimalNews(

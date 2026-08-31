@@ -3321,6 +3321,41 @@ async function saveZooNews(
   if (animalStatements.length > 0) await db.batch(animalStatements);
 }
 
+// 保存済みの全お知らせについて動物名の紐付けを作り直す。
+// 通常のスクレイプは RSS の最新数件しか再処理しないため、
+// 抽出ルールを変更しても古いお知らせには誤検出が残り続ける。
+// その積み残しをまとめて解消するための処理。
+async function rebuildAllNewsAnimalLinks(
+  db: D1Database
+): Promise<{ news: number; links: number }> {
+  const allAnimalNames = await loadAllZooAnimalNames(db);
+  const rows = await db
+    .prepare(`SELECT id, title, body FROM zoo_news`)
+    .all<{ id: number; title: string; body: string | null }>();
+  const items = rows.results ?? [];
+  let links = 0;
+  const chunkSize = 50;
+  for (let i = 0; i < items.length; i += chunkSize) {
+    const statements: ReturnType<D1Database["prepare"]>[] = [];
+    for (const row of items.slice(i, i + chunkSize)) {
+      statements.push(
+        db.prepare(`DELETE FROM zoo_news_animals WHERE news_id = ?`).bind(row.id)
+      );
+      const text = `${row.title} ${row.body ?? ""}`;
+      for (const name of extractAnimalNamesFromText(text, allAnimalNames)) {
+        statements.push(
+          db
+            .prepare(`INSERT OR IGNORE INTO zoo_news_animals (news_id, animal_name) VALUES (?, ?)`)
+            .bind(row.id, name)
+        );
+        links += 1;
+      }
+    }
+    if (statements.length > 0) await db.batch(statements);
+  }
+  return { news: items.length, links };
+}
+
 async function loadAnimalNews(
   db: D1Database,
   displayName: string,
@@ -8842,6 +8877,7 @@ function isAdminPath(pathname: string): boolean {
     pathname === "/api/animal-images/generate" ||
     pathname === "/api/animals/refresh" ||
     pathname === "/api/news/refresh" ||
+    pathname === "/api/news/rebuild-animals" ||
     pathname === "/api/animals/classify" ||
     pathname === "/api/animals/suggest-taxonomy" ||
     pathname === "/api/animals/taxonomy-candidates" ||
@@ -8955,6 +8991,15 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
       await refreshAllZooNews(env.DB);
       const status = await loadScrapeStatus(env.DB);
       return jsonResponse({ status });
+    }
+
+    // JSON API: rebuild animal links for every stored news item
+    if (pathname === "/api/news/rebuild-animals") {
+      if (request.method !== "POST") {
+        return jsonResponse({ error: "POST を使用してください" }, 405);
+      }
+      const result = await rebuildAllNewsAnimalLinks(env.DB);
+      return jsonResponse(result);
     }
 
     // JSON API: classify cached zoo animal display names

@@ -8519,8 +8519,11 @@ const FAVORITES_JS = `(function () {
     root.innerHTML =
       renderSection("taxonomy", "分類", taxonomyEntries, "お気に入りの分類はまだありません。") +
       renderSection("animal", "動物", animalEntries, "お気に入りの動物はまだありません。") +
-      renderSection("zoo", "動物園", zooEntries, "お気に入りの動物園はまだありません。") +
-      renderFavoriteZooRanking(data);
+      renderSection("zoo", "動物園", zooEntries, "お気に入りの動物園はまだありません。");
+
+    // ランキングはお知らせの下に置くため、別コンテナへ描画する
+    var rankingRoot = document.getElementById("favorites-ranking-root");
+    if (rankingRoot) rankingRoot.innerHTML = renderFavoriteZooRanking(data);
 
     root.querySelectorAll("[data-fav-remove]").forEach(function (button) {
       button.addEventListener("click", function () {
@@ -8663,18 +8666,18 @@ function renderFavoritesHtml(
     body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
     main { max-width: 800px; margin: 0 auto; padding: 1.5rem; display: grid; gap: 1.25rem; }
     main > p.lead { color: #666; font-size: 0.9rem; line-height: 1.6; }
-    #favorites-root { display: grid; gap: 1.25rem; }
-    .favorites-section { display: grid; gap: 0.6rem; }
+    #favorites-root { display: grid; gap: 0.85rem; }
+    .favorites-section { display: grid; gap: 0.35rem; }
     .favorites-section[hidden] { display: none; }
-    .favorites-section h2 { font-size: 1.05rem; }
-    .favorites-empty { color: #777; font-size: 0.88rem; border: 1px solid #e1e1e1; background: #f7f7f7; padding: 0.75rem; }
-    .favorites-list { list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.4rem; }
-    .favorites-list li { min-width: 0; display: flex; align-items: center; gap: 0.35rem; border: 1px solid #dce7df; padding: 0.35rem 0.4rem 0.35rem 0.65rem; }
-    .favorites-list a { display: flex; flex: 1 1 auto; min-width: 0; align-items: center; gap: 0.4rem; color: #1f5b45; font-size: 0.88rem; font-weight: bold; line-height: 1.35; text-decoration: none; overflow-wrap: anywhere; }
+    .favorites-section h2 { font-size: 0.95rem; }
+    .favorites-empty { color: #777; font-size: 0.82rem; border: 1px solid #e1e1e1; background: #f7f7f7; padding: 0.5rem 0.6rem; }
+    .favorites-list { list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 0.3rem; }
+    .favorites-list li { min-width: 0; display: flex; align-items: center; gap: 0.25rem; border: 1px solid #dce7df; padding: 0.2rem 0.25rem 0.2rem 0.5rem; }
+    .favorites-list a { display: flex; flex: 1 1 auto; min-width: 0; align-items: center; gap: 0.4rem; color: #1f5b45; font-size: 0.84rem; font-weight: bold; line-height: 1.3; text-decoration: none; overflow-wrap: anywhere; }
     .favorites-list a span { min-width: 0; }
     .favorites-list a small { display: block; margin-top: 0.1rem; color: #718078; font-size: 0.68rem; font-weight: normal; }
     .favorites-list a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
-    .favorites-animal-thumb { display: block; width: 32px; height: 32px; flex: 0 0 32px; border-radius: 50%; object-fit: cover; background: #e7eee9; }
+    .favorites-animal-thumb { display: block; width: 26px; height: 26px; flex: 0 0 26px; border-radius: 50%; object-fit: cover; background: #e7eee9; }
     .favorites-remove { flex: 0 0 2.25rem; width: 2.25rem; min-height: 2.25rem; padding: 0; border-color: transparent; }
     .favorites-remove .ui-icon { width: 1rem; height: 1rem; }
     .favorites-ranking { border-top: 1px solid #e5e9e6; padding-top: 1rem; }
@@ -8730,6 +8733,7 @@ ${renderGlobalNav("/favorites")}
       <ul class="news-list" id="favorites-news-list">${newsItemsHtml}</ul>
       <p class="favorites-empty" id="favorites-news-empty" hidden></p>
     </section>
+    <div id="favorites-ranking-root"></div>
   </main>
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
   <script>window.KinkiZooAnimalImageUrls = ${animalImageUrlsJson};window.KinkiZooFavoriteRankingData = ${favoriteRankingDataJson};</script>

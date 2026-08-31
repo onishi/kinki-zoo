@@ -279,12 +279,15 @@ npm run deploy
 
 直接リンクで開く場合は `https://github.com/<owner>/<repo>/settings/secrets/actions` にアクセスしてもよい。
 
-## リバースプロキシ配下(wagaya.org)での提供
+## 公開ドメインとリバースプロキシ対応
 
-このアプリは自身のドメインを持たず、`wagaya.org` リポジトリの
-ルーター Worker(`wagaya-root`)から Service Binding 経由で
-`https://wagaya.org/kinki-zoo/` として配信される(旧
-`kinki-zoo.wagaya.org` カスタムドメインは廃止済み)。
+公開ドメインは `https://kinki-zoo.wagaya.org`。`wrangler.toml` の
+`[[routes]]` にカスタムドメイン(`custom_domain = true`)として設定している。
+`src/index.ts` の `CANONICAL_HOSTNAME` も同じホスト名を正としており、
+`kinki-zoo.anison.workers.dev` へのアクセスはここへ 301 リダイレクトされる。
+
+あわせて、`wagaya.org` リポジトリのルーター Worker(`wagaya-root`)から
+Service Binding 経由でサブパス配下(`/kinki-zoo/`)に載せる構成にも対応している。
 
 プロキシ元は `X-Forwarded-Prefix: /kinki-zoo` ヘッダーを付けてリクエストを
 転送してくる。このアプリはそれを `src/request-context.ts` の

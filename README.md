@@ -107,7 +107,6 @@
 - [x] [お気に入り機能](https://github.com/onishi/kinki-zoo/issues/103)（localStorage、端末内のみ）
 - [x] 動物園比較ページ
 - [x] [canonical URL・旧URLリダイレクトの整理](https://github.com/onishi/kinki-zoo/issues/117)
-- [x] wagaya.org 配下へのリバースプロキシ対応（basePath 自動付与）
 - [x] 取得結果が大幅に減った場合に既存データを保持する安全装置
 
 ### 今後の開発計画（優先候補）
@@ -279,31 +278,16 @@ npm run deploy
 
 直接リンクで開く場合は `https://github.com/<owner>/<repo>/settings/secrets/actions` にアクセスしてもよい。
 
-## 公開ドメインとリバースプロキシ対応
+## 公開ドメイン
 
 公開ドメインは `https://kinki-zoo.wagaya.org`。`wrangler.toml` の
 `[[routes]]` にカスタムドメイン(`custom_domain = true`)として設定している。
 `src/index.ts` の `CANONICAL_HOSTNAME` も同じホスト名を正としており、
 `kinki-zoo.anison.workers.dev` へのアクセスはここへ 301 リダイレクトされる。
 
-あわせて、`wagaya.org` リポジトリのルーター Worker(`wagaya-root`)から
-Service Binding 経由でサブパス配下(`/kinki-zoo/`)に載せる構成にも対応している。
-
-プロキシ元は `X-Forwarded-Prefix: /kinki-zoo` ヘッダーを付けてリクエストを
-転送してくる。このアプリはそれを `src/request-context.ts` の
-`AsyncLocalStorage` でリクエストスコープの basePath として保持し、
-自分自身へのリンク・画像URL・redirect先を組み立てる際に付け直している
-(`htmlResponse()` 内の `HTMLRewriter` で `a[href]` / `img[src]` /
-`script[src]` / `form[action]` に一括適用、`element.append()` で注入した
-ヘッダー内フォームは生成時に直接 `withBase()` を適用)。ローカルで
-直接 `http://localhost:8001` にアクセスした場合は basePath が空になり、
-従来通りルート相対のパスで動作する。
-
-新しい絶対パス("/"始まり)を生成するコードを追加するときは、この
-basePath 付与の対象になっているか([`htmlResponse`](src/index.ts) の
-rewriter 定義)を確認すること。特にクライアント側 JS
-(`fetch()` 呼び出しなど)は `window.__BASE_PATH__` を読んで自分で
-付け直す必要がある(`<head>` に注入済み)。
+サイト内のパスはすべてルート相対("/"始まり)で組み立てる。サブパス配下に
+マウントする構成(`X-Forwarded-Prefix` による basePath 付与)は廃止したため、
+リンク・画像URL・redirect先にプレフィックスを付け直す処理は不要になっている。
 
 ## 情報源
 

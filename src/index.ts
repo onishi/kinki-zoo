@@ -3,7 +3,6 @@ import { zoos } from "./data";
 import { findAnimalTaxonomy, type AnimalTaxonomy } from "./animal-taxonomy";
 import type { ScrapeResult, NewsItem } from "./scraper";
 import { scrapeAnimals, scrapeZooNews } from "./scraper";
-import { getBasePath, normalizeBasePath, runWithBasePath, withBase } from "./request-context";
 
 const PREF_LABELS: Record<PrefectureCode, string> = {
   osaka: "大阪府",
@@ -437,10 +436,7 @@ function renderFavoriteButton(
 ): string {
   const escId = escapeHtml(id);
   const escLabel = escapeHtml(label);
-  // お気に入りは localStorage に保存され、後で /favorites がクライアント側で
-  // このURLから <a href> を組み立てる(HTMLRewriter を経由しない)ため、
-  // ここで basePath を確定させておく。
-  const escHref = escapeHtml(withBase(href));
+  const escHref = escapeHtml(href);
   const attrs = `data-fav-type="${type}" data-fav-id="${escId}" data-fav-name="${escLabel}" data-fav-href="${escHref}" aria-pressed="false"`;
   const stars = `<span class="fav-toggle-icon" aria-hidden="true">${icon("star", "fav-toggle-icon-on")}${icon("star_border", "fav-toggle-icon-off")}</span>`;
   if (variant === "large") {
@@ -461,12 +457,11 @@ function notFound(message: string): Response {
 }
 
 /**
- * サイト内パスへの redirect を返す。Location はホスト名を含まない
- * (basePath 付きの)相対パスにすることで、直アクセス/リバースプロキシ経由の
- * どちらでもブラウザが現在のオリジンを保ったまま正しく遷移できる。
+ * サイト内パスへの redirect を返す。Location はホスト名を含まないルート相対
+ * パスにすることで、ブラウザが現在のオリジンを保ったまま遷移できる。
  */
 function redirectResponse(path: string, status: number): Response {
-  return new Response(null, { status, headers: { Location: withBase(path) } });
+  return new Response(null, { status, headers: { Location: path } });
 }
 
 function findMatches(values: string[], searchKeyword: string): string[] {
@@ -3794,7 +3789,7 @@ function buildCanonicalUrl(url: URL): string {
     }
   }
   const query = canonical.toString();
-  return `${url.origin}${withBase(url.pathname)}${query ? `?${query}` : ""}`;
+  return `${url.origin}${url.pathname}${query ? `?${query}` : ""}`;
 }
 
 function buildTaxonomyUrl(levels: TaxonomyPathLevel[], value: string): string {
@@ -3857,7 +3852,7 @@ function renderPrefectureSelector(url: URL, activePref: PrefectureCode | null): 
     ),
   ].join("");
 
-  return `<form class="pref-selector" action="${escapeHtml(withBase(url.pathname))}" method="get">
+  return `<form class="pref-selector" action="${escapeHtml(url.pathname)}" method="get">
     ${hiddenInputs}
     <label for="prefecture-select">地域</label>
     <select id="prefecture-select" name="pref" onchange="this.form.submit()">${options}</select>
@@ -3874,7 +3869,7 @@ function renderHeaderSearch(url: URL, activePref: PrefectureCode | null): string
   const prefInput = activePref
     ? `<input type="hidden" name="pref" value="${escapeHtml(activePref)}">`
     : "";
-  return `<form class="header-search" action="${withBase("/search")}" method="get" role="search">
+  return `<form class="header-search" action="/search" method="get" role="search">
     ${prefInput}
     <label for="header-search-input">サイト内検索</label>
     <input id="header-search-input" type="search" name="q" value="${escapeHtml(value)}" placeholder="動物・動物園を検索" autocomplete="off">
@@ -3884,15 +3879,10 @@ function renderHeaderSearch(url: URL, activePref: PrefectureCode | null): string
 
 function htmlResponse(html: string, url: URL, activePref: PrefectureCode | null): Response {
   const canonicalUrl = escapeHtml(buildCanonicalUrl(url));
-  const basePath = getBasePath();
   let rewriter = new HTMLRewriter()
     .on("head", {
       element(element) {
-        element.prepend(
-          `<script>window.__BASE_PATH__=${JSON.stringify(basePath)};</script>` +
-            `<link rel="canonical" href="${canonicalUrl}">`,
-          { html: true }
-        );
+        element.prepend(`<link rel="canonical" href="${canonicalUrl}">`, { html: true });
       },
     })
     .on(".site-header", {
@@ -3905,31 +3895,7 @@ function htmlResponse(html: string, url: URL, activePref: PrefectureCode | null)
       element(element) {
         const href = element.getAttribute("href");
         if (href && href.startsWith("/") && !href.startsWith("//")) {
-          element.setAttribute("href", withBase(addPrefectureToInternalUrl(href, activePref)));
-        }
-      },
-    })
-    .on("img[src]", {
-      element(element) {
-        const src = element.getAttribute("src");
-        if (src && src.startsWith("/") && !src.startsWith("//")) {
-          element.setAttribute("src", withBase(src));
-        }
-      },
-    })
-    .on("script[src]", {
-      element(element) {
-        const src = element.getAttribute("src");
-        if (src && src.startsWith("/") && !src.startsWith("//")) {
-          element.setAttribute("src", withBase(src));
-        }
-      },
-    })
-    .on("form[action]", {
-      element(element) {
-        const action = element.getAttribute("action");
-        if (action && action.startsWith("/") && !action.startsWith("//")) {
-          element.setAttribute("action", withBase(action));
+          element.setAttribute("href", addPrefectureToInternalUrl(href, activePref));
         }
       },
     });
@@ -4798,7 +4764,7 @@ ${renderGlobalNav("/admin")}
       var row = btn.closest('tr');
       row.classList.add('classifying');
       try {
-        var res = await fetch((window.__BASE_PATH__ || '') + '/animal/' + encodeURIComponent(name) + '/classify', {method: 'POST'});
+        var res = await fetch('/animal/' + encodeURIComponent(name) + '/classify', {method: 'POST'});
         var finalUrl = new URL(res.url);
         var status = finalUrl.searchParams.get('llm') || 'done';
         row.classList.remove('classifying');
@@ -7235,7 +7201,7 @@ function renderZooCompareScript(activePref: PrefectureCode | null): string {
           if (selected[index]) params.set(key, selected[index].id);
         });
         ${activePref ? `params.set('pref', ${JSON.stringify(activePref)});` : ""}
-        location.href = (window.__BASE_PATH__ || '') + '/zoos?' + params.toString();
+        location.href = '/zoos?' + params.toString();
       });
     }
 
@@ -8639,7 +8605,7 @@ function renderFavoritesHtml(
     Object.fromEntries(
       [...imageKeys].map(([animalKey, version]) => [
         animalKey,
-        withBase(buildAnimalImageUrl(animalKey, version)),
+        buildAnimalImageUrl(animalKey, version),
       ])
     )
   ).replace(/</g, "\\u003c");
@@ -8663,12 +8629,12 @@ function renderFavoritesHtml(
       .filter((name): name is string => Boolean(name))
       .find((name) => imageKeys.has(normalizeAnimalImageKey(name)));
     const imageUrl = imageDisplayName
-      ? withBase(buildAnimalImageUrl(imageDisplayName, imageKeys.get(normalizeAnimalImageKey(imageDisplayName))))
+      ? buildAnimalImageUrl(imageDisplayName, imageKeys.get(normalizeAnimalImageKey(imageDisplayName)))
       : null;
     return {
       key,
       label,
-      href: withBase(addPrefectureToInternalUrl(buildZooAnimalUrl(primaryDisplayName), activePref)),
+      href: addPrefectureToInternalUrl(buildZooAnimalUrl(primaryDisplayName), activePref),
       aliases,
       taxonomyIds,
       zooIds: animal.zoos.map((zoo) => zoo.id),
@@ -8683,7 +8649,7 @@ function renderFavoritesHtml(
       .map((zoo) => ({
         id: zoo.id,
         name: zoo.name,
-        href: withBase(addPrefectureToInternalUrl(`/zoos/${encodeURIComponent(zoo.id)}`, activePref)),
+        href: addPrefectureToInternalUrl(`/zoos/${encodeURIComponent(zoo.id)}`, activePref),
       })),
   }).replace(/</g, "\\u003c");
   return `<!DOCTYPE html>
@@ -8863,7 +8829,7 @@ async function loadSitemapEntries(db: D1Database): Promise<SitemapEntry[]> {
 function renderSitemapXml(origin: string, entries: SitemapEntry[]): string {
   const urlsXml = entries
     .map((entry) => {
-      const loc = `${origin}${withBase(entry.path)}`;
+      const loc = `${origin}${entry.path}`;
       const lastmodXml = entry.lastmod ? `<lastmod>${escapeXml(entry.lastmod)}</lastmod>` : "";
       return `<url><loc>${escapeXml(loc)}</loc>${lastmodXml}</url>`;
     })
@@ -8896,8 +8862,7 @@ function checkAdminAuth(request: Request, adminPassword: string): boolean {
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    const basePath = normalizeBasePath(request.headers.get("x-forwarded-prefix"));
-    return runWithBasePath(basePath, () => handleFetch(request, env, ctx));
+    return handleFetch(request, env, ctx);
   },
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(
@@ -8949,7 +8914,7 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
 
     // Static: /robots.txt
     if (pathname === "/robots.txt") {
-      const body = `User-agent: *\nDisallow: ${withBase("/admin")}\nSitemap: ${url.origin}${withBase("/sitemap.xml")}\n`;
+      const body = `User-agent: *\nDisallow: /admin\nSitemap: ${url.origin}/sitemap.xml\n`;
       return new Response(body, {
         headers: {
           "Content-Type": "text/plain; charset=utf-8",
@@ -9643,7 +9608,7 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
         loadZooAnimalTaxonomyIndex(env.DB, id),
         loadZooNews(env.DB, id),
       ]);
-      const pageUrl = `${url.origin}${withBase(`/zoos/${zoo.id}`)}`;
+      const pageUrl = `${url.origin}/zoos/${zoo.id}`;
       const html = renderZooDetailHtml(zoo, scraped, coverage, imageKeys, taxonomyByAnimal, news, pageUrl);
       return htmlResponse(html, url, activePref);
     }

@@ -5182,16 +5182,16 @@ function renderHomeHtml(
     .section-link { font-size: 0.8rem; color: #1f5b45; text-decoration: none; white-space: nowrap; }
     .section-link:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .latest-news-list { list-style: none; display: grid; gap: 0; }
-    .latest-news-list li { display: grid; gap: 0.25rem; padding: 0.65rem 0.5rem; border-bottom: 1px solid #e5eee8; }
+    .latest-news-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 0.7rem; padding: 0.55rem 0.5rem; border-bottom: 1px solid #e5eee8; }
     .latest-news-list li:first-child { border-top: 1px solid #e5eee8; }
     .latest-news-list li:hover { background: #f2f8f4; }
-    .news-meta { display: flex; flex-wrap: wrap; gap: 0.3rem 0.5rem; align-items: center; }
-    .news-date { color: #888; font-size: 0.74rem; font-variant-numeric: tabular-nums; flex-shrink: 0; }
-    .news-zoo-label { color: #1f5b45; font-size: 0.76rem; font-weight: bold; text-decoration: none; flex-shrink: 0; }
+    .news-date { color: #888; font-size: 0.74rem; font-variant-numeric: tabular-nums; flex: 0 0 4.6rem; }
+    .news-zoo-label { color: #1f5b45; font-size: 0.76rem; font-weight: bold; text-decoration: none; flex: 0 0 8.5rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .news-zoo-label:hover { text-decoration: underline; }
-    .news-title { color: #1a1a1a; text-decoration: none; font-size: 0.9rem; line-height: 1.5; overflow-wrap: anywhere; }
+    .news-badge { flex-shrink: 0; }
+    .news-title { color: #1a1a1a; text-decoration: none; font-size: 0.9rem; line-height: 1.4; flex: 1 1 320px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .news-title:hover { color: #1f5b45; text-decoration: underline; text-underline-offset: 0.2em; }
-    .latest-news-list .news-animals { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+    .latest-news-list .news-animals { display: flex; flex-wrap: wrap; gap: 0.25rem; flex-basis: 100%; margin-left: calc(4.6rem + 8.5rem + 1.4rem); }
     .latest-news-list .news-animals a { font-size: 0.7rem; color: #1f5b45; background: #f0f7f3; border: 1px solid #c5dece; padding: 0.08rem 0.4rem; text-decoration: none; }
     .latest-news-list .news-animals a:hover { background: #e1f0e8; }
     footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; }
@@ -5211,6 +5211,9 @@ function renderHomeHtml(
       .spotlight-heading { display: grid; gap: 0.25rem; }
       .spotlight-animal-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .spotlight-zoo-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .latest-news-list li { flex-direction: column; align-items: flex-start; gap: 0.25rem; }
+      .latest-news-list .news-date, .latest-news-list .news-zoo-label, .latest-news-list .news-title { flex: initial; width: auto; white-space: normal; overflow: visible; text-overflow: clip; }
+      .latest-news-list .news-animals { margin-left: 0; }
       footer { padding: 1rem 0.75rem; line-height: 1.5; }
     }
   </style>
@@ -5234,12 +5237,10 @@ ${renderGlobalNav("/")}
           : "";
         const badges = renderNewsItemBadges(item.title, item.published_at);
         return `<li>
-          <div class="news-meta">
-            ${item.published_at ? `<span class="news-date">${escapeHtml(item.published_at)}</span>` : ""}
-            ${zoo ? `<a class="news-zoo-label" href="/zoos/${escapeHtml(zoo.id)}">${escapeHtml(zoo.name)}</a>` : ""}
-            ${badges}
-          </div>
-          <a class="news-title" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a>
+          ${item.published_at ? `<span class="news-date">${escapeHtml(item.published_at)}</span>` : ""}
+          ${zoo ? `<a class="news-zoo-label" href="/zoos/${escapeHtml(zoo.id)}" title="${escapeHtml(zoo.name)}">${escapeHtml(zoo.name)}</a>` : ""}
+          ${badges}
+          <a class="news-title" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</a>
           ${animalsHtml}
         </li>`;
       }).join("")}

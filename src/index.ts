@@ -5197,6 +5197,7 @@ function renderHomeHtml(
     .latest-news-list .news-animals a { font-size: 0.7rem; color: #1f5b45; background: #f0f7f3; border: 1px solid #c5dece; padding: 0.08rem 0.4rem; text-decoration: none; }
     .latest-news-list .news-animals a:hover { background: #e1f0e8; }
     footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; }
+    footer a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
     @media (max-width: 700px) {
       .home-overview { grid-template-columns: 1fr; gap: 0.85rem; padding: 1rem 0.75rem; }
       .home-overview h2 { font-size: 1.15rem; }
@@ -5249,7 +5250,7 @@ ${renderGlobalNav("/")}
     </ul>
   </section>` : ""}
   </main>
-  <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
+  <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。 &middot; <a href="https://wagaya.org/">wagaya.org</a></footer>
   <script src="/favorites.js?v=5" defer></script>
 </body>
 </html>`;
@@ -5410,6 +5411,7 @@ function renderSearchHtml(
     .match-chip { border-color: #b7dcc3; background: #fff; color: #1b5e3b; padding: 0.18rem 0.55rem; font-size: 0.75rem; font-weight: bold; }
     .match-more { color: #5d7166; font-size: 0.75rem; align-self: center; }
     footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; border-top: 1px solid #eee; }
+    footer a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
     @media (max-width: 700px) {
       main { padding: 0.85rem 0.75rem 1.25rem; }
       .site-search-form { grid-template-columns: 1fr; }
@@ -5486,7 +5488,7 @@ ${renderGlobalNav("/search")}
       </table></div>
     </section>` : ""}
   </main>
-  <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
+  <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。 &middot; <a href="https://wagaya.org/">wagaya.org</a></footer>
   <script src="/favorites.js?v=5" defer></script>
 </body>
 </html>`;
@@ -5852,6 +5854,7 @@ function renderAnimalsHtml(
     .zoo-links a:hover { text-decoration: underline; }
     .empty { padding: 2rem 1.5rem; color: #888; }
     footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; }
+    footer a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
     @media (max-width: 700px) {
       .tabs { padding: 0.65rem 0.75rem; }
       .taxonomy-filter-panel--desktop { display: none; }
@@ -5910,7 +5913,7 @@ ${renderGlobalNav("/animals")}
   <p class="summary">${summary}</p>
   ${animalListHtml}
   </main>
-  <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
+  <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。 &middot; <a href="https://wagaya.org/">wagaya.org</a></footer>
   <script src="/favorites.js?v=5" defer></script>
 <script>
 (function () {
@@ -6234,6 +6237,7 @@ function renderZooAnimalDetailHtml(
     .animal-news-title { color: #1a1a1a; text-decoration: none; font-size: 0.9rem; line-height: 1.5; overflow-wrap: anywhere; }
     .animal-news-title:hover { color: #1f5b45; text-decoration: underline; text-underline-offset: 0.2em; }
     footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; border-top: 1px solid #eee; }
+    footer a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
     @media (max-width: 640px) {
       .hero { grid-template-columns: 1fr; padding: 1rem 0.75rem; gap: 1rem; }
       .animal-image { max-width: none; }
@@ -6304,7 +6308,7 @@ ${renderGlobalNav("/animals")}
         : ""
     }
   </main>
-  <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
+  <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。 &middot; <a href="https://wagaya.org/">wagaya.org</a></footer>
   <script src="/favorites.js?v=5" defer></script>
 </body>
 </html>`;
@@ -6362,7 +6366,7 @@ ${renderGlobalNav("/animals")}
       { href: "/animals", label: "動物一覧へ戻る" },
     ])}
   </main>
-  <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
+  <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。 &middot; <a href="https://wagaya.org/">wagaya.org</a></footer>
 </body>
 </html>`;
 }
@@ -6515,6 +6519,7 @@ function renderTaxonomyDetailHtml(
     .zoo-links a:hover { text-decoration: underline; }
     .empty { padding: 2rem 1.5rem; color: #888; }
     footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; }
+    footer a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
     @media (max-width: 700px) {
       .taxonomy-detail-heading { align-items: flex-start; padding-left: 0.75rem; padding-right: 0.75rem; }
       .summary, .child-taxonomy, .representative-section, .top-zoos-section { padding-left: 0.75rem; padding-right: 0.75rem; }
@@ -8246,7 +8251,7 @@ ${renderGlobalNav("/zoos")}
   ${bodyHtml}
   </main>
   ${renderZooCompareBar()}
-  <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
+  <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。 &middot; <a href="https://wagaya.org/">wagaya.org</a></footer>
   <script src="/favorites.js?v=5" defer></script>${mapScript ?? ""}
   ${renderZooCompareScript(activePref)}
 </body>
@@ -8723,6 +8728,7 @@ function renderFavoritesHtml(
     .news-empty { color: #777; font-size: 0.9rem; }
     noscript p { color: #777; font-size: 0.88rem; border: 1px solid #e1e1e1; background: #f7f7f7; padding: 0.75rem; }
     footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; }
+    footer a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
     @media (max-width: 640px) {
       main { padding: 0.85rem; }
       .news-list li { padding: 0.75rem 0.35rem; }
@@ -8746,7 +8752,7 @@ ${renderGlobalNav("/favorites")}
     </section>
     <div id="favorites-ranking-root"></div>
   </main>
-  <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
+  <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。 &middot; <a href="https://wagaya.org/">wagaya.org</a></footer>
   <script>window.KinkiZooAnimalImageUrls = ${animalImageUrlsJson};window.KinkiZooFavoriteRankingData = ${favoriteRankingDataJson};</script>
   <script src="/favorites.js?v=5" defer></script>
 </body>

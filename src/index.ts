@@ -3580,7 +3580,7 @@ function renderZooCard(result: ZooSearchResult, includeMatchSummary: boolean): s
         <p class="kana">${escapeHtml(zoo.nameKana)}</p>
         <label class="zoo-compare-option">
           <input type="checkbox" data-compare-zoo="${escapeHtml(zoo.id)}" data-compare-name="${escapeHtml(zoo.name)}">
-          <span data-compare-label>比較に追加</span>
+          <span data-compare-label>比較</span>
         </label>
       </th>
       <td data-label="都道府県">${prefLabel}</td>
@@ -5414,15 +5414,16 @@ function renderSearchHtml(
       .zoo-list { overflow: visible; }
       .zoo-table { min-width: 0; border: 0; }
       .zoo-table thead { display: none; }
-      .zoo-table tbody, .zoo-table tr, .zoo-table th, .zoo-table td { display: block; width: 100%; }
-      .zoo-table tr { margin-bottom: 0.5rem; border: 1px solid #d8ddd9; }
-      .zoo-table th, .zoo-table td { border: 0; border-bottom: 1px solid #e5e8e6; padding: 0.45rem 0.75rem; }
+      .zoo-table tbody { display: block; width: 100%; }
+      .zoo-table tr { display: flex; flex-wrap: wrap; width: 100%; box-sizing: border-box; margin-bottom: 0.5rem; border: 1px solid #d8ddd9; }
+      .zoo-table th, .zoo-table td { display: block; width: 100%; box-sizing: border-box; border: 0; border-bottom: 1px solid #e5e8e6; padding: 0.45rem 0.75rem; }
       .zoo-table tr > :last-child { border-bottom: 0; }
       .zoo-table td::before { content: attr(data-label); display: block; margin-bottom: 0.25rem; color: #6a746d; font-size: 0.7rem; font-weight: bold; }
       .zoo-table td[data-label="都道府県"],
-      .zoo-table td[data-label="動物種数"] { display: flex; align-items: baseline; gap: 0.5rem; }
+      .zoo-table td[data-label="動物種数"] { display: flex; align-items: baseline; gap: 0.5rem; width: 50%; border-bottom: 0; }
       .zoo-table td[data-label="都道府県"]::before,
       .zoo-table td[data-label="動物種数"]::before { display: inline; margin-bottom: 0; flex: 0 0 auto; }
+      .zoo-table td[data-label="検索ヒット"] { border-top: 1px solid #e5e8e6; }
       .zoo-name { background: #f7faf8; padding: 0.6rem 0.75rem; }
       footer { padding: 1rem 0.75rem; line-height: 1.5; }
     }
@@ -7144,11 +7145,11 @@ function renderZooCompareScript(activePref: PrefectureCode | null): string {
           control.checked = active;
           control.disabled = !active && selected.length >= 3;
           var labelText = control.parentElement && control.parentElement.querySelector('[data-compare-label]');
-          if (labelText) labelText.textContent = active ? '比較から外す' : '比較に追加';
+          if (labelText) labelText.textContent = active ? '比較から外す' : '比較';
         } else {
           control.setAttribute('aria-pressed', active ? 'true' : 'false');
           control.disabled = !active && selected.length >= 3;
-          control.textContent = active ? '比較から外す' : '比較に追加';
+          control.textContent = active ? '比較から外す' : '比較';
           // 一覧に同じ文言のボタンが並ぶため、どの施設かを読み上げで区別できるようにする
           var compareName = control.dataset.compareName;
           if (compareName) {
@@ -7732,7 +7733,7 @@ function renderZoosHtml(
             <span class="result-name">${escapeHtml(r.zoo.name)}<span class="result-count">${cnt}種</span></span>
           </a>
           <p class="result-animals">${matched}</p>
-          <button type="button" class="map-compare-toggle" data-compare-zoo="${escapeHtml(r.zoo.id)}" data-compare-name="${escapeHtml(r.zoo.name)}" aria-label="${escapeHtml(r.zoo.name)}を比較に追加">比較に追加</button>
+          <button type="button" class="map-compare-toggle" data-compare-zoo="${escapeHtml(r.zoo.id)}" data-compare-name="${escapeHtml(r.zoo.name)}" aria-label="${escapeHtml(r.zoo.name)}を比較に追加">比較</button>
         </li>`;
       }).join("\n")
     : "";
@@ -7910,7 +7911,7 @@ function renderZoosHtml(
         var animalCountLine = '<br><span>動物種数: ' + (zoo.animalCount > 0 ? zoo.animalCount + ' 種' : '未取得') + '</span>';
         var mapAppUrl = 'https://www.google.com/maps/search/?api=1&query=' + zoo.lat + ',' + zoo.lon;
         var mapAppLine = '<br><a class="popup-map-app" href="' + mapAppUrl + '" target="_blank" rel="noopener noreferrer">地図アプリで見る</a>';
-        var compareLine = '<br><button type="button" class="map-compare-toggle map-compare-toggle--popup" data-compare-zoo="' + esc(zoo.id) + '" data-compare-name="' + esc(zoo.name) + '">比較に追加</button>';
+        var compareLine = '<br><button type="button" class="map-compare-toggle map-compare-toggle--popup" data-compare-zoo="' + esc(zoo.id) + '" data-compare-name="' + esc(zoo.name) + '">比較</button>';
         var marker = L.marker([zoo.lat, zoo.lon])
           .bindPopup('<b><a href="/zoos/' + esc(zoo.id) + '${activePref ? `?pref=${activePref}` : ""}">' + esc(zoo.name) + '</a></b>' + matchLine + animalCountLine + mapAppLine + compareLine)
           .addTo(map);
@@ -8182,16 +8183,17 @@ function renderZoosShell(opts: {
       .zoo-list { padding: 0 0.75rem 0.75rem; overflow: visible; }
       .zoo-table { min-width: 0; border: 0; }
       .zoo-table thead { display: none; }
-      .zoo-table tbody, .zoo-table tr, .zoo-table th, .zoo-table td { display: block; width: 100%; }
-      .zoo-table tr { margin-bottom: 0.5rem; border: 1px solid #d8ddd9; }
-      .zoo-table th, .zoo-table td { border: 0; border-bottom: 1px solid #e5e8e6; padding: 0.45rem 0.75rem; }
+      .zoo-table tbody { display: block; width: 100%; }
+      .zoo-table tr { display: flex; flex-wrap: wrap; width: 100%; box-sizing: border-box; margin-bottom: 0.5rem; border: 1px solid #d8ddd9; }
+      .zoo-table th, .zoo-table td { display: block; width: 100%; box-sizing: border-box; border: 0; border-bottom: 1px solid #e5e8e6; padding: 0.45rem 0.75rem; }
       .zoo-table td:empty { display: none; }
       .zoo-table tr > :last-child { border-bottom: 0; }
       .zoo-table td::before { content: attr(data-label); display: block; margin-bottom: 0.25rem; color: #6a746d; font-size: 0.7rem; font-weight: bold; }
       .zoo-table td[data-label="都道府県"],
-      .zoo-table td[data-label="動物種数"] { display: flex; align-items: baseline; gap: 0.5rem; }
+      .zoo-table td[data-label="動物種数"] { display: flex; align-items: baseline; gap: 0.5rem; width: 50%; border-bottom: 0; }
       .zoo-table td[data-label="都道府県"]::before,
       .zoo-table td[data-label="動物種数"]::before { display: inline; margin-bottom: 0; flex: 0 0 auto; }
+      .zoo-table td[data-label="検索ヒット"] { border-top: 1px solid #e5e8e6; }
       .zoo-name { background: #f7faf8; padding: 0.6rem 0.75rem; }
       .zoo-table tr.is-compare-selected .zoo-name { background: #e7f5ec; }
       .empty { padding: 1.5rem 0.75rem; }

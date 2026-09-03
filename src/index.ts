@@ -4160,7 +4160,6 @@ function renderSiteHeader(): string {
   <header class="site-header">
     <div class="site-heading">
       <h1><a href="/">近畿動物園情報</a></h1>
-      <p>近畿一円の動物園・施設をまとめて調べられます</p>
     </div>
   </header>`;
 }
@@ -5645,7 +5644,7 @@ function renderAnimalsHtml(
           <a class="taxonomy-clear" href="${escapeHtml(buildAnimalsUrl(filter, query))}">${icon("close")}分類を解除</a>
         </div>
       </div>`
-    : `<p class="taxonomy-path-empty">分類はまだ選択されていません。</p>`;
+    : "";
 
   let taxonomyChoiceRow: string;
   let nextTaxonomyLabel: string;
@@ -5718,13 +5717,13 @@ function renderAnimalsHtml(
       </button>
       <section class="taxonomy-filter-panel taxonomy-filter-panel--desktop" aria-labelledby="taxonomy-filter-title">
         <div class="taxonomy-filter-heading">
-          <div><h2 id="taxonomy-filter-title">分類から絞り込む</h2><p>選択中の分類から、次の${nextTaxonomyLabel}を選べます。</p></div>
+          <div><h2 id="taxonomy-filter-title">分類から絞り込む</h2></div>
         </div>
         ${taxonomyPanelBody}
       </section>
       <dialog class="taxonomy-filter-dialog" id="taxonomy-filter-dialog" aria-labelledby="taxonomy-filter-dialog-title">
         <div class="taxonomy-filter-heading">
-          <div><h2 id="taxonomy-filter-dialog-title">分類から絞り込む</h2><p>選択中の分類から、次の${nextTaxonomyLabel}を選べます。</p></div>
+          <div><h2 id="taxonomy-filter-dialog-title">分類から絞り込む</h2></div>
           <button type="button" class="taxonomy-dialog-close ui-touch-target" data-taxonomy-filter-close aria-label="分類絞り込みを閉じる">${icon("close")}</button>
         </div>
         ${taxonomyPanelBody}
@@ -5805,7 +5804,6 @@ function renderAnimalsHtml(
     .taxonomy-filter-heading { display: flex; justify-content: space-between; gap: 1rem; align-items: start; }
     .taxonomy-filter-heading > div { display: grid; gap: 0.2rem; }
     .taxonomy-filter-heading h2 { font-size: 1rem; }
-    .taxonomy-filter-heading p { color: #66736c; font-size: 0.78rem; line-height: 1.5; }
     .taxonomy-selection { display: flex; gap: 0.75rem; align-items: center; justify-content: space-between; min-width: 0; }
     .taxonomy-selection-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 0.5rem; }
     .taxonomy-selection-actions .fav-toggle { white-space: nowrap; }
@@ -5814,7 +5812,6 @@ function renderAnimalsHtml(
     .taxonomy-path a:hover { background: #edf7f0; text-decoration: underline; text-underline-offset: 0.2em; }
     .taxonomy-path a small { color: #6b7c72; font-size: 0.66rem; font-weight: normal; }
     .taxonomy-path-separator { flex: 0 0 auto; color: #8b978f; }
-    .taxonomy-path-empty { color: #66736c; font-size: 0.82rem; }
     .taxonomy-clear { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 0.25rem; min-height: 40px; color: #59685f; font-size: 0.78rem; text-decoration: none; }
     .taxonomy-clear:hover { color: #1f5b45; text-decoration: underline; text-underline-offset: 0.2em; }
     .taxonomy-filter-row { display: grid; gap: 0.55rem; min-width: 0; }

@@ -3,6 +3,7 @@ import { zoos } from "./data";
 import { findAnimalTaxonomy, type AnimalTaxonomy } from "./animal-taxonomy";
 import type { ScrapeResult, NewsItem } from "./scraper";
 import { scrapeAnimals, scrapeZooNews } from "./scraper";
+import { checkHealth } from "./monitor-health";
 
 const PREF_LABELS: Record<PrefectureCode, string> = {
   osaka: "大阪府",
@@ -8899,6 +8900,11 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
       return Response.redirect(url.toString(), 301);
     }
     const pathname = url.pathname;
+
+    if (pathname === "/_monitor/health") {
+      return checkHealth(env.DB);
+    }
+
     const prefParam = url.searchParams.get("pref");
     if (prefParam && !isPrefectureCode(prefParam)) {
       return notFound(`都道府県コード '${prefParam}' は無効です`);

@@ -1444,10 +1444,21 @@ async function loadAnimalList(
 
 async function loadRandomAnimalDisplayName(
   db: D1Database,
-  pref: PrefectureCode | null
+  pref: PrefectureCode | null,
+  excludeDisplayName: string | null = null
 ): Promise<string | null> {
   const zooIds = getZooIdsForPrefecture(pref);
-  const where = pref ? `WHERE zoo_id IN (${buildPlaceholders(zooIds)})` : "";
+  const conditions: string[] = [];
+  const bindings: string[] = [];
+  if (pref) {
+    conditions.push(`zoo_id IN (${buildPlaceholders(zooIds)})`);
+    bindings.push(...zooIds);
+  }
+  if (excludeDisplayName) {
+    conditions.push("display_name != ?");
+    bindings.push(excludeDisplayName);
+  }
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
   const row = await db
     .prepare(
       `SELECT display_name
@@ -1455,7 +1466,7 @@ async function loadRandomAnimalDisplayName(
        ORDER BY RANDOM()
        LIMIT 1`
     )
-    .bind(...(pref ? zooIds : []))
+    .bind(...bindings)
     .first<{ display_name: string }>();
   return row?.display_name ?? null;
 }
@@ -6062,7 +6073,8 @@ function renderZooAnimalDetailHtml(
   relatedDisplayNames: Array<{ displayName: string; zoos: Zoo[] }> = [],
   imageKeys: AnimalImageVersionIndex = new Map(),
   animalNews: AnimalNewsRow[] = [],
-  pastZoos: AnimalPastZoo[] = []
+  pastZoos: AnimalPastZoo[] = [],
+  activePref: PrefectureCode | null = null
 ): string {
   const displayLabel = formatAnimalDisplayName(detail.displayName);
   const canonicalLabel = detail.canonicalName ? formatAnimalDisplayName(detail.canonicalName) : null;
@@ -6289,6 +6301,7 @@ ${renderGlobalNav("/animals")}
             buildZooAnimalUrl(detail.displayName),
             "large"
           )}
+          <a href="${addPrefectureToInternalUrl(`/random?exclude=${encodeURIComponent(detail.displayName)}`, activePref)}" class="ui-btn ui-btn--secondary ui-touch-target">${icon("shuffle")}ランダム</a>
         </div>
         ${canonicalHtml}
         ${externalLinksHtml}
@@ -9433,7 +9446,10 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
 
     // ランダムな動物の詳細ページへ redirect する
     if (pathname === "/random") {
-      const displayName = await loadRandomAnimalDisplayName(env.DB, activePref);
+      const excludeDisplayName = normalizeSearchTerm(url.searchParams.get("exclude"));
+      const displayName =
+        await loadRandomAnimalDisplayName(env.DB, activePref, excludeDisplayName) ??
+        (excludeDisplayName ? await loadRandomAnimalDisplayName(env.DB, activePref) : null);
       if (!displayName) return notFound("動物が見つかりません");
       return redirectResponse(addPrefectureToInternalUrl(buildZooAnimalUrl(displayName), activePref), 302);
     }
@@ -9565,7 +9581,8 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
         relatedDisplayNames,
         imageKeys,
         animalNews,
-        pastZoos
+        pastZoos,
+        activePref
       );
       return htmlResponse(html, url, activePref);
     }

@@ -84,13 +84,6 @@ interface ScrapeResultRow {
   error: string | null;
 }
 
-interface ZooCoverageStats {
-  total: number;
-  classified: number;
-  partial: number;
-  unclassified: number;
-}
-
 interface ZooAnimalTaxonomyRow {
   display_name: string;
   class_name: string | null;
@@ -1085,47 +1078,6 @@ async function loadCachedScrapeResult(db: D1Database, zooId: string): Promise<Sc
     animals: (animalsResult.results ?? []).map((row) => row.display_name),
     scrapedAt: meta.scraped_at,
     error: meta.error ?? undefined,
-  };
-}
-
-async function loadZooCoverage(db: D1Database, zooId: string): Promise<ZooCoverageStats> {
-  const row = await db
-    .prepare(
-      `SELECT
-         COUNT(*) AS total,
-         COUNT(CASE WHEN za.animal_id IS NOT NULL THEN 1 END) AS classified,
-         COUNT(CASE WHEN za.animal_id IS NULL AND (
-           NULLIF(c.canonical_name, 'null') IS NOT NULL OR
-           NULLIF(c.class_name, 'null') IS NOT NULL OR
-           NULLIF(c.order_name, 'null') IS NOT NULL OR
-           NULLIF(c.family_name, 'null') IS NOT NULL OR
-           NULLIF(c.genus_name, 'null') IS NOT NULL OR
-           NULLIF(c.species_name, 'null') IS NOT NULL
-         ) THEN 1 END) AS partial,
-         COUNT(CASE WHEN za.animal_id IS NULL AND
-           NULLIF(c.canonical_name, 'null') IS NULL AND
-           NULLIF(c.class_name, 'null') IS NULL AND
-           NULLIF(c.order_name, 'null') IS NULL AND
-           NULLIF(c.family_name, 'null') IS NULL AND
-           NULLIF(c.genus_name, 'null') IS NULL AND
-           NULLIF(c.species_name, 'null') IS NULL
-         THEN 1 END) AS unclassified
-       FROM zoo_animals za
-       LEFT JOIN animal_taxonomy_candidates c
-         ON c.display_name = za.display_name
-        AND za.animal_id IS NULL
-        AND c.status IN ('partial', 'pending')
-        AND c.confidence >= 0.8
-       WHERE za.zoo_id = ?`
-    )
-    .bind(zooId)
-    .first<{ total: number; classified: number; partial: number; unclassified: number }>();
-
-  return {
-    total: row?.total ?? 0,
-    classified: row?.classified ?? 0,
-    partial: row?.partial ?? 0,
-    unclassified: row?.unclassified ?? 0,
   };
 }
 
@@ -6613,7 +6565,6 @@ ${renderGlobalNav("/animals")}
 function renderZooDetailHtml(
   zoo: Zoo,
   scraped: ScrapeResult,
-  coverage: ZooCoverageStats,
   imageKeys: AnimalImageVersionIndex = new Map(),
   taxonomyByAnimal: Map<string, string> = new Map(),
   news: ZooNewsRow[] = [],
@@ -6632,11 +6583,12 @@ function renderZooDetailHtml(
   const prefLabel = PREF_LABELS[zoo.prefecture];
   const classCounts = new Map<string, number>();
   for (const animal of scraped.animals) {
-    const className = taxonomyByAnimal.get(animal) ?? "未分類";
+    const className = taxonomyByAnimal.get(animal);
+    if (!className) continue;
     classCounts.set(className, (classCounts.get(className) ?? 0) + 1);
   }
   const classFilterButtons = [...classCounts.entries()]
-    .sort(([a], [b]) => (a === "未分類" ? 1 : b === "未分類" ? -1 : a.localeCompare(b, "ja-JP")))
+    .sort(([a], [b]) => a.localeCompare(b, "ja-JP"))
     .map(
       ([className, count]) =>
         `<button type="button" class="ui-chip ui-touch-target" data-class-filter="${escapeHtml(className)}" aria-pressed="false">${escapeHtml(className)} <span>${count}</span></button>`
@@ -6661,12 +6613,12 @@ function renderZooDetailHtml(
           ${featuredAnimals
             .map((animal) => {
               const animalKey = normalizeAnimalImageKey(animal);
-              const className = taxonomyByAnimal.get(animal) ?? "未分類";
+              const className = taxonomyByAnimal.get(animal);
               return `
                 <a class="featured-animal" href="${buildZooAnimalUrl(animal)}">
                   <img src="${buildAnimalImageUrl(animal, imageKeys.get(animalKey))}" alt="" loading="lazy" width="96" height="96">
                   <span>${escapeHtml(formatAnimalDisplayName(animal))}</span>
-                  <small>${escapeHtml(className)}</small>
+                  ${className ? `<small>${escapeHtml(className)}</small>` : ""}
                 </a>`;
             })
             .join("")}
@@ -6676,11 +6628,11 @@ function renderZooDetailHtml(
   const animalLinks = scraped.animals
     .map((animal) => {
       const animalKey = normalizeAnimalImageKey(animal);
-      const className = taxonomyByAnimal.get(animal) ?? "未分類";
+      const className = taxonomyByAnimal.get(animal) ?? "";
       const thumb = imageKeys.has(animalKey)
         ? `<img src="${buildAnimalImageUrl(animal, imageKeys.get(animalKey))}" alt="" class="animal-thumb ui-thumb ui-thumb--36" loading="lazy" width="36" height="36">`
         : renderAnimalImagePlaceholder("animal-thumb ui-thumb--36", { compact: true, ariaHidden: true });
-      return `<li data-class="${escapeHtml(className)}"><a href="${buildZooAnimalUrl(animal)}">${thumb}<span>${escapeHtml(formatAnimalDisplayName(animal))}</span><small>${escapeHtml(className)}</small></a></li>`;
+      return `<li data-class="${escapeHtml(className)}"><a href="${buildZooAnimalUrl(animal)}">${thumb}<span>${escapeHtml(formatAnimalDisplayName(animal))}</span>${className ? `<small>${escapeHtml(className)}</small>` : ""}</a></li>`;
     })
     .join("\n");
   const updatedAt = new Date(scraped.scrapedAt).toLocaleString("ja-JP");
@@ -6695,14 +6647,6 @@ function renderZooDetailHtml(
             { href: buildBrowseUrl(zoo.prefecture, null), label: "動物園一覧へ戻る" },
           ]
         );
-  const coverageHtml = coverage.total > 0
-    ? `<dl class="coverage-stats">
-        <div><dt>総動物数</dt><dd>${coverage.total}</dd></div>
-        <div><dt>分類済み</dt><dd>${coverage.classified}</dd></div>
-        <div><dt>部分分類</dt><dd>${coverage.partial}</dd></div>
-        <div><dt>未分類</dt><dd>${coverage.unclassified}</dd></div>
-      </dl>`
-    : "";
   const quickFacts = [
     ["動物種数", scraped.animals.length > 0 ? `${scraped.animals.length} 種` : "未取得"],
     ["地域", prefLabel],
@@ -6754,10 +6698,6 @@ function renderZooDetailHtml(
     .directions-link { display: inline-block; margin-top: 0.35rem; font-size: 0.78rem; color: #1f5b45; text-decoration: none; }
     .directions-link:hover { text-decoration: underline; }
     .animal-summary { color: #666; font-size: 0.85rem; margin-bottom: 0.75rem; }
-    .coverage-stats { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; padding: 0; list-style: none; }
-    .coverage-stats div { background: #f7f7f7; border: 1px solid #e0e0e0; border-radius: 4px; padding: 0.4rem 0.65rem; min-width: 6em; }
-    .coverage-stats dt { font-size: 0.72rem; color: #777; margin-bottom: 0.15rem; }
-    .coverage-stats dd { font-size: 1rem; font-weight: bold; color: #222; }
     .section-heading { display: flex; justify-content: space-between; gap: 0.75rem; align-items: baseline; margin-bottom: 0.75rem; }
     .section-heading h3 { margin: 0; }
     .section-heading a { color: #1f5b45; font-size: 0.82rem; text-decoration: none; }
@@ -6885,7 +6825,6 @@ ${renderGlobalNav("/zoos")}
     ${featuredHtml}
     <section class="section" id="animals">
       <h3>見られる動物</h3>
-      ${coverageHtml}
       <p class="animal-summary">${scraped.animals.length} 件</p>
       ${
         scraped.error
@@ -9669,15 +9608,14 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
       if (!zoo || (activePref && zoo.prefecture !== activePref)) {
         return notFound(`選択中の地域に動物園 '${id}' が見つかりません`);
       }
-      const [scraped, coverage, imageKeys, taxonomyByAnimal, news] = await Promise.all([
+      const [scraped, imageKeys, taxonomyByAnimal, news] = await Promise.all([
         getAnimalResult(env.DB, id, url.searchParams.get("refresh") === "1"),
-        loadZooCoverage(env.DB, id),
         loadAnimalImageKeys(env.DB),
         loadZooAnimalTaxonomyIndex(env.DB, id),
         loadZooNews(env.DB, id),
       ]);
       const pageUrl = `${url.origin}/zoos/${zoo.id}`;
-      const html = renderZooDetailHtml(zoo, scraped, coverage, imageKeys, taxonomyByAnimal, news, pageUrl);
+      const html = renderZooDetailHtml(zoo, scraped, imageKeys, taxonomyByAnimal, news, pageUrl);
       return htmlResponse(html, url, activePref);
     }
 

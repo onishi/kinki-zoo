@@ -372,6 +372,8 @@ const ICONS = {
   expand_more: '<path d="M16.59 8.59L12 13.17L7.41 8.59L6 10l6 6l6-6l-1.41-1.41z"/>',
   chevron_right: '<path d="M10 6L8.59 7.41L13.17 12l-4.58 4.59L10 18l6-6l-6-6z"/>',
   view_list: '<path d="M3 5v14h18V5H3zm4 2v2H5V7h2zm-2 6v-2h2v2H5zm0 2h2v2H5v-2zm14 2H9v-2h10v2zm0-4H9v-2h10v2zm0-4H9V7h10v2z"/>',
+  shuffle:
+    '<path d="M10.59 9.17L5.41 4L4 5.41l5.17 5.17l1.42-1.41zM14.5 4l2.04 2.04L4 18.59L5.41 20L17.96 7.46L20 9.5V4h-5.5zm.33 9.41l-1.41 1.41l3.13 3.13L14.5 20H20v-5.5l-2.04 2.04l-3.13-3.13z"/>',
 } as const satisfies Record<string, string>;
 
 type IconName = keyof typeof ICONS;
@@ -1438,6 +1440,24 @@ async function loadAnimalList(
     .all<AnimalListRow>();
 
   return buildAnimalListItems(result.results ?? []);
+}
+
+async function loadRandomAnimalDisplayName(
+  db: D1Database,
+  pref: PrefectureCode | null
+): Promise<string | null> {
+  const zooIds = getZooIdsForPrefecture(pref);
+  const where = pref ? `WHERE zoo_id IN (${buildPlaceholders(zooIds)})` : "";
+  const row = await db
+    .prepare(
+      `SELECT display_name
+       FROM (SELECT DISTINCT display_name FROM zoo_animals ${where})
+       ORDER BY RANDOM()
+       LIMIT 1`
+    )
+    .bind(...(pref ? zooIds : []))
+    .first<{ display_name: string }>();
+  return row?.display_name ?? null;
 }
 
 function filterAnimalItemsByQuery(animals: AnimalListItem[], query: string | null): AnimalListItem[] {
@@ -3635,6 +3655,7 @@ function renderHomeOverview(
     <div class="home-primary-actions">
       <a href="${buildBrowseUrl(activePref, null)}" class="ui-btn ui-btn--primary ui-touch-target">${icon("location_city")}動物園一覧</a>
       <a href="${buildMapUrl(activePref, null)}" class="ui-btn ui-btn--secondary ui-touch-target">${icon("map")}地図で見る</a>
+      <a href="${addPrefectureToInternalUrl("/random", activePref)}" class="ui-btn ui-btn--secondary ui-touch-target">${icon("shuffle")}ランダム</a>
     </div>
     <dl class="home-stats">
       ${stats.map((stat) => `
@@ -5202,6 +5223,7 @@ function renderHomeHtml(
       .home-overview h2 { font-size: 1.15rem; }
       .home-lead { font-size: 0.86rem; }
       .home-primary-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .home-primary-actions a:last-child:nth-child(odd) { grid-column: 1 / -1; }
       .home-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .home-stats a { padding: 0.55rem 0.45rem; }
       .home-stats strong { font-size: 1.05rem; }
@@ -9407,6 +9429,13 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
       const filteredAnimals = filterAnimalItemsByQuery(animals, query);
       const html = renderAnimalsHtml(filteredAnimals, filter, activePref, imageKeys, query, taxonomy);
       return htmlResponse(html, url, activePref);
+    }
+
+    // ランダムな動物の詳細ページへ redirect する
+    if (pathname === "/random") {
+      const displayName = await loadRandomAnimalDisplayName(env.DB, activePref);
+      if (!displayName) return notFound("動物が見つかりません");
+      return redirectResponse(addPrefectureToInternalUrl(buildZooAnimalUrl(displayName), activePref), 302);
     }
 
     // HTML: /zoos（一覧・地図・分類表・比較の統合ページ）

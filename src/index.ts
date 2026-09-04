@@ -1099,11 +1099,17 @@ async function loadZooAnimalTaxonomyIndex(db: D1Database, zooId: string): Promis
     .bind(zooId)
     .all<ZooAnimalTaxonomyRow>();
 
-  return new Map(
+  const taxonomyByAnimal = new Map(
     (result.results ?? [])
       .filter((row): row is { display_name: string; class_name: string } => Boolean(row.class_name))
       .map((row) => [row.display_name, row.class_name])
   );
+  for (const row of result.results ?? []) {
+    if (taxonomyByAnimal.has(row.display_name)) continue;
+    const taxonomy = findAnimalTaxonomy(row.display_name);
+    if (taxonomy) taxonomyByAnimal.set(row.display_name, taxonomy.className);
+  }
+  return taxonomyByAnimal;
 }
 
 async function loadScrapeHealth(db: D1Database): Promise<ScrapeHealthItem[]> {
@@ -2229,22 +2235,35 @@ async function loadZooAnimalDetail(
     (candidateRow.status === "partial" || candidateRow.status === "pending") &&
     candidateRow.confidence >= 0.8;
   const candidate = isQualifyingCandidate ? candidateRow : null;
+  const ruleTaxonomy = !taxonomicRow.animal_id && !candidate ? findAnimalTaxonomy(displayName) : null;
   const classificationStatus: ClassificationStatus = taxonomicRow.animal_id
     ? "registered"
     : isQualifyingCandidate
       ? "llm_candidate"
+      : ruleTaxonomy
+        ? "registered"
       : candidateRow?.status === "rejected"
         ? "rejected"
         : "unclassified";
+  const resolvedTaxonomy = candidate ?? (ruleTaxonomy
+    ? {
+        canonical_name: ruleTaxonomy.canonicalName,
+        class_name: ruleTaxonomy.className,
+        order_name: ruleTaxonomy.orderName,
+        family_name: ruleTaxonomy.familyName,
+        genus_name: ruleTaxonomy.genusName,
+        species_name: ruleTaxonomy.speciesName,
+      }
+    : null);
   return {
     displayName,
     animalId: taxonomicRow.animal_id ?? undefined,
-    canonicalName: taxonomicRow.canonical_name ?? normalizeOptionalText(candidate?.canonical_name) ?? undefined,
-    className: taxonomicRow.class_name ?? normalizeOptionalText(candidate?.class_name) ?? undefined,
-    orderName: taxonomicRow.order_name ?? normalizeOptionalText(candidate?.order_name) ?? undefined,
-    familyName: taxonomicRow.family_name ?? normalizeOptionalText(candidate?.family_name) ?? undefined,
-    genusName: taxonomicRow.genus_name ?? normalizeOptionalText(candidate?.genus_name) ?? undefined,
-    speciesName: taxonomicRow.species_name ?? normalizeOptionalText(candidate?.species_name) ?? undefined,
+    canonicalName: taxonomicRow.canonical_name ?? normalizeOptionalText(resolvedTaxonomy?.canonical_name) ?? undefined,
+    className: taxonomicRow.class_name ?? normalizeOptionalText(resolvedTaxonomy?.class_name) ?? undefined,
+    orderName: taxonomicRow.order_name ?? normalizeOptionalText(resolvedTaxonomy?.order_name) ?? undefined,
+    familyName: taxonomicRow.family_name ?? normalizeOptionalText(resolvedTaxonomy?.family_name) ?? undefined,
+    genusName: taxonomicRow.genus_name ?? normalizeOptionalText(resolvedTaxonomy?.genus_name) ?? undefined,
+    speciesName: taxonomicRow.species_name ?? normalizeOptionalText(resolvedTaxonomy?.species_name) ?? undefined,
     zoos: rows.flatMap((row) => {
       const zoo = zooById.get(row.zoo_id);
       return zoo ? [zoo] : [];

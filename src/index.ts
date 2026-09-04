@@ -6273,6 +6273,7 @@ function renderZooAnimalDetailHtml(
       .hero { grid-template-columns: 1fr; padding: 1rem 0.75rem; gap: 1rem; }
       .animal-image { max-width: none; }
       .hero-name { font-size: 1.3rem; }
+      .random-animal-button { bottom: calc(58px + env(safe-area-inset-bottom) + 1rem); }
       section { padding: 0.9rem 0.75rem; }
       .taxonomy-details { grid-template-columns: repeat(3, 1fr); }
       .taxonomy-details div:nth-child(3) { border-right: 0; }

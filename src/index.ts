@@ -6222,6 +6222,7 @@ function renderZooAnimalDetailHtml(
     .hero-info { display: grid; gap: 0.75rem; }
     .hero-name-row { display: flex; align-items: center; flex-wrap: wrap; gap: 0.75rem; }
     .hero-name { font-size: 1.5rem; font-weight: bold; overflow-wrap: anywhere; line-height: 1.3; }
+    .random-animal-button { position: fixed; right: max(1rem, env(safe-area-inset-right)); bottom: max(1rem, env(safe-area-inset-bottom)); z-index: 20; box-shadow: 0 3px 12px rgba(0, 0, 0, 0.18); }
     .canonical { color: #777; font-size: 0.88rem; }
     .animal-external-links { display: flex; flex-wrap: wrap; gap: 0.5rem; }
     .animal-external-links a { color: #1f5b45; font-size: 0.88rem; font-weight: bold; text-decoration: none; }
@@ -6301,7 +6302,6 @@ ${renderGlobalNav("/animals")}
             buildZooAnimalUrl(detail.displayName),
             "large"
           )}
-          <a href="${addPrefectureToInternalUrl(`/random?exclude=${encodeURIComponent(detail.displayName)}`, activePref)}" class="ui-btn ui-btn--secondary ui-touch-target">${icon("shuffle")}ランダム</a>
         </div>
         ${canonicalHtml}
         ${externalLinksHtml}
@@ -6339,6 +6339,7 @@ ${renderGlobalNav("/animals")}
         : ""
     }
   </main>
+  <a href="${addPrefectureToInternalUrl(`/random?exclude=${encodeURIComponent(detail.displayName)}`, activePref)}" class="random-animal-button ui-btn ui-btn--primary ui-touch-target">${icon("shuffle")}ランダム</a>
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
   <script src="/favorites.js?v=5" defer></script>
 </body>

@@ -3580,7 +3580,6 @@ function renderZooCard(result: ZooSearchResult, includeMatchSummary: boolean): s
           <a href="/zoos/${zooId}">${escapeHtml(zoo.name)}</a>
           ${renderFavoriteButton("zoo", zoo.id, zoo.name, `/zoos/${zooId}`)}
         </div>
-        <p class="kana">${escapeHtml(zoo.nameKana)}</p>
       </th>
       <td data-label="比較">
         <label class="zoo-compare-option">
@@ -5404,7 +5403,6 @@ function renderSearchHtml(
     .zoo-table thead th { background: #f7f7f7; color: #555; }
     .zoo-name a { color: #2d6a4f; text-decoration: none; font-size: 1rem; }
     .zoo-name a:hover { text-decoration: underline; }
-    .kana { font-size: 0.8rem; color: #888; margin-top: 0.25rem; }
     .zoo-compare-option { display: inline-flex; align-items: center; gap: 0.35rem; color: #4f6257; font-size: 0.75rem; font-weight: normal; cursor: pointer; }
     .zoo-compare-option input { width: 1rem; height: 1rem; accent-color: #1f5b45; }
     .match-box { padding: 0.55rem; border: 1px solid #d7eadc; border-radius: 6px; background: #f3fbf5; display: grid; gap: 0.45rem; }
@@ -6704,7 +6702,6 @@ function renderZooDetailHtml(
     .zoo-title-row { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; margin-bottom: 0.75rem; }
     .zoo-title-main { min-width: 0; }
     .zoo-title-main h2 { margin-bottom: 0.25rem; }
-    .kana { color: #777; }
     .hero-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.55rem; flex: 0 0 auto; }
     .hero-actions a { font-size: 0.86rem; }
     .quick-facts { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.5rem; margin-bottom: 0.85rem; }
@@ -6786,7 +6783,6 @@ ${renderGlobalNav("/zoos")}
       <div class="zoo-title-row">
         <div class="zoo-title-main">
           <h2>${escapeHtml(zoo.name)}</h2>
-          <p class="kana">${escapeHtml(zoo.nameKana)}</p>
         </div>
         <div class="hero-actions">
           <a class="primary-link ui-btn ui-btn--primary ui-touch-target" href="${escapeHtml(zoo.website)}" target="_blank" rel="noopener noreferrer">${icon("open_in_new")}公式サイトを見る</a>
@@ -8125,7 +8121,6 @@ function renderZoosShell(opts: {
     .zoo-table thead th { background: #f7f7f7; color: #555; }
     .zoo-name a { color: #2d6a4f; text-decoration: none; font-size: 1rem; }
     .zoo-name a:hover { text-decoration: underline; }
-    .kana { font-size: 0.8rem; color: #888; margin-top: 0.25rem; }
     .zoo-compare-option { display: inline-flex; align-items: center; gap: 0.35rem; color: #4f6257; font-size: 0.75rem; font-weight: normal; cursor: pointer; }
     .zoo-compare-option input { width: 1rem; height: 1rem; accent-color: #1f5b45; }
     .zoo-table tr.is-compare-selected { background: #f0fbf4; }

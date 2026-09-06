@@ -4134,7 +4134,7 @@ const COMMON_STYLES = `
     .ui-state--error { border-color: #edc8cd; background: #fff7f8; color: #6a2a33; }
     .ui-state-message { line-height: 1.6; }
     .ui-state-actions { display: flex; flex-wrap: wrap; gap: 0.45rem; }
-    @media (max-width: 640px) {
+    @media (max-width: 700px) {
       body { padding-bottom: calc(58px + env(safe-area-inset-bottom)); }
       .ui-btn, .ui-touch-target { min-height: 44px; }
       .site-header { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.6rem; padding: 0.75rem; }
@@ -5216,9 +5216,9 @@ function renderHomeHtml(
       .spotlight-heading { display: grid; gap: 0.25rem; }
       .spotlight-animal-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .spotlight-zoo-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .latest-news-list li { flex-direction: column; align-items: flex-start; gap: 0.25rem; }
+      .latest-news-list li { flex-direction: column; flex-wrap: nowrap; align-items: flex-start; gap: 0.25rem; }
       .latest-news-list .news-date, .latest-news-list .news-zoo-label, .latest-news-list .news-title { flex: initial; width: auto; white-space: normal; overflow: visible; text-overflow: clip; }
-      .latest-news-list .news-animals { margin-left: 0; }
+      .latest-news-list .news-animals { flex-basis: auto; width: 100%; margin-left: 0; }
       footer { padding: 1rem 0.75rem; line-height: 1.5; }
     }
   </style>
@@ -6238,7 +6238,7 @@ function renderZooAnimalDetailHtml(
     .animal-news-title { color: #1a1a1a; text-decoration: none; font-size: 0.9rem; line-height: 1.5; overflow-wrap: anywhere; }
     .animal-news-title:hover { color: #1f5b45; text-decoration: underline; text-underline-offset: 0.2em; }
     footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; border-top: 1px solid #eee; }
-    @media (max-width: 640px) {
+    @media (max-width: 700px) {
       .hero { grid-template-columns: 1fr; padding: 1rem 0.75rem; gap: 1rem; }
       .animal-image { max-width: none; }
       .hero-name { font-size: 1.3rem; }
@@ -6750,7 +6750,7 @@ function renderZooDetailHtml(
     .news-animals a { font-size: 0.72rem; color: #1f5b45; background: #f0f7f3; border: 1px solid #c5dece; padding: 0.1rem 0.45rem; text-decoration: none; }
     .news-animals a:hover { background: #e1f0e8; }
     #map { height: 320px; border: 1px solid #ddd; }
-    @media (max-width: 640px) {
+    @media (max-width: 700px) {
       main { padding: 0.75rem; }
       .section { padding: 0.75rem; }
       .zoo-title-row { display: grid; gap: 0.75rem; }
@@ -6976,7 +6976,7 @@ function renderNewsListHtml(
     .news-animals a { font-size: 0.72rem; color: #1f5b45; background: #f0f7f3; border: 1px solid #c5dece; padding: 0.1rem 0.45rem; text-decoration: none; }
     .news-animals a:hover { background: #e1f0e8; }
     .news-empty { color: #777; font-size: 0.9rem; }
-    @media (max-width: 640px) { main { padding: 0.75rem; } .news-list li { padding: 0.75rem 0.35rem; } }
+    @media (max-width: 700px) { main { padding: 0.75rem; } .news-list li { padding: 0.75rem 0.35rem; } }
   </style>
 </head>
 <body>
@@ -7358,7 +7358,7 @@ function renderCompareIndexHtml(
     .compare-go:disabled { opacity: 0.5; cursor: default; }
     .compare-clear { display: inline-flex; align-items: center; gap: 0.3rem; border: 1px solid rgba(255,255,255,0.5); background: transparent; color: #fff; padding: 0.4rem 0.75rem; cursor: pointer; font-size: 0.82rem; }
     html.has-compare-selection body { padding-bottom: 4.5rem; }
-    @media (max-width: 640px) {
+    @media (max-width: 700px) {
       main { padding: 0.75rem 0.5rem 5rem; }
       .compare-bar { bottom: calc(58px + env(safe-area-inset-bottom)); }
       html.has-compare-selection body { padding-bottom: calc(4.5rem + 58px + env(safe-area-inset-bottom)); }
@@ -7573,7 +7573,7 @@ function renderCompareHtml(
     .select-group { flex: 1 1 0; min-width: 0; }
     .select-group select { width: 100%; min-height: 42px; border: 1px solid #bbb; padding: 0.4rem 0.6rem; background: #fff; }
     .compare-form button { display: inline-flex; align-items: center; gap: 0.3rem; min-height: 42px; border: 1px solid #1f5b45; background: #1f5b45; color: #fff; padding: 0.4rem 1.1rem; cursor: pointer; font-size: 0.9rem; flex-shrink: 0; white-space: nowrap; }
-    @media (max-width: 640px) { .compare-form { flex-wrap: wrap; } .select-group { flex: 1 1 100%; } }
+    @media (max-width: 700px) { .compare-form { flex-wrap: wrap; } .select-group { flex: 1 1 100%; } }
     .compare-header { display: grid; grid-template-columns: ${gridCols}; border: 1px solid #ddd; border-bottom: none; position: sticky; top: 0; z-index: 10; }
     .compare-label { padding: 0.6rem 0.85rem; background: #f3f3f3; font-size: 0.82rem; font-weight: bold; color: #555; border-right: 1px solid #ddd; display: flex; justify-content: space-between; align-items: baseline; gap: 0.4rem; }
     .compare-label:last-child { border-right: none; }
@@ -7609,7 +7609,7 @@ function renderCompareHtml(
     .heat-legend-scale span:nth-child(3) { background: #c9e3d8; }
     .heat-legend-scale span:nth-child(4) { background: #b7dacb; }
     .heat-legend-scale span:nth-child(5) { background: #a5d0be; }
-    @media (max-width: 640px) {
+    @media (max-width: 700px) {
       main { padding: 0.75rem 0.75rem 2rem; gap: 1rem; }
       .compare-label { font-size: 0.68rem; padding: 0.45rem 0.35rem; }
       .col-list a { padding: 0.28rem 0.4rem; font-size: 0.78rem; }
@@ -8213,7 +8213,7 @@ function renderZoosShell(opts: {
       .compare-bar-text { flex: 1 1 100%; min-width: 0; }
       html.has-compare-selection body { padding-bottom: 7.5rem; }
     }
-    @media (max-width: 640px) {
+    @media (max-width: 700px) {
       .share-toast { bottom: calc(58px + env(safe-area-inset-bottom) + 0.75rem); }
       .compare-bar { bottom: calc(58px + env(safe-area-inset-bottom)); padding-bottom: 0.6rem; }
       html.has-compare-selection body { padding-bottom: calc(7.5rem + 58px + env(safe-area-inset-bottom)); }
@@ -8713,7 +8713,7 @@ function renderFavoritesHtml(
     .news-empty { color: #777; font-size: 0.9rem; }
     noscript p { color: #777; font-size: 0.88rem; border: 1px solid #e1e1e1; background: #f7f7f7; padding: 0.75rem; }
     footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #aaa; }
-    @media (max-width: 640px) {
+    @media (max-width: 700px) {
       main { padding: 0.85rem; }
       .news-list li { padding: 0.75rem 0.35rem; }
     }

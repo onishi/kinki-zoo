@@ -5216,9 +5216,9 @@ function renderHomeHtml(
       .spotlight-heading { display: grid; gap: 0.25rem; }
       .spotlight-animal-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .spotlight-zoo-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .latest-news-list li { flex-direction: column; align-items: flex-start; gap: 0.25rem; }
+      .latest-news-list li { flex-direction: column; flex-wrap: nowrap; align-items: flex-start; gap: 0.25rem; }
       .latest-news-list .news-date, .latest-news-list .news-zoo-label, .latest-news-list .news-title { flex: initial; width: auto; white-space: normal; overflow: visible; text-overflow: clip; }
-      .latest-news-list .news-animals { margin-left: 0; }
+      .latest-news-list .news-animals { flex-basis: auto; width: 100%; margin-left: 0; }
       footer { padding: 1rem 0.75rem; line-height: 1.5; }
     }
   </style>

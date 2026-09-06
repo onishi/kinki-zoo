@@ -5114,10 +5114,15 @@ function renderHomeHtml(
   results: ZooSearchResult[],
   activePref: PrefectureCode | null,
   latestNews: ZooNewsRow[] = [],
-  imageKeys: AnimalImageVersionIndex = new Map()
+  imageKeys: AnimalImageVersionIndex = new Map(),
+  featuredAnimals: FeaturedAnimal[] = []
 ): string {
   const count = results.length;
   const totalAnimalCount = results.reduce((sum, result) => sum + result.animalCount, 0);
+  const featuredZoos = results
+    .filter((result) => result.animalCount > 0)
+    .sort((a, b) => b.animalCount - a.animalCount)
+    .slice(0, 6);
 
   return `<!DOCTYPE html>
 <html lang="ja">
@@ -5155,7 +5160,7 @@ function renderHomeHtml(
     .explore-heading p { color: #666; font-size: 0.86rem; }
     .section-link { color: #1f5b45; font-size: 0.82rem; text-decoration: none; }
     .section-link:hover { text-decoration: underline; text-underline-offset: 0.2em; }
-    .explore-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.7rem; }
+    .explore-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.7rem; }
     .explore-card { display: grid; gap: 0.24rem; min-height: 7rem; align-content: start; padding: 0.85rem; }
     .explore-card span { font-weight: bold; font-size: 0.98rem; }
     .explore-card small { color: #617469; font-size: 0.76rem; }
@@ -5228,6 +5233,8 @@ ${renderSiteHeader()}
 ${renderGlobalNav("/")}
   <main id="main-content" tabindex="-1">
   ${renderHomeOverview(activePref, count, totalAnimalCount)}
+  ${renderExploreCards(activePref, count, totalAnimalCount)}
+  ${renderSpotlightSection(featuredAnimals, featuredZoos, activePref)}
   ${latestNews.length > 0 ? `<section class="latest-news-section">
     <div class="latest-news-heading">
       <h2><a class="icon-heading" href="/news">${icon("campaign")}最新のお知らせ</a></h2>
@@ -9677,12 +9684,13 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
         destination.search = url.search;
         return redirectResponse(`${destination.pathname}${destination.search}`, 301);
       }
-      const [results, latestNews, imageKeys] = await Promise.all([
+      const [results, latestNews, imageKeys, featuredAnimals] = await Promise.all([
         searchZoos(env.DB, activePref, null),
         loadAllZooNews(env.DB, 10),
         loadAnimalImageKeys(env.DB),
+        loadFeaturedAnimals(env.DB, activePref),
       ]);
-      const html = renderHomeHtml(results, activePref, latestNews, imageKeys);
+      const html = renderHomeHtml(results, activePref, latestNews, imageKeys, featuredAnimals);
       return htmlResponse(html, url, activePref);
     }
 

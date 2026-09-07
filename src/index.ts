@@ -3884,10 +3884,15 @@ function renderHeaderSearch(url: URL, activePref: PrefectureCode | null): string
 
 function htmlResponse(html: string, url: URL, activePref: PrefectureCode | null): Response {
   const canonicalUrl = escapeHtml(buildCanonicalUrl(url));
+  const iconLinks = `
+        <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
+        <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+        <link rel="manifest" href="/manifest.webmanifest">`;
   let rewriter = new HTMLRewriter()
     .on("head", {
       element(element) {
         element.prepend(`<link rel="canonical" href="${canonicalUrl}">`, { html: true });
+        element.append(iconLinks, { html: true });
       },
     })
     .on(".site-header", {
@@ -8913,6 +8918,44 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
       return new Response(FAVORITES_JS, {
         headers: {
           "Content-Type": "application/javascript; charset=utf-8",
+          "Cache-Control": "public, max-age=86400",
+        },
+      });
+    }
+
+    // Static: favicon and mobile app icons
+    const iconAssets: Record<string, { key: string; contentType: string }> = {
+      "/favicon.png": { key: "site/icon-32.png", contentType: "image/png" },
+      "/apple-touch-icon.png": { key: "site/apple-touch-icon.png", contentType: "image/png" },
+      "/icon-192.png": { key: "site/icon-192.png", contentType: "image/png" },
+      "/icon-512.png": { key: "site/icon-512.png", contentType: "image/png" },
+    };
+    const iconAsset = iconAssets[pathname];
+    if (iconAsset) {
+      const object = await env.IMAGES.get(iconAsset.key);
+      if (!object?.body) return notFound("アイコンが見つかりません");
+      return new Response(object.body, {
+        headers: {
+          "Content-Type": iconAsset.contentType,
+          "Cache-Control": "public, max-age=31536000, immutable",
+        },
+      });
+    }
+    if (pathname === "/manifest.webmanifest") {
+      return new Response(JSON.stringify({
+        name: "近畿動物園情報",
+        short_name: "KINKI ZOO",
+        start_url: "/",
+        display: "standalone",
+        background_color: "#a67c52",
+        theme_color: "#a67c52",
+        icons: [
+          { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
+          { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
+        ],
+      }), {
+        headers: {
+          "Content-Type": "application/manifest+json; charset=utf-8",
           "Cache-Control": "public, max-age=86400",
         },
       });

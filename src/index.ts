@@ -3886,6 +3886,7 @@ function htmlResponse(html: string, url: URL, activePref: PrefectureCode | null)
   const canonicalUrl = escapeHtml(buildCanonicalUrl(url));
   const iconLinks = `
         <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
+        <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png">
         <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
         <link rel="manifest" href="/manifest.webmanifest">`;
   let rewriter = new HTMLRewriter()

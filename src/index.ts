@@ -4174,11 +4174,11 @@ const COMMON_STYLES = `
       body { padding-bottom: calc(58px + env(safe-area-inset-bottom)); }
       .ui-btn, .ui-touch-target { min-height: 44px; }
       .site-header { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.6rem; padding: 0.75rem; }
-      .site-heading { flex: 1 1 100%; }
+      .site-heading { display: flex; flex: 1 1 100%; align-items: center; gap: 0.5rem; }
       .site-brand { gap: 0.45rem; }
       .site-brand-mark { width: 1.9rem; height: 1.9rem; flex-basis: 1.9rem; }
       .site-header h1 { font-size: 1.2rem; line-height: 1.35; }
-      .site-header p { font-size: 0.78rem; line-height: 1.45; }
+      .site-header p { margin-top: 0; font-size: 0.78rem; line-height: 1.45; white-space: nowrap; }
       .header-search { flex: 1 1 140px; width: auto; min-width: 0; max-width: none; }
       .header-search input, .header-search button { min-height: 44px; }
       .header-search button span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

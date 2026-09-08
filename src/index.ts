@@ -4115,7 +4115,7 @@ const COMMON_STYLES = `
     .news-badge { display: inline-flex; align-items: center; font-size: 0.68rem; font-weight: bold; padding: 0.05rem 0.35rem; border-radius: 2px; flex-shrink: 0; }
     .news-badge--new { background: #dc2626; color: #fff; }
     .news-animals a { display: inline-flex; align-items: center; gap: 0.3rem; }
-    .news-animal-thumb { display: block; width: 24px; height: 24px; flex: 0 0 24px; border-radius: 50%; object-fit: cover; background: #e7eee9; }
+    .news-animal-thumb { display: block; width: 24px; height: 24px; flex: 0 0 24px; border-radius: 50%; object-fit: cover; background: #e7eee9; border: 1px solid #c9aa8e; }
     .fav-toggle { border: 1px solid #d8c98a; background: #fff; color: #b8930b; cursor: pointer; }
     .fav-toggle:disabled { opacity: 0.4; cursor: not-allowed; }
     .fav-toggle--icon { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; width: 1.9rem; height: 1.9rem; padding: 0; font-size: 1.05rem; border-radius: 4px; margin-left: auto; }
@@ -5211,7 +5211,7 @@ function renderHomeHtml(
     .spotlight-more:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .spotlight-animal-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0.5rem; }
     .spotlight-animal-card { display: grid; gap: 0.2rem; padding: 0.5rem; align-content: start; justify-items: center; text-align: center; }
-    .spotlight-animal-img { width: 72px; height: 72px; object-fit: cover; border-radius: 3px; background: #f0f0f0; display: block; }
+    .spotlight-animal-img { width: 72px; height: 72px; object-fit: cover; border-radius: 3px; background: #f0f0f0; border: 1px solid #c9aa8e; display: block; }
     .spotlight-animal-card span { font-size: 0.82rem; font-weight: bold; }
     .spotlight-animal-card small { color: #617469; font-size: 0.72rem; }
     .spotlight-zoo-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.5rem; }
@@ -5430,7 +5430,7 @@ function renderSearchHtml(
     .search-animal-main small { display: block; margin-top: 0.15rem; color: #66756b; font-size: 0.76rem; }
     .search-animal-main:hover strong { text-decoration: underline; text-underline-offset: 0.2em; }
     .search-animal-thumb { width: 56px; height: 56px; }
-    img.search-animal-thumb { object-fit: cover; background: #f0f0f0; }
+    img.search-animal-thumb { object-fit: cover; background: #f0f0f0; border: 1px solid #c9aa8e; }
     .search-taxonomy, .search-alias { color: #555; font-size: 0.8rem; line-height: 1.45; }
     .search-zoo-links { display: flex; flex-wrap: wrap; gap: 0.35rem; }
     .search-zoo-links a { font-size: 0.76rem; }
@@ -6265,7 +6265,7 @@ function renderZooAnimalDetailHtml(
     .related-card { display: grid; gap: 0.35rem; padding: 0.55rem; min-width: 0; }
     .related-card-main { display: grid; gap: 0.35rem; color: inherit; text-decoration: none; }
     .related-thumb { width: 100%; aspect-ratio: 1; }
-    img.related-thumb { display: block; height: auto; object-fit: cover; background: #f7f7f7; }
+    img.related-thumb { display: block; height: auto; object-fit: cover; background: #f7f7f7; border: 1px solid #c9aa8e; }
     .related-name { font-size: 0.82rem; font-weight: bold; line-height: 1.35; overflow-wrap: anywhere; }
     .related-taxonomy { color: #777; font-size: 0.72rem; line-height: 1.35; }
     .related-zoo-links { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; }
@@ -6536,7 +6536,7 @@ function renderTaxonomyDetailHtml(
     .taxonomy-link small { color: #617469; font-size: 0.75rem; }
     .featured-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 0.65rem; }
     .featured-animal { display: grid; gap: 0.25rem; min-width: 0; color: #222; text-decoration: none; }
-    .featured-animal img { width: 100%; aspect-ratio: 1; height: auto; object-fit: cover; border: 1px solid #ddd; background: #f7f7f7; }
+    .featured-animal img { width: 100%; aspect-ratio: 1; height: auto; object-fit: cover; border: 1px solid #c9aa8e; background: #f7f7f7; }
     .featured-animal span { color: #1f5b45; font-size: 0.86rem; font-weight: bold; overflow-wrap: anywhere; }
     .featured-animal small { color: #777; font-size: 0.72rem; }
     .top-zoos-list { list-style: none; display: grid; gap: 0.4rem; counter-reset: top-zoos; }
@@ -6762,7 +6762,7 @@ function renderZooDetailHtml(
     .section-heading a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .featured-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 0.65rem; }
     .featured-animal { display: grid; gap: 0.25rem; min-width: 0; color: #222; text-decoration: none; }
-    .featured-animal img { width: 100%; aspect-ratio: 1; height: auto; object-fit: cover; border: 1px solid #ddd; background: #f7f7f7; }
+    .featured-animal img { width: 100%; aspect-ratio: 1; height: auto; object-fit: cover; border: 1px solid #c9aa8e; background: #f7f7f7; }
     .featured-animal span { color: #1f5b45; font-size: 0.86rem; font-weight: bold; overflow-wrap: anywhere; }
     .featured-animal small { color: #777; font-size: 0.72rem; }
     .class-filters { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.75rem; }
@@ -8720,7 +8720,7 @@ function renderFavoritesHtml(
     .favorites-list a span { min-width: 0; }
     .favorites-list a small { display: block; margin-top: 0.1rem; color: #718078; font-size: 0.68rem; font-weight: normal; }
     .favorites-list a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
-    .favorites-animal-thumb { display: block; width: 26px; height: 26px; flex: 0 0 26px; border-radius: 50%; object-fit: cover; background: #e7eee9; }
+    .favorites-animal-thumb { display: block; width: 26px; height: 26px; flex: 0 0 26px; border-radius: 50%; object-fit: cover; background: #e7eee9; border: 1px solid #c9aa8e; }
     .favorites-remove { flex: 0 0 2.25rem; width: 2.25rem; min-height: 2.25rem; padding: 0; border-color: transparent; }
     .favorites-remove .ui-icon { width: 1rem; height: 1rem; }
     .favorites-ranking { border-top: 1px solid #e5e9e6; padding-top: 1rem; }

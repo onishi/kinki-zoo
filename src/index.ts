@@ -5716,7 +5716,7 @@ function renderAnimalsHtml(
       null,
       allAnimals.length,
       buildAnimalsUrl(filter, query),
-      (className) => buildAnimalsUrl(filter, query, { className })
+      (className) => buildTaxonomyPathUrl([className])
     );
   } else if (!taxonomy.orderName) {
     nextTaxonomyLabel = "目";

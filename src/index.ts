@@ -4129,8 +4129,10 @@ const COMMON_STYLES = `
     .name-with-fav { display: flex; align-items: center; gap: 0.4rem; }
     .site-header { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem 2rem; padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; }
     .site-heading { flex: 1 1 320px; min-width: 0; }
+    .site-brand { display: flex; align-items: center; gap: 0.6rem; min-width: 0; }
+    .site-brand-mark { display: block; width: 2.35rem; height: 2.35rem; flex: 0 0 2.35rem; border-radius: 50%; object-fit: cover; }
     .site-header h1 { font-size: 1.5rem; }
-    .site-header h1 a { color: inherit; text-decoration: none; }
+    .site-header h1 a { color: #8b6546; text-decoration: none; }
     .site-header p { font-size: 0.9rem; color: #555; margin-top: 0.25rem; }
     .header-search { display: flex; flex: 1 1 300px; max-width: 460px; align-items: center; gap: 0.4rem; }
     .header-search label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -4173,6 +4175,8 @@ const COMMON_STYLES = `
       .ui-btn, .ui-touch-target { min-height: 44px; }
       .site-header { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.6rem; padding: 0.75rem; }
       .site-heading { flex: 1 1 100%; }
+      .site-brand { gap: 0.45rem; }
+      .site-brand-mark { width: 1.9rem; height: 1.9rem; flex-basis: 1.9rem; }
       .site-header h1 { font-size: 1.2rem; line-height: 1.35; }
       .site-header p { font-size: 0.78rem; line-height: 1.45; }
       .header-search { flex: 1 1 140px; width: auto; min-width: 0; max-width: none; }
@@ -4198,7 +4202,10 @@ function renderSiteHeader(): string {
   return `  <a class="skip-link" href="#main-content">本文へスキップ</a>
   <header class="site-header">
     <div class="site-heading">
-      <h1><a href="/">KINKI ZOO</a></h1>
+      <div class="site-brand">
+        <img class="site-brand-mark" src="/paw-icon.png?v=1" alt="">
+        <h1><a href="/">KINKI ZOO</a></h1>
+      </div>
       <p>近畿動物園情報</p>
     </div>
   </header>`;
@@ -8959,6 +8966,7 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
       "/apple-touch-icon.png": { key: "site/apple-touch-icon.png", contentType: "image/png" },
       "/icon-192.png": { key: "site/icon-192.png", contentType: "image/png" },
       "/icon-512.png": { key: "site/icon-512.png", contentType: "image/png" },
+      "/paw-icon.png": { key: "site/paw-icon.png", contentType: "image/png" },
     };
     const iconAsset = iconAssets[pathname];
     if (iconAsset) {

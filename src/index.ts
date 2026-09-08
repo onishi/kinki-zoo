@@ -3883,6 +3883,34 @@ function renderHeaderSearch(url: URL, activePref: PrefectureCode | null): string
 }
 
 function htmlResponse(html: string, url: URL, activePref: PrefectureCode | null): Response {
+  const palette: Record<string, string> = {
+    "#1f5b45": "#8b6546",
+    "#184a38": "#6f4e37",
+    "#2d6a4f": "#79583d",
+    "#f1f8f3": "#f6efe8",
+    "#f8fbf9": "#fbf8f4",
+    "#dce7df": "#e8ddd2",
+    "#9bc4ab": "#c7a98d",
+    "#d3e4d8": "#e2d3c5",
+    "#f7fbf8": "#faf7f3",
+    "#eff7f2": "#f3e9df",
+    "#d7e4dd": "#e5d9ce",
+    "#f0f7f3": "#f3e8dc",
+    "#c5dece": "#d8c0a7",
+    "#87ad99": "#b89472",
+    "#d8e2dc": "#ded0c3",
+    "#647168": "#6f645a",
+    "#e7eee9": "#ebe1d7",
+    "#e8f5ee": "#f1e5d8",
+    "#b6ddc8": "#d6bca0",
+    "#f0fbf4": "#f3e8dd",
+    "#f4faf6": "#f7f0e9",
+    "#b9d4c2": "#d5c0ab",
+  };
+  for (const [from, to] of Object.entries(palette)) html = html.replaceAll(from, to);
+  html = html
+    .replaceAll("| 近畿動物園情報", "| KINKI ZOO")
+    .replaceAll("<title>近畿動物園情報</title>", "<title>KINKI ZOO</title>");
   const canonicalUrl = escapeHtml(buildCanonicalUrl(url));
   const iconLinks = `
         <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png?v=2">
@@ -4170,7 +4198,8 @@ function renderSiteHeader(): string {
   return `  <a class="skip-link" href="#main-content">本文へスキップ</a>
   <header class="site-header">
     <div class="site-heading">
-      <h1><a href="/">近畿動物園情報</a></h1>
+      <h1><a href="/">KINKI ZOO</a></h1>
+      <p>近畿動物園情報</p>
     </div>
   </header>`;
 }

@@ -470,16 +470,23 @@ function hiraganaToKatakana(value: string): string {
   return value.replace(/[ぁ-ん]/g, (char) => String.fromCharCode(char.charCodeAt(0) + 0x60));
 }
 
+const ANIMAL_NAME_SORT_KEY_OVERRIDES: Record<string, string> = {
+  "大型犬": "オオガタケン",
+  "小型犬": "コガタケン",
+  "矮鶏": "チャボ",
+};
+
 function normalizeTextForSearchIndex(value: string): string {
   return hiraganaToKatakana(value.normalize("NFKC"))
     .toLocaleLowerCase("ja-JP")
     .replace(/[\s　・･]/g, "");
 }
 
-// ひらがな→カタカナ変換のみ行い、SQLite の BINARY 照合でも
-// ひらがな/カタカナ表記ゆれに関わらず同じ位置に並ぶようにする（漢字の読み順までは保証しない）。
+// ひらがな→カタカナ変換に加え、読みを推測できない漢字名は明示的に補正する。
+// SQLite の BINARY 照合でも、読み仮名順に並べられるキーを保存する。
 function buildSortKey(value: string): string {
-  return hiraganaToKatakana(value.normalize("NFKC"));
+  const normalized = value.normalize("NFKC");
+  return ANIMAL_NAME_SORT_KEY_OVERRIDES[normalized] ?? hiraganaToKatakana(normalized);
 }
 
 function matchesSearchQuery(values: Array<string | null | undefined>, query: string): boolean {

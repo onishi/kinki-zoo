@@ -3657,21 +3657,24 @@ function renderHomeOverview(
 
 function renderExploreCards(activePref: PrefectureCode | null, facilityCount: number, totalAnimalCount: number): string {
   const prefLabel = activePref ? PREF_LABELS[activePref] : "近畿一円";
-  const cards = [
+  const cards: Array<{ href: string; iconName: IconName; label: string; meta: string; body: string }> = [
     {
       href: buildBrowseUrl(activePref, null),
+      iconName: "location_city",
       label: "動物園一覧",
       meta: `${prefLabel}の ${facilityCount} 施設`,
       body: "施設名、地域、住所、基本情報を一覧で確認できます。",
     },
     {
       href: buildMapUrl(activePref, null),
+      iconName: "map",
       label: "地図で探す",
       meta: `${prefLabel}の ${facilityCount} 施設`,
       body: "現在地や旅行先に近い動物園を地図から探せます。",
     },
     {
       href: activePref ? `/animals?pref=${activePref}` : "/animals",
+      iconName: "pets",
       label: "動物から探す",
       meta: totalAnimalCount > 0 ? `動物 ${totalAnimalCount} 種` : "動物一覧",
       body: "動物名の検索と、哺乳類・鳥類などの分類絞り込みで見られる施設を確認できます。",
@@ -3689,7 +3692,7 @@ function renderExploreCards(activePref: PrefectureCode | null, facilityCount: nu
         .map(
           (card) => `
             <a class="explore-card ui-card-link ui-touch-target" href="${card.href}">
-              <span>${escapeHtml(card.label)}</span>
+              <strong class="explore-card-title">${icon(card.iconName)}<span>${escapeHtml(card.label)}</span></strong>
               <small>${escapeHtml(card.meta)}</small>
               <em>${escapeHtml(card.body)}</em>
             </a>`
@@ -4164,7 +4167,8 @@ const COMMON_STYLES = `
     .breadcrumb a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .breadcrumb span[aria-current="page"] { color: #333; font-weight: bold; overflow-wrap: anywhere; }
     .page-nav { margin-bottom: 1rem; display: flex; gap: 1rem; flex-wrap: wrap; }
-    .page-nav a { color: #2d6a4f; text-decoration: none; }
+    .page-nav a { display: inline-flex; align-items: center; gap: 0.3rem; color: #2d6a4f; text-decoration: none; }
+    .page-nav a .ui-icon { width: 1.05em; height: 1.05em; opacity: 0.8; }
     .ui-state {
       margin: 1rem 1.5rem;
       border: 1px solid #d7e4dd;
@@ -5211,7 +5215,8 @@ function renderHomeHtml(
     .section-link:hover { text-decoration: underline; text-underline-offset: 0.2em; }
     .explore-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.7rem; }
     .explore-card { display: grid; gap: 0.24rem; min-height: 7rem; align-content: start; padding: 0.85rem; }
-    .explore-card span { font-weight: bold; font-size: 0.98rem; }
+    .explore-card-title { display: inline-flex; align-items: center; gap: 0.4rem; color: #1f5b45; font-size: 0.98rem; }
+    .explore-card-title .ui-icon { width: 1.1em; height: 1.1em; opacity: 0.82; }
     .explore-card small { color: #617469; font-size: 0.76rem; }
     .explore-card em { color: #3f4f45; font-size: 0.8rem; line-height: 1.45; font-style: normal; }
     .spotlight-section { padding: 1rem 1.5rem; border-bottom: 1px solid #ddd; display: grid; gap: 0.85rem; }
@@ -6831,9 +6836,9 @@ ${renderGlobalNav("/zoos")}
   ${breadcrumb}
   <main id="main-content" tabindex="-1">
     <nav class="page-nav">
-      ${news.length > 0 ? `<a href="#zoo-news">お知らせ</a>` : ""}
-      <a href="#animals">動物一覧</a>
-      <a href="${escapeHtml(zoo.website)}" target="_blank" rel="noopener noreferrer">公式サイト</a>
+      ${news.length > 0 ? `<a href="#zoo-news">${icon("campaign")}お知らせ</a>` : ""}
+      <a href="#animals">${icon("pets")}動物一覧</a>
+      <a href="${escapeHtml(zoo.website)}" target="_blank" rel="noopener noreferrer">${icon("open_in_new")}公式サイト</a>
     </nav>
     <section class="section">
       <div class="zoo-title-row">

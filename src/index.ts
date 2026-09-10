@@ -6503,7 +6503,7 @@ function renderTaxonomyDetailHtml(
                   : buildAnimalSearchUrl(title);
                 const imageVersion = imageKeys.get(normalizeAnimalImageKey(imageDisplayName));
                 return `
-                  <a class="featured-animal" href="${href}">
+                  <a class="featured-animal" href="${href}" aria-label="${escapeHtml(title)}">
                     <img src="${buildAnimalImageUrl(imageDisplayName, imageVersion)}" alt="" loading="lazy" width="112" height="112">
                     <span>${escapeHtml(title)}</span>
                     <small>${item.zoos.length} 施設</small>
@@ -6586,6 +6586,11 @@ function renderTaxonomyDetailHtml(
       .taxonomy-detail-heading { align-items: flex-start; padding-left: 0.75rem; padding-right: 0.75rem; }
       .summary, .child-taxonomy, .representative-section, .top-zoos-section { padding-left: 0.75rem; padding-right: 0.75rem; }
       .taxonomy-links { grid-template-columns: 1fr; }
+      .representative-section .featured-grid { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+      .representative-section .featured-animal { display: block; flex: 0 0 48px; width: 48px; }
+      .representative-section .featured-animal img { display: block; width: 48px; height: 48px; border-radius: 4px; }
+      .representative-section .featured-animal span,
+      .representative-section .featured-animal small { display: none; }
       .animal-list { padding: 0.75rem; overflow: visible; }
       .animal-table { min-width: 0; border: 0; }
       .animal-table thead { display: none; }

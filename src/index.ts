@@ -6586,6 +6586,9 @@ function renderTaxonomyDetailHtml(
       .taxonomy-detail-heading { align-items: flex-start; padding-left: 0.75rem; padding-right: 0.75rem; }
       .summary, .child-taxonomy, .representative-section, .top-zoos-section { padding-left: 0.75rem; padding-right: 0.75rem; }
       .taxonomy-links { grid-template-columns: 1fr; }
+      .taxonomy-link { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; }
+      .taxonomy-link span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .taxonomy-link small { flex: 0 0 auto; white-space: nowrap; }
       .representative-section .featured-grid { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 0.35rem; }
       .representative-section .featured-animal { display: block; width: 100%; min-width: 0; }
       .representative-section .featured-animal img { display: block; width: 100%; height: auto; aspect-ratio: 1; border-radius: 4px; }

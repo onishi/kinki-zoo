@@ -3916,6 +3916,19 @@ function htmlResponse(html: string, url: URL, activePref: PrefectureCode | null)
     "#f0fbf4": "#f3e8dd",
     "#f4faf6": "#f7f0e9",
     "#b9d4c2": "#d5c0ab",
+    "#d3e0d8": "#e2d5c9",
+    "#f3f7f4": "#f6f0ea",
+    "#4c5d53": "#65584d",
+    "#4f6257": "#695b50",
+    "#f3fbf5": "#f7efe7",
+    "#d7eadc": "#e6d6c7",
+    "#456052": "#715b49",
+    "#b7dcc3": "#d8bda3",
+    "#1b5e3b": "#765238",
+    "#5d7166": "#75675c",
+    "#6d756f": "#746a61",
+    "#66756b": "#74685e",
+    "#f5fbf8": "#faf5f0",
   };
   for (const [from, to] of Object.entries(palette)) html = html.replaceAll(from, to);
   html = html

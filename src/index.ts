@@ -168,11 +168,16 @@ interface TaxonomyCandidateApplyResult {
   candidate: TaxonomyCandidate;
 }
 
-interface AnimalImageRecord {
+// 画像を実際に配信しない画面では、base64 本体を読まずに
+// 「画像があるか」と「選択中の生成 ID（キャッシュバスター）」だけがあればよい。
+interface AnimalImageVersion {
+  selectedGenerationId?: number;
+}
+
+interface AnimalImageRecord extends AnimalImageVersion {
   animalKey: string;
   displayName: string;
   normalizedName: string;
-  selectedGenerationId?: number;
   prompt: string;
   model: string;
   mimeType: string;
@@ -305,14 +310,40 @@ function getActivePrefecture(url: URL): PrefectureCode | null {
   return pref && isPrefectureCode(pref) ? pref : null;
 }
 
+// 動物園マスタは静的データなので、リクエストごとに索引を組み直さず
+// モジュール読み込み時に 1 度だけ作る。
+const ZOO_BY_ID: ReadonlyMap<string, Zoo> = new Map(zoos.map((zoo) => [zoo.id, zoo]));
+
+const ZOO_IDS_BY_PREFECTURE: ReadonlyMap<PrefectureCode | null, readonly string[]> = new Map([
+  [null, zoos.map((zoo) => zoo.id)],
+  ...PREF_CODES.map((code): [PrefectureCode, string[]] => [
+    code,
+    zoos.filter((zoo) => zoo.prefecture === code).map((zoo) => zoo.id),
+  ]),
+]);
+
 function getZooIdsForPrefecture(pref: PrefectureCode | null): string[] {
-  return zoos
-    .filter((zoo) => !pref || zoo.prefecture === pref)
-    .map((zoo) => zoo.id);
+  return [...(ZOO_IDS_BY_PREFECTURE.get(pref) ?? [])];
+}
+
+function findZooById(zooId: string): Zoo | undefined {
+  return ZOO_BY_ID.get(zooId);
 }
 
 function buildPlaceholders(values: unknown[]): string {
   return values.length > 0 ? values.map(() => "?").join(", ") : "NULL";
+}
+
+// D1 は 1 ステートメントあたりのバインド変数に上限があるため、
+// IN 句をまとめる際はこの単位で分割する。
+const SQL_BIND_CHUNK_SIZE = 80;
+
+function chunkArray<T>(values: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+  return chunks;
 }
 
 function normalizeSearchTerm(value?: string | null): string | null {
@@ -476,11 +507,29 @@ const ANIMAL_NAME_SORT_KEY_OVERRIDES: Record<string, string> = {
   "矮鶏": "チャボ",
 };
 
-function normalizeTextForSearchIndex(value: string): string {
-  return hiraganaToKatakana(value.normalize("NFKC"))
-    .toLocaleLowerCase("ja-JP")
-    .replace(/[\s　・･]/g, "");
+// 一覧・検索の絞り込みや描画では、同じ動物名・分類名に対して
+// NFKC 正規化と小文字化を 1 リクエスト中に何百回も繰り返すことになる。
+// 純粋な文字列変換なので結果を使い回す。isolate をまたいで残るため、
+// 上限を超えたら丸ごと捨てて無制限に増えないようにする。
+const STRING_MEMO_MAX_SIZE = 4096;
+
+function memoizeStringFn(transform: (value: string) => string): (value: string) => string {
+  const cache = new Map<string, string>();
+  return (value: string): string => {
+    const cached = cache.get(value);
+    if (cached !== undefined) return cached;
+    const result = transform(value);
+    if (cache.size >= STRING_MEMO_MAX_SIZE) cache.clear();
+    cache.set(value, result);
+    return result;
+  };
 }
+
+const normalizeTextForSearchIndex = memoizeStringFn((value: string): string =>
+  hiraganaToKatakana(value.normalize("NFKC"))
+    .toLocaleLowerCase("ja-JP")
+    .replace(/[\s　・･]/g, "")
+);
 
 // ひらがな→カタカナ変換に加え、読みを推測できない漢字名は明示的に補正する。
 // SQLite の BINARY 照合でも、読み仮名順に並べられるキーを保存する。
@@ -509,18 +558,19 @@ const ANIMAL_DISPLAY_NAME_OVERRIDES: Array<{ pattern: RegExp; label: string }> =
   { pattern: /^アジアの森サソリ$/, label: "アジアンフォレストスコーピオン" },
 ];
 
-function formatAnimalDisplayName(value: string): string {
+const formatAnimalDisplayName = memoizeStringFn((value: string): string => {
   const normalized = value.normalize("NFKC").trim();
   return ANIMAL_DISPLAY_NAME_OVERRIDES.find(({ pattern }) => pattern.test(normalized))?.label ?? value;
-}
+});
 
 function normalizeAnimalNameForDiff(value: string): string {
   return normalizeAnimalNameForSearch(value).replace(/[\s　]+/g, "");
 }
 
-function normalizeAnimalImageKey(value: string): string {
-  return normalizeAnimalNameForSearch(value).replace(/[\s　]+/g, "");
-}
+// 画像キーは 1 枚のカードを描くだけで複数回引き直すため、変換結果を使い回す。
+const normalizeAnimalImageKey = memoizeStringFn((value: string): string =>
+  normalizeAnimalNameForSearch(value).replace(/[\s　]+/g, "")
+);
 
 function uniqueDisplayNames(values: string[]): string[] {
   const unique: string[] = [];
@@ -1059,26 +1109,28 @@ async function loadCachedAnimalMatches(
 }
 
 async function loadCachedScrapeResult(db: D1Database, zooId: string): Promise<ScrapeResult | null> {
-  const meta = await db
-    .prepare(
-      `SELECT zoo_id, scraped_at, error
-       FROM animal_scrape_results
-       WHERE zoo_id = ?`
-    )
-    .bind(zooId)
-    .first<ScrapeResultRow>();
+  // 施設詳細で必ず両方使うので、直列に待たずまとめて投げる。
+  const [meta, animalsResult] = await Promise.all([
+    db
+      .prepare(
+        `SELECT zoo_id, scraped_at, error
+         FROM animal_scrape_results
+         WHERE zoo_id = ?`
+      )
+      .bind(zooId)
+      .first<ScrapeResultRow>(),
+    db
+      .prepare(
+        `SELECT display_name
+         FROM zoo_animals
+         WHERE zoo_id = ?
+         ORDER BY display_name`
+      )
+      .bind(zooId)
+      .all<{ display_name: string }>(),
+  ]);
 
   if (!meta) return null;
-
-  const animalsResult = await db
-    .prepare(
-      `SELECT display_name
-       FROM zoo_animals
-       WHERE zoo_id = ?
-       ORDER BY display_name`
-    )
-    .bind(zooId)
-    .all<{ display_name: string }>();
 
   return {
     zooId: meta.zoo_id,
@@ -1277,7 +1329,6 @@ async function loadScrapeHistory(
       .all<{ zoo_id: string; scraped_at: string; message: string; current_count: number }>(),
   ]);
 
-  const zooById = new Map(zoos.map((zoo) => [zoo.id, zoo]));
   const keyFor = (zooId: string, scrapedAt: string) => `${zooId}\n${scrapedAt}`;
   const diffsByRun = new Map<string, NonNullable<typeof diffRows.results>>();
   for (const row of diffRows.results ?? []) {
@@ -1302,7 +1353,7 @@ async function loadScrapeHistory(
     const diffs = diffsByRun.get(key) ?? [];
     return {
       zooId: row.zoo_id,
-      zooName: zooById.get(row.zoo_id)?.name ?? row.zoo_id,
+      zooName: ZOO_BY_ID.get(row.zoo_id)?.name ?? row.zoo_id,
       scrapedAt: row.scraped_at,
       error: row.error,
       animalCount: row.animal_count || warningCountsByRun.get(key) || 0,
@@ -1328,11 +1379,10 @@ async function loadScrapeHistory(
 }
 
 function buildAnimalListItems(rows: AnimalListRow[]): AnimalListItem[] {
-  const zooById = new Map(zoos.map((zoo) => [zoo.id, zoo]));
   const animals = new Map<string, AnimalListItem>();
 
   for (const row of rows) {
-    const zoo = zooById.get(row.zoo_id);
+    const zoo = ZOO_BY_ID.get(row.zoo_id);
     if (!zoo) continue;
     const key = row.animal_id ?? `display:${row.display_name}`;
     const item = animals.get(key) ?? {
@@ -1828,61 +1878,6 @@ async function saveAnimalImage(
   };
 }
 
-async function loadAnimalImageGenerations(
-  db: D1Database,
-  displayName: string
-): Promise<AnimalImageGenerationRecord[]> {
-  const animalKey = normalizeAnimalImageKey(displayName);
-  const active = await loadAnimalImage(db, displayName);
-  const result = await db
-    .prepare(
-      `SELECT
-         id,
-         animal_key,
-         display_name,
-         normalized_name,
-         prompt,
-         model,
-         mime_type,
-         image_base64,
-         width,
-         height,
-         created_at
-       FROM animal_image_generations
-       WHERE animal_key = ?
-       ORDER BY id DESC`
-    )
-    .bind(animalKey)
-    .all<{
-      id: number;
-      animal_key: string;
-      display_name: string;
-      normalized_name: string;
-      prompt: string;
-      model: string;
-      mime_type: string;
-      image_base64: string;
-      width: number;
-      height: number;
-      created_at: string;
-    }>();
-
-  return (result.results ?? []).map((row) => ({
-    id: row.id,
-    animalKey: row.animal_key,
-    displayName: row.display_name,
-    normalizedName: row.normalized_name,
-    prompt: row.prompt,
-    model: row.model,
-    mimeType: row.mime_type,
-    imageBase64: row.image_base64,
-    width: row.width,
-    height: row.height,
-    createdAt: row.created_at,
-    selected: active?.selectedGenerationId === row.id,
-  }));
-}
-
 async function loadAnimalImageGenerationById(
   db: D1Database,
   id: number
@@ -2092,33 +2087,35 @@ async function loadAnimalImageManageItems(
   query: string | null = null,
   noImage: boolean = false
 ): Promise<AnimalImageManageItem[]> {
-  const result = await db
-    .prepare(
-      `SELECT name
-       FROM (
-         SELECT canonical_name AS name
-         FROM animals
-         WHERE canonical_name IS NOT NULL
-         UNION
-         SELECT display_name AS name
-         FROM zoo_animals
-       )
-       ORDER BY name`
-    )
-    .all<{ name: string }>();
-  const selectedRows = await db
-    .prepare(
-      `SELECT animal_key, selected_generation_id, updated_at
-       FROM animal_images`
-    )
-    .all<{ animal_key: string; selected_generation_id: number | null; updated_at: string }>();
-  const generationRows = await db
-    .prepare(
-      `SELECT id, animal_key, model, created_at
-       FROM animal_image_generations
-       ORDER BY animal_key, id DESC`
-    )
-    .all<{ id: number; animal_key: string; model: string; created_at: string }>();
+  const [result, selectedRows, generationRows] = await Promise.all([
+    db
+      .prepare(
+        `SELECT name
+         FROM (
+           SELECT canonical_name AS name
+           FROM animals
+           WHERE canonical_name IS NOT NULL
+           UNION
+           SELECT display_name AS name
+           FROM zoo_animals
+         )
+         ORDER BY name`
+      )
+      .all<{ name: string }>(),
+    db
+      .prepare(
+        `SELECT animal_key, selected_generation_id, updated_at
+         FROM animal_images`
+      )
+      .all<{ animal_key: string; selected_generation_id: number | null; updated_at: string }>(),
+    db
+      .prepare(
+        `SELECT id, animal_key, model, created_at
+         FROM animal_image_generations
+         ORDER BY animal_key, id DESC`
+      )
+      .all<{ id: number; animal_key: string; model: string; created_at: string }>(),
+  ]);
 
   const selectedByKey = new Map(
     (selectedRows.results ?? []).map((row) => [
@@ -2201,7 +2198,6 @@ async function loadZooAnimalDetail(
   const rows = result.results ?? [];
   if (rows.length === 0) return null;
 
-  const zooById = new Map(zoos.map((zoo) => [zoo.id, zoo]));
   const taxonomicRow = rows.find((row) => row.animal_id) ?? rows[0];
   const candidateRow =
     taxonomicRow.animal_id
@@ -2272,7 +2268,7 @@ async function loadZooAnimalDetail(
     genusName: taxonomicRow.genus_name ?? normalizeOptionalText(resolvedTaxonomy?.genus_name) ?? undefined,
     speciesName: taxonomicRow.species_name ?? normalizeOptionalText(resolvedTaxonomy?.species_name) ?? undefined,
     zoos: rows.flatMap((row) => {
-      const zoo = zooById.get(row.zoo_id);
+      const zoo = ZOO_BY_ID.get(row.zoo_id);
       return zoo ? [zoo] : [];
     }),
     classificationStatus,
@@ -2306,11 +2302,10 @@ async function loadAnimalPastZoos(
     .all<{ zoo_id: string; last_seen_missing_at: string }>();
 
   const currentSet = new Set(currentZooIds);
-  const zooById = new Map(zoos.map((zoo) => [zoo.id, zoo]));
   return (result.results ?? [])
     .filter((row) => !currentSet.has(row.zoo_id))
     .flatMap((row) => {
-      const zoo = zooById.get(row.zoo_id);
+      const zoo = ZOO_BY_ID.get(row.zoo_id);
       return zoo ? [{ zoo, lastSeenMissingAt: row.last_seen_missing_at }] : [];
     })
     .sort((a, b) => b.lastSeenMissingAt.localeCompare(a.lastSeenMissingAt));
@@ -2340,10 +2335,9 @@ async function loadRelatedDisplayNames(
     .bind(detail.displayName, detail.displayName, ...(pref ? zooIds : []))
     .all<{ display_name: string; zoo_id: string }>();
 
-  const zooById = new Map(zoos.map((zoo) => [zoo.id, zoo]));
   const byName = new Map<string, Zoo[]>();
   for (const row of result.results ?? []) {
-    const zoo = zooById.get(row.zoo_id);
+    const zoo = ZOO_BY_ID.get(row.zoo_id);
     if (!zoo) continue;
     const list = byName.get(row.display_name) ?? [];
     if (!list.some((existing) => existing.id === zoo.id)) list.push(zoo);
@@ -3227,16 +3221,24 @@ interface AnimalNewsRow {
 }
 
 async function loadZooNews(db: D1Database, zooId: string, limit = 5): Promise<ZooNewsRow[]> {
+  // 先に LIMIT で対象を絞ってから動物名を結合する。
+  // 結合してから GROUP BY・並べ替えると、表示しない分まで走査してしまう。
+  // SQLite は DESC で NULL を最後に並べるため、NULL 判定の CASE は不要。
   const rows = await db
     .prepare(
-      `SELECT n.id, n.zoo_id, n.title, n.url, n.published_at, n.fetched_at, n.body,
+      `WITH latest AS (
+         SELECT id, zoo_id, title, url, published_at, fetched_at, body
+         FROM zoo_news
+         WHERE zoo_id = ?
+         ORDER BY published_at DESC
+         LIMIT ?
+       )
+       SELECT n.id, n.zoo_id, n.title, n.url, n.published_at, n.fetched_at, n.body,
               GROUP_CONCAT(a.animal_name) AS animal_names
-       FROM zoo_news n
+       FROM latest n
        LEFT JOIN zoo_news_animals a ON a.news_id = n.id
-       WHERE n.zoo_id = ?
        GROUP BY n.id
-       ORDER BY CASE WHEN n.published_at IS NULL THEN 1 ELSE 0 END, n.published_at DESC
-       LIMIT ?`
+       ORDER BY n.published_at DESC`
     )
     .bind(zooId, limit)
     .all<ZooNewsRow>();
@@ -3267,11 +3269,37 @@ function matchesAnimalNameAsWord(text: string, name: string): boolean {
   }
 }
 
-function extractAnimalNamesFromText(text: string, animalNames: Set<string>): string[] {
-  const found: string[] = [];
+// 動物名を先頭文字でバケットに分けた索引。
+// お知らせ 1 件ごとに全動物名を総当たりすると
+// 「お知らせ件数 × 動物名件数」回の部分一致検索になるため、
+// 本文に現れる文字で始まる名前だけに候補を絞り込む。
+type AnimalNameIndex = Map<string, string[]>;
+
+function firstCodePoint(value: string): string {
+  const codePoint = value.codePointAt(0);
+  return codePoint === undefined ? "" : String.fromCodePoint(codePoint);
+}
+
+function buildAnimalNameIndex(animalNames: Iterable<string>): AnimalNameIndex {
+  const index: AnimalNameIndex = new Map();
   for (const name of animalNames) {
-    if (name.length >= 2 && matchesAnimalNameAsWord(text, name)) {
-      found.push(name);
+    if (name.length < 2) continue;
+    const head = firstCodePoint(name);
+    const bucket = index.get(head);
+    if (bucket) bucket.push(name);
+    else index.set(head, [name]);
+  }
+  return index;
+}
+
+function extractAnimalNamesFromText(text: string, animalNames: AnimalNameIndex): string[] {
+  const found: string[] = [];
+  const checkedHeads = new Set<string>();
+  for (const char of text) {
+    if (checkedHeads.has(char)) continue;
+    checkedHeads.add(char);
+    for (const name of animalNames.get(char) ?? []) {
+      if (matchesAnimalNameAsWord(text, name)) found.push(name);
     }
   }
   return found;
@@ -3281,7 +3309,7 @@ async function saveZooNews(
   db: D1Database,
   zooId: string,
   items: NewsItem[],
-  allAnimalNames: Set<string>
+  allAnimalNames: AnimalNameIndex
 ): Promise<void> {
   if (items.length === 0) return;
   const fetchedAt = new Date().toISOString();
@@ -3304,22 +3332,32 @@ async function saveZooNews(
   // Extract and save animal name links.
   // 抽出ルールの変更や本文更新で古い紐付けが残らないよう、
   // 対象ニュースの既存リンクを削除してから入れ直す。
+  // お知らせ 1 件ごとに id を引くと件数分のクエリになるため、
+  // URL をまとめて 1 回（パラメータ上限があるので分割）で引き当てる。
+  const idByUrl = new Map<string, number>();
+  for (const chunk of chunkArray(items.map((item) => item.url), SQL_BIND_CHUNK_SIZE)) {
+    const rows = await db
+      .prepare(
+        `SELECT id, url FROM zoo_news WHERE zoo_id = ? AND url IN (${buildPlaceholders(chunk)})`
+      )
+      .bind(zooId, ...chunk)
+      .all<{ id: number; url: string }>();
+    for (const row of rows.results ?? []) idByUrl.set(row.url, row.id);
+  }
+
   const animalStatements: ReturnType<D1Database["prepare"]>[] = [];
   for (const item of items) {
-    const row = await db
-      .prepare(`SELECT id FROM zoo_news WHERE zoo_id = ? AND url = ?`)
-      .bind(zooId, item.url)
-      .first<{ id: number }>();
-    if (!row) continue;
+    const newsId = idByUrl.get(item.url);
+    if (newsId === undefined) continue;
     animalStatements.push(
-      db.prepare(`DELETE FROM zoo_news_animals WHERE news_id = ?`).bind(row.id)
+      db.prepare(`DELETE FROM zoo_news_animals WHERE news_id = ?`).bind(newsId)
     );
     const text = `${item.title} ${item.body ?? ""}`;
     for (const name of extractAnimalNamesFromText(text, allAnimalNames)) {
       animalStatements.push(
         db
           .prepare(`INSERT OR IGNORE INTO zoo_news_animals (news_id, animal_name) VALUES (?, ?)`)
-          .bind(row.id, name)
+          .bind(newsId, name)
       );
     }
   }
@@ -3333,7 +3371,7 @@ async function saveZooNews(
 async function rebuildAllNewsAnimalLinks(
   db: D1Database
 ): Promise<{ news: number; links: number }> {
-  const allAnimalNames = await loadAllZooAnimalNames(db);
+  const allAnimalNames = buildAnimalNameIndex(await loadAllZooAnimalNames(db));
   const rows = await db
     .prepare(`SELECT id, title, body FROM zoo_news`)
     .all<{ id: number; title: string; body: string | null }>();
@@ -3376,7 +3414,7 @@ async function loadAnimalNews(
        FROM zoo_news n
        JOIN zoo_news_animals a ON a.news_id = n.id
        WHERE a.animal_name IN (${placeholders})
-       ORDER BY CASE WHEN n.published_at IS NULL THEN 1 ELSE 0 END, n.published_at DESC
+       ORDER BY n.published_at DESC
        LIMIT ?`
     )
     .bind(...names, limit)
@@ -3385,15 +3423,22 @@ async function loadAnimalNews(
 }
 
 async function loadAllZooNews(db: D1Database, limit = 50): Promise<ZooNewsRow[]> {
+  // 全施設分を結合・集約してから LIMIT すると全件を走査するため、
+  // 先に published_at 順で LIMIT してから動物名を結合する。
   const rows = await db
     .prepare(
-      `SELECT n.id, n.zoo_id, n.title, n.url, n.published_at, n.fetched_at, n.body,
+      `WITH latest AS (
+         SELECT id, zoo_id, title, url, published_at, fetched_at, body
+         FROM zoo_news
+         ORDER BY published_at DESC
+         LIMIT ?
+       )
+       SELECT n.id, n.zoo_id, n.title, n.url, n.published_at, n.fetched_at, n.body,
               GROUP_CONCAT(a.animal_name) AS animal_names
-       FROM zoo_news n
+       FROM latest n
        LEFT JOIN zoo_news_animals a ON a.news_id = n.id
        GROUP BY n.id
-       ORDER BY CASE WHEN n.published_at IS NULL THEN 1 ELSE 0 END, n.published_at DESC
-       LIMIT ?`
+       ORDER BY n.published_at DESC`
     )
     .bind(limit)
     .all<ZooNewsRow>();
@@ -3427,7 +3472,7 @@ async function loadScrapeStatus(db: D1Database): Promise<ScrapeStatusRow[]> {
 }
 
 async function refreshAllZooNews(db: D1Database): Promise<void> {
-  const allAnimalNames = await loadAllZooAnimalNames(db);
+  const allAnimalNames = buildAnimalNameIndex(await loadAllZooAnimalNames(db));
   for (const zoo of zoos) {
     const items = await scrapeZooNews(zoo.id);
     await saveZooNews(db, zoo.id, items, allAnimalNames);
@@ -3443,21 +3488,18 @@ async function searchZoos(db: D1Database, pref?: string | null, animal?: string 
     }
     return true;
   });
-  const animalCounts = await loadZooAnimalCounts(
-    db,
-    prefFiltered.map((zoo) => zoo.id)
-  );
+  const prefFilteredIds = prefFiltered.map((zoo) => zoo.id);
 
   if (!normalizedAnimal) {
+    const animalCounts = await loadZooAnimalCounts(db, prefFilteredIds);
     return prefFiltered.map((zoo) => buildSearchResult(zoo, animalCounts.get(zoo.id) ?? 0));
   }
 
   const searchKeyword = normalizedAnimal.toLocaleLowerCase("ja-JP");
-  const animalMatches = await loadCachedAnimalMatches(
-    db,
-    prefFiltered.map((zoo) => zoo.id),
-    searchKeyword
-  );
+  const [animalCounts, animalMatches] = await Promise.all([
+    loadZooAnimalCounts(db, prefFilteredIds),
+    loadCachedAnimalMatches(db, prefFilteredIds, searchKeyword),
+  ]);
 
   return prefFiltered.flatMap((zoo) => {
     const matchedAnimals = animalMatches.get(zoo.id) ?? [];
@@ -4349,7 +4391,7 @@ function renderScrapeStatusHtml(rows: ScrapeStatusRow[]): string {
   };
 
   const rowsHtml = rows.map((row) => {
-    const zoo = zoos.find((z) => z.id === row.zoo_id);
+    const zoo = findZooById(row.zoo_id);
     return `<tr>
       <td><a href="/zoos/${escapeHtml(row.zoo_id)}">${escapeHtml(zoo?.name ?? row.zoo_id)}</a></td>
       <td>${fmt(row.animal_scraped_at)}</td>
@@ -5309,7 +5351,7 @@ ${renderGlobalNav("/")}
     </div>
     <ul class="latest-news-list">
       ${latestNews.map((item) => {
-        const zoo = zoos.find((z) => z.id === item.zoo_id);
+        const zoo = findZooById(item.zoo_id);
         const animals = item.animal_names ? item.animal_names.split(",").filter(Boolean) : [];
         const animalsHtml = animals.length > 0
           ? `<div class="news-animals">${renderNewsAnimalLinks(animals, imageKeys)}</div>`
@@ -6111,7 +6153,7 @@ function renderAnimalCards(animals: AnimalListItem[], imageKeys: AnimalImageVers
 function renderZooAnimalDetailHtml(
   detail: ZooAnimalDetail,
   notice?: string,
-  image?: AnimalImageRecord,
+  image?: AnimalImageVersion,
   relatedAnimals: AnimalListItem[] = [],
   relatedDisplayNames: Array<{ displayName: string; zoos: Zoo[] }> = [],
   imageKeys: AnimalImageVersionIndex = new Map(),
@@ -6366,7 +6408,7 @@ ${renderGlobalNav("/animals")}
         <ul class="animal-news-list">
           ${animalNews
             .map((item) => {
-              const zoo = zoos.find((z) => z.id === item.zoo_id);
+              const zoo = findZooById(item.zoo_id);
               const badges = renderNewsItemBadges(item.title, item.published_at);
               return `<li>
                 <div class="animal-news-meta">
@@ -6989,7 +7031,7 @@ function renderNewsItems(
   if (news.length === 0) return `<li class="news-empty">${escapeHtml(emptyMessage)}</li>`;
   return news
     .map((item) => {
-      const zoo = zoos.find((z) => z.id === item.zoo_id);
+      const zoo = findZooById(item.zoo_id);
       const animals = item.animal_names ? item.animal_names.split(",").filter(Boolean) : [];
       const animalsHtml = animals.length > 0
         ? `<div class="news-animals">${renderNewsAnimalLinks(animals, imageKeys)}</div>`
@@ -7019,7 +7061,7 @@ function renderNewsListHtml(
         <button type="button" class="ui-chip ui-chip--active ui-touch-target" data-zoo-filter="all" aria-pressed="true">すべて</button>
         ${zooIds
           .map((id) => {
-            const zoo = zoos.find((z) => z.id === id);
+            const zoo = findZooById(id);
             return zoo
               ? `<button type="button" class="ui-chip ui-touch-target" data-zoo-filter="${escapeHtml(id)}" aria-pressed="false">${escapeHtml(zoo.name)}</button>`
               : "";
@@ -7476,10 +7518,19 @@ ${renderGlobalNav("/zoos")}
 </html>`;
 }
 
-async function loadZooAnimalsForCompare(db: D1Database, zooId: string): Promise<CompareAnimalRow[]> {
+// 比較対象の施設ごとにクエリを投げると施設数分の往復になるため、
+// まとめて 1 回で取得して施設 ID ごとに振り分ける。
+async function loadZooAnimalsForCompare(
+  db: D1Database,
+  zooIds: string[]
+): Promise<Map<string, CompareAnimalRow[]>> {
+  const byZoo = new Map<string, CompareAnimalRow[]>(zooIds.map((zooId) => [zooId, []]));
+  if (zooIds.length === 0) return byZoo;
+
   const result = await db
     .prepare(
-      `SELECT za.display_name,
+      `SELECT za.zoo_id,
+              za.display_name,
               COALESCE(a.class_name, NULLIF(c.class_name, 'null')) AS class_name,
               COALESCE(a.order_name, NULLIF(c.order_name, 'null')) AS order_name
        FROM zoo_animals za
@@ -7489,12 +7540,16 @@ async function loadZooAnimalsForCompare(db: D1Database, zooId: string): Promise<
         AND za.animal_id IS NULL
         AND c.status IN ('partial', 'pending', 'applied')
         AND c.confidence >= 0.7
-       WHERE za.zoo_id = ?
+       WHERE za.zoo_id IN (${buildPlaceholders(zooIds)})
        ORDER BY COALESCE(a.sort_key, za.sort_key, za.display_name)`
     )
-    .bind(zooId)
-    .all<CompareAnimalRow>();
-  return result.results ?? [];
+    .bind(...zooIds)
+    .all<CompareAnimalRow & { zoo_id: string }>();
+
+  for (const row of result.results ?? []) {
+    byZoo.get(row.zoo_id)?.push(row);
+  }
+  return byZoo;
 }
 
 function renderCompareHtml(
@@ -9484,7 +9539,7 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
         loadAnimalImageKeys(env.DB),
       ]);
       const news = activePref
-        ? allNews.filter((n) => zoos.find((z) => z.id === n.zoo_id)?.prefecture === activePref)
+        ? allNews.filter((n) => findZooById(n.zoo_id)?.prefecture === activePref)
         : allNews;
       return htmlResponse(renderNewsListHtml(news, activePref, imageKeys), url, activePref);
     }
@@ -9534,15 +9589,15 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
     if (pathname === "/zoos") {
       const selectedZoos = ["a", "b", "c"]
         .map((key) => url.searchParams.get(key) ?? "")
-        .map((id) => zoos.find((zoo) => zoo.id === id) ?? null)
+        .map((id) => findZooById(id) ?? null)
         .filter((zoo): zoo is Zoo => Boolean(zoo && (!activePref || zoo.prefecture === activePref)))
         .filter((zoo, index, items) => items.findIndex((item) => item.id === zoo.id) === index);
       if (selectedZoos.length >= 2) {
-        const [animalLists, animalCounts] = await Promise.all([
-          Promise.all(selectedZoos.map((zoo) => loadZooAnimalsForCompare(env.DB, zoo.id))),
+        const [animalsByZoo, animalCounts] = await Promise.all([
+          loadZooAnimalsForCompare(env.DB, selectedZoos.map((zoo) => zoo.id)),
           loadZooAnimalCounts(env.DB, zoos.map((zoo) => zoo.id)),
         ]);
-        const selected = selectedZoos.map((zoo, index) => ({ zoo, animals: animalLists[index] }));
+        const selected = selectedZoos.map((zoo) => ({ zoo, animals: animalsByZoo.get(zoo.id) ?? [] }));
         return htmlResponse(renderCompareHtml(selected, animalCounts, activePref), url, activePref);
       }
 
@@ -9618,22 +9673,27 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
 
     if (pathname.startsWith("/animal/")) {
       const displayName = decodeURIComponent(pathname.slice("/animal/".length));
-      const [detail, image] = await Promise.all([
+      // 画像は <img src> で別途配信するため、ここでは base64 本体を読まずに
+      // 全動物分のバージョン索引（関連動物のサムネイルにも使う）だけで足りる。
+      const [detail, imageKeys] = await Promise.all([
         loadZooAnimalDetail(env.DB, displayName, activePref),
-        loadAnimalImage(env.DB, displayName),
+        loadAnimalImageKeys(env.DB),
       ]);
       if (!detail) {
         const pastZoos = await loadAnimalPastZoos(env.DB, displayName, [], activePref);
         if (pastZoos.length === 0) return notFound(`動物 '${displayName}' が見つかりません`);
         return htmlResponse(renderAnimalGoneHtml(displayName, pastZoos), url, activePref);
       }
-      const [relatedAnimals, relatedDisplayNames, imageKeys, animalNews, pastZoos] = await Promise.all([
+      const [relatedAnimals, relatedDisplayNames, animalNews, pastZoos] = await Promise.all([
         loadRelatedAnimals(env.DB, detail),
         loadRelatedDisplayNames(env.DB, detail, activePref),
-        loadAnimalImageKeys(env.DB),
         loadAnimalNews(env.DB, detail.displayName, detail.canonicalName ?? null),
         loadAnimalPastZoos(env.DB, displayName, detail.zoos.map((zoo) => zoo.id), activePref),
       ]);
+      const imageKey = normalizeAnimalImageKey(displayName);
+      const image: AnimalImageVersion | undefined = imageKeys.has(imageKey)
+        ? { selectedGenerationId: imageKeys.get(imageKey) ?? undefined }
+        : undefined;
       const llmStatus = url.searchParams.get("llm");
       const notice =
         llmStatus === "applied"
@@ -9652,7 +9712,7 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
       const html = renderZooAnimalDetailHtml(
         detail,
         notice,
-        image ?? undefined,
+        image,
         relatedAnimals,
         relatedDisplayNames,
         imageKeys,
@@ -9706,7 +9766,7 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
     const zooAnimalsMatch = pathname.match(/^\/api\/zoos\/([^/]+)\/animals$/);
     if (zooAnimalsMatch) {
       const id = zooAnimalsMatch[1];
-      const zoo = zoos.find((z) => z.id === id);
+      const zoo = findZooById(id);
       if (!zoo) return notFound(`動物園 '${id}' が見つかりません`);
       const result = await getAnimalResult(env.DB, id, url.searchParams.get("refresh") === "1");
       return jsonResponse(result);
@@ -9716,7 +9776,7 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
     const zooIdMatch = pathname.match(/^\/api\/zoos\/([^/]+)$/);
     if (zooIdMatch) {
       const id = zooIdMatch[1];
-      const zoo = zoos.find((z) => z.id === id);
+      const zoo = findZooById(id);
       if (!zoo) return notFound(`動物園 '${id}' が見つかりません`);
       return jsonResponse(zoo);
     }
@@ -9725,7 +9785,7 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
     const zooAnimalsPageMatch = pathname.match(/^\/zoos\/([^/]+)\/animals$/);
     if (zooAnimalsPageMatch) {
       const id = zooAnimalsPageMatch[1];
-      const zoo = zoos.find((z) => z.id === id);
+      const zoo = findZooById(id);
       if (!zoo || (activePref && zoo.prefecture !== activePref)) {
         return notFound(`選択中の地域に動物園 '${id}' が見つかりません`);
       }
@@ -9739,7 +9799,7 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
     const zooPageMatch = pathname.match(/^\/zoos\/([^/]+)$/);
     if (zooPageMatch) {
       const id = zooPageMatch[1];
-      const zoo = zoos.find((z) => z.id === id);
+      const zoo = findZooById(id);
       if (!zoo || (activePref && zoo.prefecture !== activePref)) {
         return notFound(`選択中の地域に動物園 '${id}' が見つかりません`);
       }

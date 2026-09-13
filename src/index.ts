@@ -4237,6 +4237,10 @@ const COMMON_STYLES = `
     .ui-state-message { line-height: 1.6; }
     .ui-state-actions { display: flex; flex-wrap: wrap; gap: 0.45rem; }
     @media (max-width: 700px) {
+      /* viewport-fit=cover で端まで描画するため、横向き時にノッチや角丸へ
+         本文が潜り込まないよう左右のセーフエリア分だけ内側に寄せる。
+         縦向きでは 0 になるので表示は変わらない */
+      html { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
       body { padding-bottom: calc(58px + env(safe-area-inset-bottom)); }
       .ui-btn, .ui-touch-target { min-height: 44px; }
       .site-header { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.6rem; padding: 0.75rem; }
@@ -4247,12 +4251,15 @@ const COMMON_STYLES = `
       .site-header p { margin-top: 0; font-size: 0.78rem; line-height: 1.45; white-space: nowrap; }
       .header-search { flex: 1 1 140px; width: auto; min-width: 0; max-width: none; }
       .header-search input, .header-search button { min-height: 44px; }
+      /* iOS Safari は 16px 未満の入力欄にフォーカスすると自動でズームし、
+         戻すにはピンチ操作が必要になるため、モバイルでは 16px 以上を保つ */
+      .header-search input { font-size: 16px; }
       .header-search button span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
       .pref-selector { flex: 0 1 auto; width: auto; }
       .pref-selector label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
       .pref-selector select { flex: 1 1 auto; min-width: 0; max-width: 8rem; min-height: 44px; }
       .pref-selector button { min-height: 44px; }
-      .global-nav { position: fixed; right: 0; bottom: 0; left: 0; z-index: 3000; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; padding: 0 0 env(safe-area-inset-bottom); border-top: 1px solid #d8e2dc; border-bottom: 0; background: #fff; box-shadow: 0 -2px 10px rgba(0,0,0,0.08); }
+      .global-nav { position: fixed; right: 0; bottom: 0; left: 0; z-index: 3000; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); border-top: 1px solid #d8e2dc; border-bottom: 0; background: #fff; box-shadow: 0 -2px 10px rgba(0,0,0,0.08); }
       .global-nav a { display: flex; flex-direction: column; justify-content: center; gap: 0.15rem; min-width: 0; min-height: 58px; padding: 0.35rem 0.2rem; color: #647168; font-size: 0.68rem; line-height: 1.15; text-align: center; white-space: nowrap; }
       .global-nav a .ui-icon { width: 1.4rem; height: 1.4rem; opacity: 1; }
       .global-nav a:hover { text-decoration: none; }
@@ -4262,6 +4269,18 @@ const COMMON_STYLES = `
       .page-nav { gap: 0.5rem; }
       .page-nav a { display: inline-flex; align-items: center; min-height: 44px; }
       .ui-state { margin: 0.75rem; padding: 0.85rem; }
+      /* 指で押しやすいサイズまで拡大する。お気に入りは一覧の各行に並ぶため
+         44px 角を確保し、チップ類は行数が増えすぎない範囲で高さを上げる */
+      .fav-toggle--icon { width: 44px; height: 44px; }
+      .ui-chip { min-height: 36px; padding: 0.3rem 0.6rem; }
+      .news-animals a { min-height: 36px; }
+      /* 大きい方のプレースホルダーは読める下限まで文字を上げる */
+      .ui-animal-placeholder { --animal-placeholder-font-size: clamp(0.62rem, 1.3vw, 0.82rem); }
+      /* 36px 前後のサムネイルでは文字が 7px 程度まで潰れて判読できないため、
+         装飾（aria-hidden）である文字は隠してアイコンだけを見せる */
+      .ui-animal-placeholder--compact strong,
+      .ui-animal-placeholder--compact small { display: none; }
+      .ui-animal-placeholder--compact .ui-animal-placeholder-icon { width: min(62%, 1.5rem); }
     }`;
 
 function renderSiteHeader(): string {
@@ -4404,7 +4423,7 @@ function renderScrapeStatusHtml(rows: ScrapeStatusRow[]): string {
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>スクレイプ状況 | 管理</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -4441,7 +4460,7 @@ function renderAdminTopHtml(): string {
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>管理 | 近畿動物園情報</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -4532,7 +4551,7 @@ function renderScrapeHealthAdminHtml(items: ScrapeHealthItem[]): string {
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>スクレイプ監視 | 近畿動物園情報</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -4677,7 +4696,7 @@ function renderScrapeHistoryAdminHtml(items: ScrapeHistoryItem[], zooId: string 
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>データ更新履歴 | 近畿動物園情報</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -4715,6 +4734,8 @@ function renderScrapeHistoryAdminHtml(items: ScrapeHistoryItem[], zooId: string 
       main { padding: 1rem 0.75rem; }
       .history-header { display: grid; }
       .diff-summary, .history-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); min-width: 0; }
+      /* フォーカス時の iOS 自動ズームを防ぐ */
+      .zoo-history-filter select { min-height: 44px; font-size: 16px; max-width: none; }
     }${ADMIN_BREADCRUMB_CSS}
   </style>
 </head>
@@ -4768,7 +4789,7 @@ function renderAnimalTaxonomyAdminHtml(animals: AnimalTaxonomyRow[], notice?: st
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>分類管理 | 近畿動物園情報</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -4991,7 +5012,7 @@ function renderAnimalImageManageListHtml(
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>管理 | 近畿動物園情報</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -5138,7 +5159,7 @@ function renderAnimalImageManageDetailHtml(
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>${escapedName} 画像管理 | 近畿動物園情報</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -5236,7 +5257,7 @@ function renderHomeHtml(
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>近畿動物園情報</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -5477,7 +5498,7 @@ function renderSearchHtml(
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>${hasQuery ? `${escapedQuery} の検索結果` : "検索"} | 近畿動物園情報</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -5550,6 +5571,9 @@ function renderSearchHtml(
       .zoo-table td[data-label="動物種数"]::before { content: none; }
       .zoo-table td[data-label="検索ヒット"] { border-top: 1px solid #e5e8e6; }
       .zoo-name { background: #f7faf8; padding: 0.6rem 0.75rem; }
+      /* 比較のチェックは指で押せる大きさにする */
+      .zoo-compare-option { min-height: 44px; font-size: 0.85rem; gap: 0.5rem; }
+      .zoo-compare-option input { width: 1.35rem; height: 1.35rem; }
       footer { padding: 1rem 0.75rem; line-height: 1.5; }
     }
   </style>
@@ -5915,7 +5939,7 @@ function renderAnimalsHtml(
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>動物一覧 | 近畿動物園情報</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -6004,6 +6028,10 @@ function renderAnimalsHtml(
       .animal-table td[data-label="分類"]::before,
       .animal-table td[data-label="施設一覧"]::before { display: none; }
       .animal-table th.animal-name { display: flex; align-items: center; background: #f7faf8; padding: 0.6rem 0.75rem; }
+      /* 分類リンクは「/」区切りで密に並ぶので、WCAG 2.2 の最小サイズ 24px まで
+         当たり判定を広げる。行間も合わせて広げて上下の行と重ならないようにする */
+      .taxonomy { line-height: 2; }
+      .taxonomy a { display: inline-block; min-height: 24px; padding: 0.2rem 0.1rem; }
       .empty { padding: 1.5rem 0.75rem; }
       footer { padding: 1rem 0.75rem; line-height: 1.5; }
     }
@@ -6294,7 +6322,7 @@ function renderZooAnimalDetailHtml(
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>${title} | 近畿動物園情報</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -6453,7 +6481,7 @@ function renderAnimalGoneHtml(displayName: string, pastZoos: AnimalPastZoo[]): s
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>${escapedDisplayName} | 近畿動物園情報</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -6594,7 +6622,7 @@ function renderTaxonomyDetailHtml(
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>${escapedValue} | 分類から探す | 近畿動物園情報</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -6661,6 +6689,10 @@ function renderTaxonomyDetailHtml(
       .animal-table td[data-label="分類"]::before,
       .animal-table td[data-label="施設一覧"]::before { display: none; }
       .animal-table th.animal-name { display: flex; align-items: center; background: #f7faf8; padding: 0.6rem 0.75rem; }
+      /* 分類リンクは「/」区切りで密に並ぶので、WCAG 2.2 の最小サイズ 24px まで
+         当たり判定を広げる。行間も合わせて広げて上下の行と重ならないようにする */
+      .taxonomy { line-height: 2; }
+      .taxonomy a { display: inline-block; min-height: 24px; padding: 0.2rem 0.1rem; }
       footer { padding: 1rem 0.75rem; line-height: 1.5; }
     }
   </style>
@@ -6812,7 +6844,7 @@ function renderZooDetailHtml(
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>${escapeHtml(zoo.name)} | 近畿動物園情報</title>
   <script type="application/ld+json">${structuredDataJson}</script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
@@ -7076,7 +7108,7 @@ function renderNewsListHtml(
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>お知らせ一覧 | 近畿動物園情報</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -7433,7 +7465,7 @@ function renderCompareIndexHtml(
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>動物園の分類表 | 近畿動物園情報</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -7446,7 +7478,10 @@ function renderCompareIndexHtml(
     .view-toggle { display: inline-flex; gap: 0.3rem; border: 1px solid #d3e0d8; background: #f3f7f4; padding: 0.25rem; border-radius: 6px; width: fit-content; }
     .view-toggle-btn { display: inline-flex; align-items: center; gap: 0.35rem; border-radius: 4px; color: #4c5d53; padding: 0.4rem 0.9rem; font-size: 0.85rem; font-weight: bold; text-decoration: none; }
     .view-toggle-btn--active { background: #1f5b45; color: #fff; }
-    .table-wrap { overflow: auto; max-height: 70vh; border: 1px solid #ddd; }
+    .table-wrap { overflow: auto; max-height: 70vh; border: 1px solid #ddd; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
+    /* 画面が狭いときだけ出す横スクロールの案内。既定は非表示 */
+    .table-scroll-hint { display: none; align-items: center; gap: 0.3rem; margin-bottom: -0.85rem; color: #6d7a72; font-size: 0.75rem; transition: opacity 0.2s; }
+    .table-scroll-hint[data-scrolled="true"] { opacity: 0; }
     .pivot-table { border-collapse: separate; border-spacing: 0; font-size: 0.8rem; border: 1px solid #ddd; }
     .pivot-table th, .pivot-table td { border-right: 1px solid #e8e8e8; border-bottom: 1px solid #e8e8e8; }
     .zoo-head { position: sticky; top: 0; background: #fff; z-index: 2; min-width: 72px; vertical-align: bottom; padding: 0.4rem 0.35rem; border-bottom: 2px solid #ccc !important; text-align: center; }
@@ -7486,6 +7521,13 @@ function renderCompareIndexHtml(
       main { padding: 0.75rem 0.5rem 5rem; }
       .compare-bar { bottom: calc(58px + env(safe-area-inset-bottom)); }
       html.has-compare-selection body { padding-bottom: calc(4.5rem + 58px + env(safe-area-inset-bottom)); }
+      .view-toggle-btn { min-height: 44px; padding: 0.4rem 0.8rem; }
+      /* 園を選ぶチェックボックスは列見出しの中にあり、そのままでは指で狙えない */
+      .zoo-check { width: 24px; height: 24px; }
+      .zoo-label { gap: 0.3rem; padding: 0.15rem 0; }
+      /* 表は画面幅に収まらず横スクロールになるため、その手がかりを出す */
+      .table-wrap { max-height: none; }
+      .table-scroll-hint { display: flex; }
     }
   </style>
 </head>
@@ -7500,7 +7542,8 @@ ${renderGlobalNav("/zoos")}
       <p>分類ごとの掲載数を見ながら、比較したい動物園を2〜3園選べます。</p>
     </div>
     <p class="heat-legend">各列内で展示数が多い「目」ほど濃い色: <span class="heat-legend-scale"><span></span><span></span><span></span><span></span><span></span></span> 少ない→多い</p>
-    <div class="table-wrap">
+    <p class="table-scroll-hint" id="table-scroll-hint">${icon("compare_arrows")}表は横にスクロールできます</p>
+    <div class="table-wrap" id="pivot-scroll">
       <table class="pivot-table">
         <thead>
           <tr>
@@ -7513,6 +7556,17 @@ ${renderGlobalNav("/zoos")}
     </div>
   </main>
   ${renderZooCompareBar()}
+  <script>
+  (function () {
+    // 一度でも横に動かせば案内は役目を終えるので、以降は薄く消す。
+    var scroller = document.getElementById('pivot-scroll');
+    var hint = document.getElementById('table-scroll-hint');
+    if (!scroller || !hint) return;
+    scroller.addEventListener('scroll', function () {
+      if (scroller.scrollLeft > 8) hint.setAttribute('data-scrolled', 'true');
+    }, { passive: true });
+  })();
+  </script>
   ${renderZooCompareScript(activePref)}
 </body>
 </html>`;
@@ -7697,7 +7751,7 @@ function renderCompareHtml(
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>動物園を比較 | 近畿動物園情報</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -8230,6 +8284,11 @@ function renderZoosShell(opts: {
   mapScript?: string;
 }): string {
   const { activePref, animal, escapedAnimal, taxClass, view, classChips, bodyHtml, mapScript } = opts;
+  const hasActiveFilter = Boolean(animal || taxClass);
+  // 畳んだときに何で絞り込み中かが分かるよう、summary に現在の条件を添える。
+  const filterSummaryLabel = hasActiveFilter
+    ? [animal ? `「${animal}」` : "", taxClass].filter(Boolean).join(" / ")
+    : "動物名・分類から探す";
   return `<!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -8240,6 +8299,9 @@ function renderZoosShell(opts: {
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
     .zoo-page-title { padding: 1rem 1.5rem 0; font-size: 1.15rem; }
+    /* 広い画面では開閉の見出しを出さない。details は open のままなので
+       中身は常に表示される（畳むのは狭い画面のスクリプトだけ） */
+    .zoo-filter-summary { display: none; }
     .search-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; }
     .search-form input { flex: 1 1 220px; max-width: 320px; padding: 0.55rem 0.75rem; border: 1px solid #bbb; font-size: 0.95rem; }
     .search-form button, .search-form a { font-size: 0.875rem; padding: 0.5rem 0.9rem; }
@@ -8310,12 +8372,26 @@ function renderZoosShell(opts: {
     @media (max-width: 700px) {
       .popup-map-app { display: inline-block; margin-top: 0.3rem; font-size: 0.78rem; color: #1f5b45; text-decoration: none; }
       .popup-map-app:hover { text-decoration: underline; }
+      /* 絞り込みを畳めるようにして、一覧や地図を最初の画面に入れる */
+      .zoo-filter { border-bottom: 1px solid #ddd; }
+      .zoo-filter-summary { display: flex; align-items: center; gap: 0.45rem; min-height: 44px; padding: 0.5rem 0.75rem; color: #1f5b45; font-size: 0.9rem; font-weight: bold; list-style: none; cursor: pointer; }
+      .zoo-filter-summary::-webkit-details-marker { display: none; }
+      .zoo-filter-summary::after { content: "▾"; margin-left: auto; color: #6d7a72; font-size: 0.8rem; }
+      .zoo-filter[open] > .zoo-filter-summary::after { content: "▴"; }
+      .zoo-filter-summary small { min-width: 0; overflow: hidden; color: #59685f; font-size: 0.75rem; font-weight: normal; text-overflow: ellipsis; white-space: nowrap; }
+      .zoo-filter[open] > .zoo-filter-summary { border-bottom: 1px solid #e8ece9; }
+      .zoo-filter .cls-filter:last-child { border-bottom: 0; }
       .search-form { display: grid; grid-template-columns: 1fr auto; padding: 0.75rem; }
       .zoo-page-title { padding: 0.85rem 0.75rem 0; }
-      .search-form input { width: 100%; max-width: none; min-width: 0; min-height: 44px; grid-column: 1 / -1; }
+      .search-form input { width: 100%; max-width: none; min-width: 0; min-height: 44px; font-size: 16px; grid-column: 1 / -1; }
       .search-form button, .search-form a { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; }
       .summary { padding: 0.7rem 0.75rem 0; line-height: 1.5; }
       .view-toggle { margin: 0.65rem 0.75rem; }
+      /* 絞り込みと表示切り替えは主要操作なので指で押せる高さにする */
+      .cls-chip { display: inline-flex; align-items: center; min-height: 44px; padding: 0.25rem 0.8rem; font-size: 0.85rem; }
+      .view-toggle-btn { min-height: 44px; padding: 0.4rem 0.8rem; }
+      .zoo-compare-option { min-height: 44px; font-size: 0.85rem; gap: 0.5rem; }
+      .zoo-compare-option input { width: 1.35rem; height: 1.35rem; }
       .zoo-list { padding: 0 0.75rem 0.75rem; overflow: visible; }
       .zoo-table { min-width: 0; border: 0; }
       .zoo-table thead { display: none; }
@@ -8362,18 +8438,37 @@ ${renderSiteHeader()}
 ${renderGlobalNav("/zoos")}
   <main id="main-content" tabindex="-1">
   <h1 class="zoo-page-title">動物園</h1>
-  <form class="search-form" action="/zoos" method="get">
-    <input type="search" name="animal" value="${escapedAnimal}" placeholder="動物名で検索（例: パンダ）" aria-label="動物名で検索">
-    ${taxClass ? `<input type="hidden" name="cls" value="${escapeHtml(taxClass)}">` : ""}
-    <input type="hidden" name="view" id="search-form-view" value="${view}">
-    <button type="submit" class="ui-btn ui-btn--primary ui-touch-target">${icon("search")}検索</button>
-    ${animal ? `<a href="${escapeHtml(buildZoosUrl(activePref, null, { cls: taxClass, view }))}" class="ui-btn ui-btn--secondary ui-touch-target">${icon("close")}クリア</a>` : ""}
-  </form>
-  <div class="cls-filter">${classChips}</div>
+  <details class="zoo-filter" id="zoo-filter" open>
+    <summary class="zoo-filter-summary">${icon("search")}<span>絞り込み</span><small>${escapeHtml(filterSummaryLabel)}</small></summary>
+    <div class="zoo-filter-body">
+      <form class="search-form" action="/zoos" method="get">
+        <input type="search" name="animal" value="${escapedAnimal}" placeholder="動物名で検索（例: パンダ）" aria-label="動物名で検索">
+        ${taxClass ? `<input type="hidden" name="cls" value="${escapeHtml(taxClass)}">` : ""}
+        <input type="hidden" name="view" id="search-form-view" value="${view}">
+        <button type="submit" class="ui-btn ui-btn--primary ui-touch-target">${icon("search")}検索</button>
+        ${animal ? `<a href="${escapeHtml(buildZoosUrl(activePref, null, { cls: taxClass, view }))}" class="ui-btn ui-btn--secondary ui-touch-target">${icon("close")}クリア</a>` : ""}
+      </form>
+      <div class="cls-filter">${classChips}</div>
+    </div>
+  </details>
   ${bodyHtml}
   </main>
   ${renderZooCompareBar()}
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>
+  <script>
+  (function () {
+    // 絞り込みを開いたままだと、スマホでは一覧や地図が画面の外まで押し出される。
+    // 条件を指定していないときだけ畳んで、本題が最初の画面に入るようにする。
+    // 広い画面では summary を隠したうえで常に開いたままにする。
+    var filter = document.getElementById('zoo-filter');
+    if (!filter || ${hasActiveFilter ? "true" : "false"}) return;
+    var narrow = window.matchMedia('(max-width: 700px)');
+    var sync = function (matches) { filter.open = !matches; };
+    sync(narrow.matches);
+    if (narrow.addEventListener) narrow.addEventListener('change', function (e) { sync(e.matches); });
+    else if (narrow.addListener) narrow.addListener(function (e) { sync(e.matches); });
+  })();
+  </script>
   <script src="/favorites.js?v=5" defer></script>${mapScript ?? ""}
   ${renderZooCompareScript(activePref)}
 </body>
@@ -8797,7 +8892,7 @@ function renderFavoritesHtml(
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>お気に入り | 近畿動物園情報</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }

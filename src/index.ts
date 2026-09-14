@@ -7119,7 +7119,7 @@ function renderNewsListHtml(
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
     main { max-width: 900px; margin: 0 auto; padding: 1.5rem; }
-    h1 { font-size: 1.3rem; margin-bottom: 1rem; }
+    main h1 { font-size: 1.3rem; margin-bottom: 1rem; }
     .news-zoo-filters { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1rem; }
     .news-zoo-filters button { font: inherit; font-size: 0.82rem; }
     .news-list { list-style: none; display: grid; gap: 0; }

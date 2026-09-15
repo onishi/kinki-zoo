@@ -2165,6 +2165,43 @@ async function loadAnimalImageManageItems(
   return items;
 }
 
+interface AnimalManagementRow extends AnimalTaxonomyRow {
+  animalKey: string;
+  selectedGenerationId: number | null;
+  generationCount: number;
+  imageUpdatedAt: string | null;
+}
+
+async function loadAnimalManagementRows(db: D1Database): Promise<AnimalManagementRow[]> {
+  const [taxonomyRows, selectedRows, generationCountRows] = await Promise.all([
+    loadAnimalsForTaxonomy(db),
+    db
+      .prepare(`SELECT animal_key, selected_generation_id, updated_at FROM animal_images`)
+      .all<{ animal_key: string; selected_generation_id: number | null; updated_at: string }>(),
+    db
+      .prepare(`SELECT animal_key, COUNT(*) AS cnt FROM animal_image_generations GROUP BY animal_key`)
+      .all<{ animal_key: string; cnt: number }>(),
+  ]);
+  const selectedByKey = new Map(
+    (selectedRows.results ?? []).map((row) => [row.animal_key, row])
+  );
+  const countByKey = new Map(
+    (generationCountRows.results ?? []).map((row) => [row.animal_key, row.cnt])
+  );
+
+  return taxonomyRows.map((row) => {
+    const animalKey = normalizeAnimalImageKey(row.display_name);
+    const selected = selectedByKey.get(animalKey);
+    return {
+      ...row,
+      animalKey,
+      selectedGenerationId: selected?.selected_generation_id ?? null,
+      generationCount: countByKey.get(animalKey) ?? 0,
+      imageUpdatedAt: selected?.updated_at ?? null,
+    };
+  });
+}
+
 async function loadZooAnimalDetail(
   db: D1Database,
   displayName: string,
@@ -4504,6 +4541,12 @@ ${renderGlobalNav("/admin")}
     <h1>管理</h1>
     <ul class="admin-nav">
       <li>
+        <a href="/admin/animal-management">
+          動物管理
+          <small>分類と画像をまとめて確認・操作する</small>
+        </a>
+      </li>
+      <li>
         <a href="/admin/animal-taxonomy">
           分類管理
           <small>未分類・部分分類の動物を LLM で分類する</small>
@@ -4955,6 +4998,263 @@ ${renderGlobalNav("/admin")}
         bulkBtn.disabled = false;
       });
     }
+  </script>
+</body>
+</html>`;
+}
+
+function renderAnimalManagementHtml(rows: AnimalManagementRow[], notice?: string): string {
+  const noticeHtml = notice ? `<p class="notice">${escapeHtml(notice)}</p>` : "";
+  const statusLabel: Record<string, string> = {
+    pending: "候補あり",
+    partial: "部分分類",
+    applied: "適用済み",
+    rejected: "却下",
+  };
+
+  const countApplied = rows.filter((a) => a.animal_id !== null).length;
+  const countPartial = rows.filter((a) => a.animal_id === null && a.candidate_status !== null).length;
+  const countNone = rows.filter((a) => a.animal_id === null && a.candidate_status === null).length;
+  const countNoImage = rows.filter((a) => a.selectedGenerationId == null).length;
+
+  const modelOptions = GEMINI_IMAGE_MODELS.map(
+    (model) => `<option value="${escapeHtml(model)}">${escapeHtml(model)}</option>`
+  ).join("");
+
+  const bodyRows = rows.map((a) => {
+    const taxonomyGroup = a.animal_id !== null ? "applied" : a.candidate_status !== null ? "partial" : "none";
+    const imageGroup = a.selectedGenerationId == null ? "none" : "has";
+    const statusText = a.candidate_status ? (statusLabel[a.candidate_status] ?? a.candidate_status) : "未取得";
+    const taxonomyText = [a.class_name, a.order_name, a.family_name].filter(Boolean).join(" / ") || "—";
+    const displayLabel = formatAnimalDisplayName(a.display_name);
+    const canonicalLabel = a.canonical_name ? formatAnimalDisplayName(a.canonical_name) : null;
+    const classifyBtn = taxonomyGroup === "applied"
+      ? `<button class="classify-btn classify-btn--rerun" data-name="${escapeHtml(a.display_name)}">再分類</button>`
+      : `<button class="classify-btn" data-name="${escapeHtml(a.display_name)}">分類</button>`;
+    const preview = a.selectedGenerationId != null
+      ? `<img src="${buildAnimalImageUrl(a.display_name, a.selectedGenerationId)}" alt="" loading="lazy" width="48" height="48">`
+      : `<span class="image-placeholder">なし</span>`;
+    const imageStatus = a.selectedGenerationId != null
+      ? `<span class="status-badge status-applied">使用中</span>`
+      : a.generationCount > 0
+        ? `<span class="status-badge status-partial">未選択(${a.generationCount})</span>`
+        : `<span class="status-badge status-none">画像なし</span>`;
+    return `<tr data-group="${taxonomyGroup}" data-image="${imageGroup}">
+      <td class="name-cell">
+        <div class="name-with-thumb">
+          <span class="thumb">${preview}</span>
+          <a href="/animal/${encodeURIComponent(a.display_name)}">${escapeHtml(displayLabel)}</a>
+        </div>
+        ${canonicalLabel && canonicalLabel !== displayLabel ? `<small>${escapeHtml(canonicalLabel)}</small>` : ""}
+      </td>
+      <td><span class="status-badge status-${escapeHtml(a.candidate_status ?? "none")}">${statusText}</span><br><span class="taxonomy-cell">${escapeHtml(taxonomyText)}</span></td>
+      <td>${classifyBtn}</td>
+      <td>${imageStatus}</td>
+      <td>
+        <form class="inline-generate-form" action="/admin/animal-images/generate" method="post">
+          <input type="hidden" name="displayName" value="${escapeHtml(a.display_name)}">
+          <input type="hidden" name="model" class="model-field">
+          <input type="hidden" name="customModel" class="custom-model-field">
+          <button type="submit">生成</button>
+        </form>
+        <a href="/admin/animal-images?q=${encodeURIComponent(a.display_name)}#${escapeHtml(buildAnimalImageItemId(a.animalKey))}">画像管理</a>
+      </td>
+    </tr>`;
+  }).join("\n");
+
+  return `<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>動物管理 | 近畿動物園情報</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
+    main { max-width: 1160px; margin: 0 auto; padding: 1rem 1.5rem 2rem; display: grid; gap: 1rem; }
+    h1 { font-size: 1.15rem; }
+${ADMIN_BREADCRUMB_CSS}
+    .notice { border: 1px solid #cfe5d8; background: #f5fbf7; color: #244d37; padding: 0.6rem 0.75rem; font-size: 0.86rem; }
+    .model-toolbar { display: grid; grid-template-columns: minmax(220px, 320px) minmax(220px, 1fr); gap: 0.75rem; align-items: end; padding: 0.75rem; background: #f7faf8; border: 1px solid #dce7df; }
+    .model-field-group { display: grid; gap: 0.35rem; }
+    .model-field-group label { color: #555; font-size: 0.82rem; font-weight: bold; }
+    .model-field-group select, .model-field-group input { min-height: 42px; border: 1px solid #bbb; background: #fff; padding: 0.5rem 0.65rem; }
+    .filter-row { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; }
+    .filter-tabs { display: flex; gap: 0; border-bottom: 2px solid #ddd; flex: 1 1 auto; }
+    .filter-tab { border: none; border-bottom: 2px solid transparent; background: none; padding: 0.5rem 1rem; font-size: 0.84rem; cursor: pointer; color: #555; margin-bottom: -2px; white-space: nowrap; }
+    .filter-tab:hover { color: #1f5b45; }
+    .filter-tab.active { border-bottom-color: #1f5b45; color: #1f5b45; font-weight: bold; }
+    .filter-tab .count { font-size: 0.75rem; color: #5f5f5f; margin-left: 0.3rem; }
+    .filter-tab.active .count { color: #1f5b45; }
+    .image-filter { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.84rem; cursor: pointer; white-space: nowrap; }
+    .bulk-classify { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; padding: 0.65rem 0.75rem; background: #f8fbf9; border: 1px solid #dce7df; }
+    .bulk-classify-btn { min-height: 34px; border: 1px solid #1f5b45; background: #1f5b45; color: #fff; padding: 0.3rem 0.8rem; cursor: pointer; font-size: 0.82rem; }
+    .bulk-classify-btn:disabled { border-color: #8c8c8c; background: #aaa; cursor: default; }
+    .bulk-status { font-size: 0.82rem; color: #555; }
+    .visible-count { font-size: 0.82rem; color: #5f5f5f; }
+    .animal-table { width: 100%; border-collapse: collapse; }
+    .animal-table th, .animal-table td { border: none; border-bottom: 1px solid #e8e8e8; padding: 0.5rem 0.65rem; text-align: left; font-size: 0.84rem; vertical-align: middle; }
+    .animal-table thead th { background: #f7f7f7; color: #555; border-bottom: 2px solid #ddd; font-size: 0.8rem; }
+    .animal-table tbody tr:hover { background: #f5fbf8; }
+    .animal-table tr.classifying { opacity: 0.5; }
+    .animal-table tr.done td { background: #f0fbf4; }
+    .name-cell a { color: #1f5b45; text-decoration: none; font-weight: bold; }
+    .name-cell a:hover { text-decoration: underline; }
+    .name-cell small { color: #5f5f5f; }
+    .name-with-thumb { display: flex; align-items: center; gap: 0.5rem; }
+    .thumb { display: inline-flex; width: 32px; height: 32px; flex: none; border: 1px solid #ddd; background: #f7f7f7; overflow: hidden; align-items: center; justify-content: center; }
+    .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .image-placeholder { color: #999; font-size: 0.65rem; }
+    .taxonomy-cell { color: #555; font-size: 0.78rem; }
+    .status-badge { display: inline-block; font-size: 0.72rem; padding: 0.15rem 0.45rem; border-radius: 2px; white-space: nowrap; }
+    .status-pending { background: #fef9e7; border: 1px solid #f0d98a; color: #7a5c00; }
+    .status-partial { background: #fff3e0; border: 1px solid #f0c878; color: #7a4a00; }
+    .status-applied { background: #e8f5ee; border: 1px solid #b6ddc8; color: #1f5b45; }
+    .status-rejected { background: #fef0ec; border: 1px solid #f0c0b0; color: #8b3a20; }
+    .status-none { background: #f7f7f7; border: 1px solid #e1e1e1; color: #5f5f5f; }
+    .classify-btn, .inline-generate-form button { border: 1px solid #1f5b45; background: #fff; color: #1f5b45; padding: 0.25rem 0.65rem; font-size: 0.78rem; cursor: pointer; white-space: nowrap; }
+    .classify-btn--rerun { border-color: #8c8c8c; color: #999; }
+    .classify-btn--rerun:hover:not(:disabled) { border-color: #1f5b45; color: #1f5b45; }
+    .classify-btn:disabled { border-color: #ccc; color: #ccc; cursor: default; }
+    .classify-btn.done { border-color: #8c8c8c; color: #6e6e6e; }
+    .inline-generate-form { display: inline-block; margin-bottom: 0.3rem; }
+    td a { color: #1f5b45; font-size: 0.78rem; }
+    @media (max-width: 640px) {
+      main { padding: 0.75rem; }
+      .filter-tab { padding: 0.4rem 0.6rem; font-size: 0.8rem; }
+      .animal-table { display: block; overflow-x: auto; }
+    }
+  </style>
+</head>
+<body>
+${renderSiteHeader()}
+${renderGlobalNav("/admin")}
+  <main id="main-content" tabindex="-1">
+    ${renderAdminBreadcrumb([{ label: "動物管理" }])}
+    <h1>動物管理</h1>
+    <p class="summary">分類と画像をまとめて確認・操作します。全 ${rows.length} 件。</p>
+    ${noticeHtml}
+    <section class="model-toolbar" aria-label="画像生成モデル">
+      <div class="model-field-group">
+        <label for="shared-image-model">生成モデル</label>
+        <select id="shared-image-model">${modelOptions}</select>
+      </div>
+      <div class="model-field-group">
+        <label for="shared-custom-model">任意のモデル名</label>
+        <input id="shared-custom-model" placeholder="例: gemini-2.5-flash-image">
+      </div>
+    </section>
+    <div class="filter-row">
+      <div class="filter-tabs" role="tablist">
+        <button class="filter-tab active" data-filter="all" role="tab">全て<span class="count">${rows.length}</span></button>
+        <button class="filter-tab" data-filter="applied" role="tab">分類済<span class="count">${countApplied}</span></button>
+        <button class="filter-tab" data-filter="partial" role="tab">一部分類<span class="count">${countPartial}</span></button>
+        <button class="filter-tab" data-filter="none" role="tab">未分類<span class="count">${countNone}</span></button>
+      </div>
+      <label class="image-filter"><input type="checkbox" id="image-filter-checkbox"> 画像なしのみ<span class="count">(${countNoImage})</span></label>
+    </div>
+    <div class="bulk-classify">
+      <button id="bulk-classify-btn" class="bulk-classify-btn">表示中をまとめて分類</button>
+      <span id="bulk-status" class="bulk-status"></span>
+      <span id="visible-count" class="visible-count"></span>
+    </div>
+    <table class="animal-table">
+      <thead>
+        <tr>
+          <th>動物名</th>
+          <th>分類</th>
+          <th></th>
+          <th>画像</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="management-tbody">
+        ${bodyRows}
+      </tbody>
+    </table>
+  </main>
+  <script>
+    var currentFilter = 'all';
+    var imageFilterOn = false;
+
+    function applyFilters() {
+      var rows = document.querySelectorAll('#management-tbody tr');
+      var visible = 0;
+      rows.forEach(function(row) {
+        var matchesGroup = currentFilter === 'all' || row.dataset.group === currentFilter;
+        var matchesImage = !imageFilterOn || row.dataset.image === 'none';
+        var show = matchesGroup && matchesImage;
+        row.style.display = show ? '' : 'none';
+        if (show) visible++;
+      });
+      document.getElementById('visible-count').textContent = (currentFilter === 'all' && !imageFilterOn) ? '' : visible + ' 件表示中';
+    }
+
+    document.querySelectorAll('.filter-tab').forEach(function(tab) {
+      tab.addEventListener('click', function() {
+        currentFilter = tab.dataset.filter;
+        document.querySelectorAll('.filter-tab').forEach(function(t) { t.classList.toggle('active', t === tab); });
+        applyFilters();
+      });
+    });
+    var imageFilterCheckbox = document.getElementById('image-filter-checkbox');
+    imageFilterCheckbox.addEventListener('change', function() {
+      imageFilterOn = imageFilterCheckbox.checked;
+      applyFilters();
+    });
+
+    async function classifyAnimal(name, btn) {
+      btn.disabled = true;
+      btn.textContent = '分類中…';
+      var row = btn.closest('tr');
+      row.classList.add('classifying');
+      try {
+        var res = await fetch('/animal/' + encodeURIComponent(name) + '/classify', {method: 'POST'});
+        var finalUrl = new URL(res.url);
+        var status = finalUrl.searchParams.get('llm') || 'done';
+        row.classList.remove('classifying');
+        row.classList.add('done');
+        btn.textContent = status;
+        btn.classList.add('done');
+      } catch(e) {
+        row.classList.remove('classifying');
+        btn.disabled = false;
+        btn.textContent = 'エラー';
+      }
+    }
+
+    document.querySelectorAll('.classify-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() { classifyAnimal(btn.dataset.name, btn); });
+    });
+
+    var bulkBtn = document.getElementById('bulk-classify-btn');
+    var bulkStatus = document.getElementById('bulk-status');
+    if (bulkBtn) {
+      bulkBtn.addEventListener('click', async function() {
+        var pending = Array.from(document.querySelectorAll('#management-tbody tr:not([style*="display: none"]) .classify-btn:not(.done):not([disabled])'));
+        if (!pending.length) { bulkStatus.textContent = '対象なし'; return; }
+        bulkBtn.disabled = true;
+        bulkStatus.textContent = '0 / ' + pending.length + ' 件';
+        var done = 0;
+        for (var btn of pending) {
+          await classifyAnimal(btn.dataset.name, btn);
+          done++;
+          bulkStatus.textContent = done + ' / ' + pending.length + ' 件完了';
+        }
+        bulkBtn.disabled = false;
+      });
+    }
+
+    var modelSelect = document.getElementById('shared-image-model');
+    var customModel = document.getElementById('shared-custom-model');
+    document.querySelectorAll('.inline-generate-form').forEach(function(form) {
+      form.addEventListener('submit', function() {
+        var modelField = form.querySelector('.model-field');
+        var customModelField = form.querySelector('.custom-model-field');
+        if (modelField && modelSelect) modelField.value = modelSelect.value;
+        if (customModelField && customModel) customModelField.value = customModel.value;
+      });
+    });
   </script>
 </body>
 </html>`;
@@ -9650,6 +9950,13 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
     if (pathname === "/admin/animal-taxonomy") {
       const animals = await loadAnimalsForTaxonomy(env.DB);
       const html = renderAnimalTaxonomyAdminHtml(animals);
+      return htmlResponse(html, url, activePref);
+    }
+
+    // HTML: /admin/animal-management
+    if (pathname === "/admin/animal-management") {
+      const rows = await loadAnimalManagementRows(env.DB);
+      const html = renderAnimalManagementHtml(rows);
       return htmlResponse(html, url, activePref);
     }
 

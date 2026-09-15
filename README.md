@@ -26,6 +26,7 @@
 | `GET /news` | 全動物園のお知らせ一覧 HTML（施設別フィルタ付き、最大50件） |
 | `GET /favorites` | お気に入り登録した動物園・動物の一覧 HTML（localStorage ベース、端末内のみ） |
 | `GET /animal-images` | 動物名ごとの画像生成・選択管理 HTML。一覧上で共通モデルを選び、生成履歴から使用画像を選択する |
+| `GET /admin/animal-management` | 動物ごとに分類ステータスと画像ステータスをまとめて確認し、分類・画像生成をその場で行える管理 HTML |
 | `GET /admin/scrape-status` | 動物・お知らせそれぞれの最終取得日時と件数の概要 HTML |
 | `GET /admin/scrape-health` | スクレイピングの取得件数・エラー・警告を確認する管理 HTML |
 | `GET /admin/scrape-history` | スクレイピングごとの追加・削除・名称変更候補・警告を確認する管理 HTML |

@@ -25,8 +25,8 @@
 | `GET /compare` | 動物園同士を動物の在不在で比較する HTML |
 | `GET /news` | 全動物園のお知らせ一覧 HTML（施設別フィルタ付き、最大50件） |
 | `GET /favorites` | お気に入り登録した動物園・動物の一覧 HTML（localStorage ベース、端末内のみ） |
-| `GET /animal-images` | 動物名ごとの画像生成・選択管理 HTML。一覧上で共通モデルを選び、生成履歴から使用画像を選択する |
-| `GET /admin/animal-management` | 動物ごとに分類ステータスと画像ステータスをまとめて確認し、分類・画像生成をその場で行える管理 HTML |
+| `GET /animal-images/:displayName` | 動物名キーで保存した使用中の画像を返す |
+| `GET /admin/animal-management` | 動物ごとに分類ステータスと画像ステータスをまとめて確認し、分類・画像生成・使用画像の切り替えをその場で行える管理 HTML（旧 `/admin/animal-taxonomy` `/admin/animal-images` は本ページへ統合済み） |
 | `GET /admin/scrape-status` | 動物・お知らせそれぞれの最終取得日時と件数の概要 HTML |
 | `GET /admin/scrape-health` | スクレイピングの取得件数・エラー・警告を確認する管理 HTML |
 | `GET /admin/scrape-history` | スクレイピングごとの追加・削除・名称変更候補・警告を確認する管理 HTML |
@@ -214,7 +214,7 @@ Gemini による分類候補生成には `GEMINI_API_KEY` が必要です。ロ�
 動物画像生成も同じ `GEMINI_API_KEY` を使用します。`/api/animal-images/generate` は `animals.canonical_name` と
 `zoo_animals.display_name` を動物名として集め、正規化した名前が同じものは同じ `animal_images.animal_key` に保存します。
 任意の名前だけ生成する場合は `{"names":["アオサギ"],"missingOnly":false}` のように POST します。
-ブラウザでは `/animal-images` の一覧上でモデルを一度選び、各動物の画像生成と使用画像の選択ができます。
+ブラウザでは `/admin/animal-management` の一覧上でモデルを一度選び、各動物の画像生成と使用画像の選択ができます。
 全件バッチ `generate:all-animal-images` は当面 `gemini-2.5-flash-image` のみを対象にします。
 
 ```bash

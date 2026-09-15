@@ -2925,9 +2925,30 @@ async function upsertAnimalMasters(db: D1Database, taxonomies: AnimalTaxonomy[])
   const unique = uniqueTaxonomies(taxonomies);
   if (unique.length === 0) return;
 
+  // ルールベースの id と Gemini 分類の id (`gemini:...`) が同じ canonical_name /
+  // genus_name+species_name を指すことがある。animals.canonical_name には UNIQUE
+  // 制約があるため、別 id のまま INSERT すると制約違反になる。既存行があれば
+  // その id を再利用して同じ動物にマージする。
+  const existing = await db
+    .prepare(`SELECT id, canonical_name, genus_name, species_name FROM animals`)
+    .all<{ id: string; canonical_name: string; genus_name: string; species_name: string }>();
+  const existingIdByCanonicalName = new Map(
+    (existing.results ?? []).map((row) => [row.canonical_name, row.id])
+  );
+  const existingIdByGenusSpecies = new Map(
+    (existing.results ?? []).map((row) => [`${row.genus_name} ${row.species_name}`, row.id])
+  );
+  const resolved = unique.map((taxonomy) => ({
+    ...taxonomy,
+    id:
+      existingIdByCanonicalName.get(taxonomy.canonicalName) ??
+      existingIdByGenusSpecies.get(`${taxonomy.genusName} ${taxonomy.speciesName}`) ??
+      taxonomy.id,
+  }));
+
   const updatedAt = new Date().toISOString();
   await db.batch(
-    unique.map((taxonomy) => {
+    resolved.map((taxonomy) => {
       const orderName = normalizeOrderName(taxonomy.orderName) ?? taxonomy.orderName;
       return db
         .prepare(

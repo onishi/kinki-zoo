@@ -36,7 +36,9 @@ const SCRAPER_CONFIGS: Record<string, ZooScraperConfig> = {
     sitemapUrl: "https://www.tennojizoo.jp/page-sitemap.xml",
     sitemapUrlPattern:
       "https://www\\.tennojizoo\\.jp/picturebook/(?:savanna|asia|fureai|bird)/[^/]+/",
-    pageTitlePattern: "動物図鑑（([^）]+)）",
+    // 動物名自体に「ヒツジ（家畜）」のような全角括弧が入ることがあるため、
+    // 1 段のネストを許容して最初の）で打ち切らないようにする。
+    pageTitlePattern: "動物図鑑（((?:[^（）]|（[^（）]*）)+)）",
     minLength: 1,
     maxLength: 20,
   },

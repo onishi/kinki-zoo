@@ -27,7 +27,7 @@
 | `GET /favorites` | お気に入り登録した動物園・動物の一覧 HTML（localStorage ベース、端末内のみ） |
 | `GET /animal-images/:displayName` | 動物名キーで保存した使用中の画像を返す |
 | `GET /admin/animal-management` | 動物ごとに分類ステータスと画像ステータスをまとめて確認し、分類・画像生成・使用画像の切り替えをその場で行える管理 HTML（旧 `/admin/animal-taxonomy` `/admin/animal-images` は本ページへ統合済み） |
-| `GET /admin/scrape-status` | 動物・お知らせそれぞれの最終取得日時と件数の概要 HTML |
+| `GET /admin` | 管理トップ。動物・お知らせそれぞれの最終取得日時と件数の概要を表示（旧 `/admin/scrape-status` は本ページへ統合済み） |
 | `GET /admin/scrape-health` | スクレイピングの取得件数・エラー・警告を確認する管理 HTML |
 | `GET /admin/scrape-history` | スクレイピングごとの追加・削除・名称変更候補・警告を確認する管理 HTML |
 | `GET /zoos/:id` | 動物園ごとの詳細 HTML ページ（地図付き） |
@@ -182,7 +182,7 @@ npm run typecheck
   など閾値は `src/index.ts` 冒頭の定数を参照)
 
 見送った場合も差分・警告・取得日時は通常どおり記録されるので、
-`/admin/scrape-health` や `/admin/scrape-status` で状況を確認できる。
+`/admin/scrape-health` や `/admin` で状況を確認できる。
 サイト側の障害が復旧すれば、次回の自動実行(cron)または
 `POST /api/animals/refresh` で正しいデータに更新される。
 

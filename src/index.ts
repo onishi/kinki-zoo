@@ -4386,7 +4386,7 @@ function renderAdminBreadcrumb(crumbs: { href?: string; label: string }[]): stri
   return `<nav class="admin-breadcrumb" aria-label="管理パンくず">${parts.join("")}</nav>`;
 }
 
-function renderScrapeStatusHtml(rows: ScrapeStatusRow[]): string {
+function renderAdminTopHtml(scrapeStatusRows: ScrapeStatusRow[]): string {
   const now = new Date();
   const fmt = (iso: string | null) => {
     if (!iso) return `<span class="status-none">未取得</span>`;
@@ -4396,8 +4396,7 @@ function renderScrapeStatusHtml(rows: ScrapeStatusRow[]): string {
     const cls = hoursAgo > 30 ? "status-stale" : "status-ok";
     return `<span class="${cls}">${label}</span>`;
   };
-
-  const rowsHtml = rows.map((row) => {
+  const scrapeStatusRowsHtml = scrapeStatusRows.map((row) => {
     const zoo = findZooById(row.zoo_id);
     return `<tr>
       <td><a href="/zoos/${escapeHtml(row.zoo_id)}">${escapeHtml(zoo?.name ?? row.zoo_id)}</a></td>
@@ -4412,53 +4411,24 @@ function renderScrapeStatusHtml(rows: ScrapeStatusRow[]): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>スクレイプ状況 | 管理</title>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
-    main { max-width: 900px; margin: 0 auto; padding: 1.5rem; display: grid; gap: 1.5rem; }
-    h1 { font-size: 1.2rem; }
-    table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
-    th, td { border: 1px solid #ddd; padding: 0.5rem 0.75rem; text-align: left; vertical-align: middle; }
-    thead th { background: #f5f5f5; font-weight: bold; }
-    a { color: #1f5b45; text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    .status-ok { color: #1f6b3d; }
-    .status-stale { color: #b36a00; font-weight: bold; }
-    .status-none { color: #999; }${ADMIN_BREADCRUMB_CSS}
-  </style>
-</head>
-<body>
-${renderSiteHeader()}
-${renderGlobalNav("/admin")}
-  <main id="main-content" tabindex="-1">
-    ${renderAdminBreadcrumb([{ label: "スクレイプ状況" }])}
-    <h1>スクレイプ状況</h1>
-    <table>
-      <thead><tr><th>動物園</th><th>動物 最終取得</th><th>お知らせ 最終取得</th><th>お知らせ件数</th></tr></thead>
-      <tbody>${rowsHtml}</tbody>
-    </table>
-  </main>
-</body>
-</html>`;
-}
-
-function renderAdminTopHtml(): string {
-  return `<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>管理 | 近畿動物園情報</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
     main { max-width: 1040px; margin: 0 auto; padding: 1.25rem 1.5rem 2rem; display: grid; gap: 1rem; }
     h1 { font-size: 1.2rem; }
+    h2 { font-size: 1rem; }
     .admin-nav { display: grid; gap: 0.65rem; list-style: none; }
     .admin-nav a { display: block; border: 1px solid #dce7df; background: #f8fbf9; color: #1f5b45; padding: 0.85rem 1rem; text-decoration: none; font-size: 0.95rem; }
     .admin-nav a:hover { background: #f1f8f3; border-color: #9bc4ab; }
-    .admin-nav small { display: block; color: #666; font-size: 0.78rem; margin-top: 0.2rem; }${ADMIN_BREADCRUMB_CSS}
+    .admin-nav small { display: block; color: #666; font-size: 0.78rem; margin-top: 0.2rem; }
+    .scrape-status-section { display: grid; gap: 0.65rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+    th, td { border: 1px solid #ddd; padding: 0.5rem 0.75rem; text-align: left; vertical-align: middle; }
+    thead th { background: #f5f5f5; font-weight: bold; }
+    .status-ok { color: #1f6b3d; }
+    .status-stale { color: #b36a00; font-weight: bold; }
+    .status-none { color: #999; }${ADMIN_BREADCRUMB_CSS}
   </style>
 </head>
 <body>
@@ -4475,12 +4445,6 @@ ${renderGlobalNav("/admin")}
         </a>
       </li>
       <li>
-        <a href="/admin/scrape-status">
-          スクレイプ状況
-          <small>動物・お知らせの最終取得日時と件数を確認する</small>
-        </a>
-      </li>
-      <li>
         <a href="/admin/scrape-health">
           スクレイプ監視
           <small>取得件数の急減・エラー・期待件数割れを確認する</small>
@@ -4493,6 +4457,13 @@ ${renderGlobalNav("/admin")}
         </a>
       </li>
     </ul>
+    <section class="scrape-status-section">
+      <h2>スクレイプ状況</h2>
+      <table>
+        <thead><tr><th>動物園</th><th>動物 最終取得</th><th>お知らせ 最終取得</th><th>お知らせ件数</th></tr></thead>
+        <tbody>${scrapeStatusRowsHtml}</tbody>
+      </table>
+    </section>
   </main>
 </body>
 </html>`;
@@ -9386,15 +9357,15 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
       });
     }
 
-    // HTML: /admin
+    // HTML: /admin（スクレイプ状況を統合表示）
     if (pathname === "/admin") {
-      return htmlResponse(renderAdminTopHtml(), url, activePref);
+      const rows = await loadScrapeStatus(env.DB);
+      return htmlResponse(renderAdminTopHtml(rows), url, activePref);
     }
 
-    // HTML: /admin/scrape-status
+    // /admin/scrape-status は /admin に統合済み。旧リンクは転送する。
     if (pathname === "/admin/scrape-status") {
-      const rows = await loadScrapeStatus(env.DB);
-      return htmlResponse(renderScrapeStatusHtml(rows), url, activePref);
+      return redirectResponse("/admin", 301);
     }
 
     // HTML: /admin/scrape-health

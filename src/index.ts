@@ -645,6 +645,10 @@ function buildScrapeWarnings(
     });
   }
 
+  // HTTP 5xx は取得内容の変化ではなく取得元サーバー側の障害なので、
+  // 0 件や大量削除などの派生警告を重ねない。
+  if (isServerError(result)) return warnings;
+
   if (currentCount === 0) {
     warnings.push({
       type: "empty_result",
@@ -691,6 +695,14 @@ function buildScrapeWarnings(
   }
 
   return warnings;
+}
+
+function isServerError(result: ScrapeResult): boolean {
+  if (!result.error) return false;
+  const match = result.error.match(/\bHTTP\s+(\d{3})\b/i);
+  if (!match) return false;
+  const status = Number(match[1]);
+  return status >= 500 && status < 600;
 }
 
 /**
@@ -2986,7 +2998,9 @@ async function saveScrapeResult(db: D1Database, result: ScrapeResult): Promise<v
   if (halted) {
     warnings.push({
       type: "update_held_back",
-      message: "変化が大きすぎるため、今回の取得結果の反映を見送り既存データを保持しました",
+      message: isServerError(result)
+        ? "取得元サーバー側でエラーが発生したため、今回の取得結果の反映を見送り既存データを保持しました"
+        : "変化が大きすぎるため、今回の取得結果の反映を見送り既存データを保持しました",
       previousCount,
       currentCount,
       thresholdCount: null,

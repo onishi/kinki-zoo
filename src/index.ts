@@ -9760,7 +9760,7 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
         loadZooAnimalTaxonomyIndex(env.DB, id),
         loadZooNews(env.DB, id),
       ]);
-      const pageUrl = `${url.origin}/zoos/${zoo.id}`;
+      const pageUrl = `${url.origin}/zoos/${encodeURIComponent(zoo.id)}`;
       const html = renderZooDetailHtml(zoo, scraped, imageKeys, taxonomyByAnimal, news, pageUrl);
       return htmlResponse(html, url, activePref);
     }

@@ -6596,9 +6596,10 @@ function renderZooDetailHtml(
   const structuredDataJson = JSON.stringify(structuredData).replace(/<\//g, "<\\/");
   const prefLabel = PREF_LABELS[zoo.prefecture];
   const zooAnimalCountText = scraped.animals.length > 0 ? `${scraped.animals.length}種` : "未取得";
+  const ogDescription = `${zoo.name}の施設情報。地域: ${prefLabel} / 動物種数: ${zooAnimalCountText}`;
   const ogMetaTags = renderOgMetaTags({
     title: `${zoo.name} | 近畿動物園情報`,
-    description: `${zoo.name}の施設情報。地域: ${prefLabel} / 動物種数: ${zooAnimalCountText}`,
+    description: ogDescription,
     url: pageUrl,
     imageUrl: buildAbsoluteUrl(DEFAULT_OG_IMAGE_PATH, pageUrl) ?? undefined,
   });
@@ -9673,7 +9674,7 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
         animalNews,
         pastZoos,
         activePref,
-        `${url.origin}/animal/${encodeURIComponent(displayName)}`
+        buildCanonicalUrl(url)
       );
       return htmlResponse(html, url, activePref);
     }
@@ -9764,7 +9765,7 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
         loadZooAnimalTaxonomyIndex(env.DB, id),
         loadZooNews(env.DB, id),
       ]);
-      const pageUrl = `${url.origin}/zoos/${encodeURIComponent(zoo.id)}`;
+      const pageUrl = buildCanonicalUrl(url);
       const html = renderZooDetailHtml(zoo, scraped, imageKeys, taxonomyByAnimal, news, pageUrl);
       return htmlResponse(html, url, activePref);
     }
@@ -9819,7 +9820,7 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
         loadAnimalImageKeys(env.DB),
         loadFeaturedAnimals(env.DB, activePref),
       ]);
-      const html = renderHomeHtml(results, activePref, latestNews, imageKeys, featuredAnimals, `${url.origin}/`);
+      const html = renderHomeHtml(results, activePref, latestNews, imageKeys, featuredAnimals, buildCanonicalUrl(url));
       return htmlResponse(html, url, activePref);
     }
 

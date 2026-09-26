@@ -3843,6 +3843,8 @@ const CANONICAL_SEARCH_PARAMS = new Set([
   "c",
 ]);
 
+const DEFAULT_OG_IMAGE_PATH = "/icon-512.png?v=2";
+
 function buildCanonicalUrl(url: URL): string {
   const canonical = new URLSearchParams();
   for (const key of CANONICAL_SEARCH_PARAMS) {
@@ -3853,6 +3855,38 @@ function buildCanonicalUrl(url: URL): string {
   }
   const query = canonical.toString();
   return `${url.origin}${url.pathname}${query ? `?${query}` : ""}`;
+}
+
+function buildAbsoluteUrl(pathOrUrl: string, pageUrl?: string): string | null {
+  if (!pageUrl) return null;
+  try {
+    return new URL(pathOrUrl, pageUrl).toString();
+  } catch {
+    return null;
+  }
+}
+
+function renderOgMetaTags(options: {
+  title: string;
+  description: string;
+  url?: string;
+  imageUrl?: string;
+}): string {
+  const normalizedDescription =
+    options.description.length > 120
+      ? `${options.description.slice(0, 119)}…`
+      : options.description;
+  const tags = [
+    `<meta property="og:title" content="${escapeHtml(options.title)}">`,
+    `<meta property="og:description" content="${escapeHtml(normalizedDescription)}">`,
+  ];
+  if (options.url) {
+    tags.push(`<meta property="og:url" content="${escapeHtml(options.url)}">`);
+  }
+  if (options.imageUrl) {
+    tags.push(`<meta property="og:image" content="${escapeHtml(options.imageUrl)}">`);
+  }
+  return tags.join("\n  ");
 }
 
 function buildTaxonomyUrl(levels: TaxonomyPathLevel[], value: string): string {
@@ -5031,7 +5065,8 @@ function renderHomeHtml(
   activePref: PrefectureCode | null,
   latestNews: ZooNewsRow[] = [],
   imageKeys: AnimalImageVersionIndex = new Map(),
-  featuredAnimals: FeaturedAnimal[] = []
+  featuredAnimals: FeaturedAnimal[] = [],
+  pageUrl?: string
 ): string {
   const count = results.length;
   const totalAnimalCount = results.reduce((sum, result) => sum + result.animalCount, 0);
@@ -5039,6 +5074,12 @@ function renderHomeHtml(
     .filter((result) => result.animalCount > 0)
     .sort((a, b) => b.animalCount - a.animalCount)
     .slice(0, 6);
+  const ogMetaTags = renderOgMetaTags({
+    title: "近畿動物園情報",
+    description: "近畿の動物園・動物情報をまとめて探せるポータルです。",
+    url: pageUrl,
+    imageUrl: buildAbsoluteUrl(DEFAULT_OG_IMAGE_PATH, pageUrl) ?? undefined,
+  });
 
   return `<!DOCTYPE html>
 <html lang="ja">
@@ -5046,6 +5087,7 @@ function renderHomeHtml(
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>近畿動物園情報</title>
+  ${ogMetaTags}
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
@@ -5977,14 +6019,16 @@ function renderZooAnimalDetailHtml(
   imageKeys: AnimalImageVersionIndex = new Map(),
   animalNews: AnimalNewsRow[] = [],
   pastZoos: AnimalPastZoo[] = [],
-  activePref: PrefectureCode | null = null
+  activePref: PrefectureCode | null = null,
+  pageUrl?: string
 ): string {
   const displayLabel = formatAnimalDisplayName(detail.displayName);
   const canonicalLabel = detail.canonicalName ? formatAnimalDisplayName(detail.canonicalName) : null;
   const escapedDisplayName = escapeHtml(displayLabel);
-  const title = canonicalLabel && canonicalLabel !== displayLabel
-    ? `${escapeHtml(canonicalLabel)} | ${escapedDisplayName}`
-    : escapedDisplayName;
+  const pageTitle = canonicalLabel && canonicalLabel !== displayLabel
+    ? `${canonicalLabel} | ${displayLabel}`
+    : displayLabel;
+  const title = escapeHtml(pageTitle);
   const taxonomyDetails = buildTaxonomyDisplayParts([
     ["類", detail.className],
     ["目", detail.orderName],
@@ -6052,6 +6096,16 @@ function renderZooAnimalDetailHtml(
         label: "画像準備中",
         detail: "現在この動物の画像はありません",
       });
+  const ogImageUrl = buildAbsoluteUrl(
+    image ? buildAnimalImageUrl(detail.displayName, image.selectedGenerationId) : DEFAULT_OG_IMAGE_PATH,
+    pageUrl
+  );
+  const ogMetaTags = renderOgMetaTags({
+    title: pageTitle,
+    description: `${displayLabel}の展示施設や分類情報を確認できます。`,
+    url: pageUrl,
+    imageUrl: ogImageUrl ?? undefined,
+  });
 
   const relatedDisplaySection = relatedDisplayNames.length > 0 ? `
     <section>
@@ -6114,6 +6168,7 @@ function renderZooAnimalDetailHtml(
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>${title} | 近畿動物園情報</title>
+  ${ogMetaTags}
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
@@ -6544,6 +6599,14 @@ function renderZooDetailHtml(
   };
   const structuredDataJson = JSON.stringify(structuredData).replace(/<\//g, "<\\/");
   const prefLabel = PREF_LABELS[zoo.prefecture];
+  const zooAnimalCountText = scraped.animals.length > 0 ? `${scraped.animals.length}種` : "未取得";
+  const ogDescription = `${zoo.name}の施設情報。地域: ${prefLabel} / 動物種数: ${zooAnimalCountText}`;
+  const ogMetaTags = renderOgMetaTags({
+    title: `${zoo.name} | 近畿動物園情報`,
+    description: ogDescription,
+    url: pageUrl,
+    imageUrl: buildAbsoluteUrl(DEFAULT_OG_IMAGE_PATH, pageUrl) ?? undefined,
+  });
   const classCounts = new Map<string, number>();
   for (const animal of scraped.animals) {
     const className = taxonomyByAnimal.get(animal);
@@ -6636,6 +6699,7 @@ function renderZooDetailHtml(
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>${escapeHtml(zoo.name)} | 近畿動物園情報</title>
+  ${ogMetaTags}
   <script type="application/ld+json">${structuredDataJson}</script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
   <style>
@@ -9613,7 +9677,8 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
         imageKeys,
         animalNews,
         pastZoos,
-        activePref
+        activePref,
+        buildCanonicalUrl(url)
       );
       return htmlResponse(html, url, activePref);
     }
@@ -9704,7 +9769,7 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
         loadZooAnimalTaxonomyIndex(env.DB, id),
         loadZooNews(env.DB, id),
       ]);
-      const pageUrl = `${url.origin}/zoos/${zoo.id}`;
+      const pageUrl = buildCanonicalUrl(url);
       const html = renderZooDetailHtml(zoo, scraped, imageKeys, taxonomyByAnimal, news, pageUrl);
       return htmlResponse(html, url, activePref);
     }
@@ -9759,7 +9824,7 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
         loadAnimalImageKeys(env.DB),
         loadFeaturedAnimals(env.DB, activePref),
       ]);
-      const html = renderHomeHtml(results, activePref, latestNews, imageKeys, featuredAnimals);
+      const html = renderHomeHtml(results, activePref, latestNews, imageKeys, featuredAnimals, buildCanonicalUrl(url));
       return htmlResponse(html, url, activePref);
     }
 

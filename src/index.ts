@@ -3872,9 +3872,13 @@ function renderOgMetaTags(options: {
   url?: string;
   imageUrl?: string;
 }): string {
+  const normalizedDescription =
+    options.description.length > 120
+      ? `${options.description.slice(0, 119)}…`
+      : options.description;
   const tags = [
     `<meta property="og:title" content="${escapeHtml(options.title)}">`,
-    `<meta property="og:description" content="${escapeHtml(options.description)}">`,
+    `<meta property="og:description" content="${escapeHtml(normalizedDescription)}">`,
   ];
   if (options.url) {
     tags.push(`<meta property="og:url" content="${escapeHtml(options.url)}">`);

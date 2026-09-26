@@ -3859,7 +3859,11 @@ function buildCanonicalUrl(url: URL): string {
 
 function buildAbsoluteUrl(pathOrUrl: string, pageUrl?: string): string | null {
   if (!pageUrl) return null;
-  return new URL(pathOrUrl, pageUrl).toString();
+  try {
+    return new URL(pathOrUrl, pageUrl).toString();
+  } catch {
+    return null;
+  }
 }
 
 function renderOgMetaTags(options: {

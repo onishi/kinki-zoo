@@ -61,6 +61,7 @@ interface SiteSearchResults {
   animals: AnimalListItem[];
   zoos: ZooSearchResult[];
   taxonomies: TaxonomySearchResult[];
+  news: ZooNewsRow[];
 }
 
 type ClassificationStatus = "registered" | "llm_candidate" | "unclassified" | "rejected";
@@ -1637,15 +1638,16 @@ async function searchSite(
   pref: PrefectureCode | null,
   query: string | null
 ): Promise<SiteSearchResults> {
-  if (!query) return { query, animals: [], zoos: [], taxonomies: [] };
+  if (!query) return { query, animals: [], zoos: [], taxonomies: [], news: [] };
 
   const prefFilteredZoos = zoos.filter((zoo) => !pref || zoo.prefecture === pref);
   const zooIds = prefFilteredZoos.map((zoo) => zoo.id);
-  const [allAnimals, animalCounts, zooAnimalMatches, taxonomies] = await Promise.all([
+  const [allAnimals, animalCounts, zooAnimalMatches, taxonomies, news] = await Promise.all([
     loadAnimalList(db, "all", pref),
     loadZooAnimalCounts(db, zooIds),
     loadSearchAnimalMatches(db, zooIds, query),
     loadTaxonomySearchResults(db, pref, query),
+    loadAllZooNews(db, 50, query, pref),
   ]);
 
   const animals = filterAnimalItemsByQuery(allAnimals, query);
@@ -1669,7 +1671,7 @@ async function searchSite(
     }];
   });
 
-  return { query, animals, zoos: zooResults, taxonomies };
+  return { query, animals, zoos: zooResults, taxonomies, news };
 }
 
 async function loadAnimalImageKeys(db: D1Database): Promise<AnimalImageVersionIndex> {
@@ -5311,13 +5313,15 @@ function renderSearchHtml(
   const escapedQuery = escapeHtml(query);
   const prefLabel = activePref ? PREF_LABELS[activePref] : "近畿一円";
   const hasQuery = Boolean(query);
-  const hasResults = results.animals.length > 0 || results.zoos.length > 0 || results.taxonomies.length > 0;
+  const hasResults = results.animals.length > 0 || results.zoos.length > 0 || results.taxonomies.length > 0 || results.news.length > 0;
   const visibleAnimals = results.animals.slice(0, 5);
   const visibleZoos = results.zoos.slice(0, 5);
   const visibleTaxonomies = results.taxonomies.slice(0, 5);
+  const visibleNews = results.news.slice(0, 5);
   const animalCards = renderSearchAnimalCards(visibleAnimals, imageKeys);
   const taxonomyCards = renderSearchTaxonomyCards(visibleTaxonomies);
   const zooRows = visibleZoos.map((result) => renderZooCard(result, true)).join("\n");
+  const newsRows = renderNewsItems(visibleNews, imageKeys);
   const animalMore = results.animals.length > visibleAnimals.length
     ? `<a href="/animals?q=${encodeURIComponent(query)}" class="section-link">動物をもっと見る →</a>`
     : "";
@@ -5330,13 +5334,16 @@ function renderSearchHtml(
   const taxonomyMore = results.taxonomies.length > visibleTaxonomies.length
     ? `<a href="${buildTaxonomyIndexUrl()}" class="section-link">分類一覧へ →</a>`
     : "";
+  const newsMore = results.news.length > visibleNews.length
+    ? `<a href="${escapeHtml(addPrefectureToInternalUrl(`/news?q=${encodeURIComponent(query)}`, activePref))}" class="section-link">お知らせをもっと見る →</a>`
+    : "";
   const emptyHtml = !hasQuery
-    ? renderStateMessage("動物名、施設名、分類名で検索できます。", [
+    ? renderStateMessage("動物名、施設名、分類名、お知らせで検索できます。", [
         { href: "/animals", label: "動物一覧" },
         { href: buildBrowseUrl(activePref, null), label: "動物園一覧" },
       ])
     : !hasResults
-      ? renderStateMessage(`「${query}」に該当する動物・施設が見つかりませんでした。`, [
+      ? renderStateMessage(`「${query}」に該当する動物・施設・分類・お知らせが見つかりませんでした。`, [
           { href: "/animals", label: "動物一覧" },
           { href: buildTaxonomyIndexUrl(), label: "分類から探す" },
           { href: buildMapUrl(activePref, null), label: "地図で見る" },
@@ -5383,6 +5390,16 @@ function renderSearchHtml(
     .search-taxonomy-card { display: grid; gap: 0.2rem; padding: 0.65rem 0.75rem; }
     .search-taxonomy-card span { font-weight: bold; overflow-wrap: anywhere; }
     .search-taxonomy-card small { color: #617469; font-size: 0.75rem; }
+    .search-news-list { list-style: none; display: grid; }
+    .search-news-list li { display: grid; gap: 0.3rem; padding: 0.7rem 0.5rem; border-bottom: 1px solid #e5eee8; }
+    .search-news-list li:first-child { border-top: 1px solid #e5eee8; }
+    .search-news-list .news-meta { display: flex; flex-wrap: wrap; gap: 0.3rem 0.55rem; align-items: center; }
+    .search-news-list .news-date { color: #5f5f5f; font-size: 0.76rem; font-variant-numeric: tabular-nums; }
+    .search-news-list .news-zoo-label { color: #1f5b45; font-size: 0.78rem; font-weight: bold; text-decoration: none; }
+    .search-news-list .news-title { color: #1a1a1a; font-size: 0.92rem; line-height: 1.5; text-decoration: none; overflow-wrap: anywhere; }
+    .search-news-list .news-title:hover, .search-news-list .news-zoo-label:hover { color: #1f5b45; text-decoration: underline; }
+    .search-news-list .news-animals { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+    .search-news-list .news-animals a { color: #2d6a4f; background: #f0f7f3; border: 1px solid #c5dece; padding: 0.1rem 0.45rem; font-size: 0.72rem; text-decoration: none; }
     .zoo-list { overflow-x: auto; }
     .zoo-table { width: 100%; border-collapse: collapse; min-width: 480px; border: 1px solid #ddd; }
     .zoo-table th, .zoo-table td { border: 1px solid #ddd; padding: 0.65rem; vertical-align: top; font-size: 0.86rem; text-align: left; }
@@ -5433,13 +5450,13 @@ ${renderGlobalNav("/search")}
   <main id="main-content" tabindex="-1">
     <div class="search-title">
       <h1>検索</h1>
-      <p>${escapeHtml(prefLabel)}の動物、動物園、分類をまとめて探せます。</p>
+      <p>${escapeHtml(prefLabel)}の動物、動物園、分類、お知らせをまとめて探せます。</p>
     </div>
     <form class="site-search-form" action="/search" method="get">
-      <input type="search" name="q" value="${escapedQuery}" placeholder="動物名・施設名・分類で検索" aria-label="検索キーワード">
+      <input type="search" name="q" value="${escapedQuery}" placeholder="動物名・施設名・分類・お知らせで検索" aria-label="検索キーワード">
       <button type="submit" class="ui-btn ui-btn--primary ui-touch-target">${icon("search")}検索</button>
     </form>
-    ${hasQuery ? `<p class="search-summary">「${escapedQuery}」の検索結果: 動物 ${results.animals.length} 件 / 動物園 ${results.zoos.length} 件 / 分類 ${results.taxonomies.length} 件</p>` : ""}
+    ${hasQuery ? `<p class="search-summary">「${escapedQuery}」の検索結果: 動物 ${results.animals.length} 件 / 動物園 ${results.zoos.length} 件 / 分類 ${results.taxonomies.length} 件 / お知らせ ${results.news.length}${results.news.length === 50 ? "以上" : ""} 件</p>` : ""}
     ${emptyHtml}
     ${results.animals.length > 0 ? `
     <section class="search-section" aria-labelledby="search-animals-title">
@@ -5475,6 +5492,14 @@ ${renderGlobalNav("/search")}
         </thead>
         <tbody>${zooRows}</tbody>
       </table></div>
+    </section>` : ""}
+    ${results.news.length > 0 ? `
+    <section class="search-section" aria-labelledby="search-news-title">
+      <div class="search-section-heading">
+        <h2 id="search-news-title">お知らせ</h2>
+        ${newsMore || `<small>各施設の公式サイトへ移動</small>`}
+      </div>
+      <ul class="search-news-list">${newsRows}</ul>
     </section>` : ""}
   </main>
   <footer>データは各施設の公式情報をもとに作成。最新情報は各施設の公式サイトでご確認ください。</footer>

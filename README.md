@@ -16,7 +16,7 @@
 | パス | 説明 |
 |------|------|
 | `GET /` | 動物園一覧 HTML（都道府県タブで絞り込み可） |
-| `GET /search` | サイト内検索 HTML |
+| `GET /search` | 動物・動物園・分類・お知らせのサイト内検索 HTML |
 | `GET /animals` | D1 に保存済みの動物一覧 HTML（検索語句と、類→目→科→属の段階的な分類条件で絞り込み、見られる施設を表示。`/taxonomy` は本ページへ統合済み） |
 | `GET /animal/:displayName` | 動物ごとの詳細 HTML（見られる施設一覧・関連動物・分類情報） |
 | `GET /taxonomy/:rank/:value` | 指定した分類値に属する動物一覧 HTML |

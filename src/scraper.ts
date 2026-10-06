@@ -342,6 +342,8 @@ interface NewsScraperConfig {
   itemTitleSelector?: string;
   itemDateSelector?: string;
   itemLinkSelector?: string;
+  /** 年が省略された月日のみの日付を、現在の日本時間の年として扱う。 */
+  dateWithoutYearUsesCurrentJstYear?: boolean;
   /** このパターンに一致する URL の項目は掲載しない(例: 採用募集など掲載不要なカテゴリ) */
   excludeLinkPattern?: RegExp;
 }
@@ -378,15 +380,17 @@ const NEWS_SCRAPER_CONFIGS: Record<string, NewsScraperConfig> = {
   // 「お知らせ」カテゴリフィードを使う。動物園に無関係な項目が混ざる可能性がある。
   "wakayama-castle-zoo": { rssUrl: "https://wakayamajo.jp/category/info/feed/" },
   "kobe-oji-zoo": {
-    newsUrl: "https://www.kobe-ojizoo.jp/info/",
-    itemSelector: ".bxAin",
-    itemTitleSelector: "h2",
-    itemDateSelector: "p.date",
-    itemLinkSelector: "p.b a",
+    // 最新ニュースは3件のみ。アーカイブの今年の一覧から最新20件を取得する。
+    newsUrl: "https://www.kobe-ojizoo.jp/info/archive/",
+    itemSelector: ".bxB li",
+    itemTitleSelector: "p a",
+    itemDateSelector: "span",
+    itemLinkSelector: "p a",
+    dateWithoutYearUsesCurrentJstYear: true,
   },
 };
 
-function parseNewsDate(raw: string): string | null {
+function parseNewsDate(raw: string, yearForMonthDay?: number): string | null {
   const s = raw.trim();
   if (!s) return null;
   // RFC 822: "Wed, 23 Jul 2026 09:00:00 +0900"
@@ -397,6 +401,8 @@ function parseNewsDate(raw: string): string | null {
   // Japanese: "2026年7月23日" (possibly with brackets or day-of-week)
   const ja = s.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/);
   if (ja) return `${ja[1]}-${ja[2].padStart(2, "0")}-${ja[3].padStart(2, "0")}`;
+  const monthDay = yearForMonthDay ? s.match(/^(\d{1,2})月(\d{1,2})日$/) : null;
+  if (monthDay) return `${yearForMonthDay}-${monthDay[1].padStart(2, "0")}-${monthDay[2].padStart(2, "0")}`;
   // YYYY.MM.DD
   const dot = s.match(/(\d{4})\.(\d{1,2})\.(\d{1,2})/);
   if (dot) return `${dot[1]}-${dot[2].padStart(2, "0")}-${dot[3].padStart(2, "0")}`;
@@ -535,6 +541,8 @@ class NewsBlockCollector {
   readonly items: NewsItem[] = [];
   private current: { titleParts: string[]; dateParts: string[]; url: string | null } | null = null;
 
+  constructor(private readonly yearForMonthDay?: number) {}
+
   onItemStart(element: Element): void {
     this.current = { titleParts: [], dateParts: [], url: null };
     element.onEndTag(() => {
@@ -544,7 +552,7 @@ class NewsBlockCollector {
         this.items.push({
           title,
           url: this.current.url,
-          publishedAt: parseNewsDate(this.current.dateParts.join("").trim()),
+          publishedAt: parseNewsDate(this.current.dateParts.join("").trim(), this.yearForMonthDay),
         });
       }
       this.current = null;
@@ -590,7 +598,10 @@ async function scrapeNewsFromHtmlBlocks(config: NewsScraperConfig): Promise<News
   if (!response.ok) return [];
 
   const baseUrl = config.newsUrl;
-  const collector = new NewsBlockCollector();
+  const yearForMonthDay = config.dateWithoutYearUsesCurrentJstYear
+    ? Number(new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Tokyo", year: "numeric" }).format(new Date()))
+    : undefined;
+  const collector = new NewsBlockCollector(yearForMonthDay);
   let rewriter = new HTMLRewriter()
     .on(config.itemSelector, { element: (el) => collector.onItemStart(el) })
     .on(`${config.itemSelector} ${config.itemTitleSelector}`, {

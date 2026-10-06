@@ -3504,8 +3504,12 @@ async function loadScrapeStatus(db: D1Database): Promise<ScrapeStatusRow[]> {
 async function refreshAllZooNews(db: D1Database): Promise<void> {
   const allAnimalNames = buildAnimalNameIndex(await loadAllZooAnimalNames(db));
   for (const zoo of zoos) {
-    const items = await scrapeZooNews(zoo.id);
-    await saveZooNews(db, zoo.id, items, allAnimalNames);
+    try {
+      const items = await scrapeZooNews(zoo.id);
+      await saveZooNews(db, zoo.id, items, allAnimalNames);
+    } catch (error) {
+      console.error(`[news] refresh failed for ${zoo.id}:`, error);
+    }
   }
 }
 
@@ -9023,8 +9027,16 @@ export default {
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(
       (async () => {
-        await refreshAllAnimalCache(env.DB);
-        await refreshAllZooNews(env.DB);
+        try {
+          await refreshAllZooNews(env.DB);
+        } catch (error) {
+          console.error("[scheduled] news refresh failed:", error);
+        }
+        try {
+          await refreshAllAnimalCache(env.DB);
+        } catch (error) {
+          console.error("[scheduled] animal refresh failed:", error);
+        }
       })()
     );
   },

@@ -1050,6 +1050,11 @@ function buildSearchResult(zoo: Zoo, animalCount = 0): ZooSearchResult {
   };
 }
 
+function sortZoosByMatchedAnimalCount(results: ZooSearchResult[]): ZooSearchResult[] {
+  // 同数の施設は元の並び順を維持する。
+  return [...results].sort((a, b) => b.matchedAnimals.length - a.matchedAnimals.length);
+}
+
 async function loadZooAnimalCounts(db: D1Database, zooIds: string[]): Promise<Map<string, number>> {
   if (zooIds.length === 0) return new Map();
 
@@ -1671,7 +1676,7 @@ async function searchSite(
     }];
   });
 
-  return { query, animals, zoos: zooResults, taxonomies, news };
+  return { query, animals, zoos: sortZoosByMatchedAnimalCount(zooResults), taxonomies, news };
 }
 
 async function loadAnimalImageKeys(db: D1Database): Promise<AnimalImageVersionIndex> {
@@ -9640,7 +9645,7 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
         ? await searchZoosByTaxonomyClass(env.DB, activePref, taxClass)
         : await searchZoos(env.DB, activePref, animal);
       const html = renderZoosHtml(
-        results,
+        animal || taxClass ? sortZoosByMatchedAnimalCount(results) : results,
         activePref,
         animal,
         animal ? null : taxClass,

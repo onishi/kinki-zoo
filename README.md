@@ -23,7 +23,7 @@
 | `GET /taxonomy/:class/:order/:family/:genus/:species` | 分類階層を URL にした動物一覧 HTML（途中階層まででも可。代表的な動物・動物が多い施設・子分類へのリンクを表示） |
 | `GET /map` | 動物園位置を地図で表示 HTML（都道府県・動物名での絞り込み可） |
 | `GET /compare` | 動物園同士を動物の在不在で比較する HTML |
-| `GET /news` | 全動物園のお知らせ一覧 HTML（施設別フィルタ付き、最大50件） |
+| `GET /news` | 全動物園のお知らせ一覧 HTML（`q` でタイトル・本文を検索、地域・施設別フィルタ付き、最大50件） |
 | `GET /favorites` | お気に入り登録した動物園・動物の一覧 HTML（localStorage ベース、端末内のみ） |
 | `GET /animal-images/:displayName` | 動物名キーで保存した使用中の画像を返す |
 | `GET /admin/animal-management` | 動物ごとに分類ステータスと画像ステータスをまとめて確認し、分類・画像生成・使用画像の切り替えをその場で行える管理 HTML（旧 `/admin/animal-taxonomy` `/admin/animal-images` は本ページへ統合済み） |

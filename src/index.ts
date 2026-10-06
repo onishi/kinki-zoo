@@ -3426,14 +3426,33 @@ async function loadAnimalNews(
   return rows.results ?? [];
 }
 
-async function loadAllZooNews(db: D1Database, limit = 50): Promise<ZooNewsRow[]> {
+async function loadAllZooNews(
+  db: D1Database,
+  limit = 50,
+  query: string | null = null,
+  pref: PrefectureCode | null = null
+): Promise<ZooNewsRow[]> {
   // 全施設分を結合・集約してから LIMIT すると全件を走査するため、
-  // 先に published_at 順で LIMIT してから動物名を結合する。
+  // 検索・地域条件を適用し、published_at 順で LIMIT してから動物名を結合する。
+  const zooIds = getZooIdsForPrefecture(pref);
+  const conditions: string[] = [];
+  const bindings: Array<string | number> = [];
+  if (pref) {
+    conditions.push(`zoo_id IN (${buildPlaceholders(zooIds)})`);
+    bindings.push(...zooIds);
+  }
+  if (query) {
+    // instr は % や _ もそのまま文字として検索する。
+    conditions.push("(instr(lower(title), lower(?)) > 0 OR instr(lower(COALESCE(body, '')), lower(?)) > 0)");
+    bindings.push(query, query);
+  }
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
   const rows = await db
     .prepare(
       `WITH latest AS (
          SELECT id, zoo_id, title, url, published_at, fetched_at, body
          FROM zoo_news
+         ${where}
          ORDER BY published_at DESC
          LIMIT ?
        )
@@ -3444,7 +3463,7 @@ async function loadAllZooNews(db: D1Database, limit = 50): Promise<ZooNewsRow[]>
        GROUP BY n.id
        ORDER BY n.published_at DESC`
     )
-    .bind(limit)
+    .bind(...bindings, limit)
     .all<ZooNewsRow>();
   return rows.results ?? [];
 }
@@ -6939,7 +6958,8 @@ function renderNewsItems(
 function renderNewsListHtml(
   news: ZooNewsRow[],
   activePref: PrefectureCode | null,
-  imageKeys: AnimalImageVersionIndex = new Map()
+  imageKeys: AnimalImageVersionIndex = new Map(),
+  query: string | null = null
 ): string {
   const zooIds = [...new Set(news.map((n) => n.zoo_id))];
   const zooFilterHtml = zooIds.length > 1
@@ -6956,7 +6976,12 @@ function renderNewsListHtml(
       </div>`
     : "";
 
-  const itemsHtml = renderNewsItems(news, imageKeys);
+  const itemsHtml = renderNewsItems(
+    news,
+    imageKeys,
+    query ? `「${query}」に一致するお知らせはありません。` : "お知らせはまだありません。"
+  );
+  const clearUrl = addPrefectureToInternalUrl("/news", activePref);
 
   return `<!DOCTYPE html>
 <html lang="ja">
@@ -6969,6 +6994,10 @@ function renderNewsListHtml(
     body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}
     main { max-width: 900px; margin: 0 auto; padding: 1.5rem; }
     main h1 { font-size: 1.3rem; margin-bottom: 1rem; }
+    .news-search { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; }
+    .news-search input { flex: 1 1 16rem; min-width: 0; padding: 0.55rem 0.7rem; border: 1px solid #aab9ae; border-radius: 0.35rem; font: inherit; }
+    .news-search button { font: inherit; }
+    .news-search-clear { align-self: center; color: #1f5b45; font-size: 0.88rem; }
     .news-zoo-filters { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1rem; }
     .news-zoo-filters button { font: inherit; font-size: 0.82rem; }
     .news-list { list-style: none; display: grid; gap: 0; }
@@ -6994,6 +7023,12 @@ ${renderSiteHeader()}
 ${renderGlobalNav("/news")}
   <main id="main-content" tabindex="-1">
     <h1>お知らせ一覧</h1>
+    <form class="news-search" action="/news" method="get" role="search">
+      ${activePref ? `<input type="hidden" name="pref" value="${escapeHtml(activePref)}">` : ""}
+      <input type="search" name="q" value="${escapeHtml(query ?? "")}" placeholder="お知らせを検索" aria-label="お知らせを検索">
+      <button type="submit" class="ui-btn ui-btn--primary ui-touch-target">検索</button>
+      ${query ? `<a class="news-search-clear" href="${escapeHtml(clearUrl)}">検索をクリア</a>` : ""}
+    </form>
     ${zooFilterHtml}
     <ul class="news-list">${itemsHtml}</ul>
   </main>
@@ -9493,14 +9528,12 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
 
     // HTML: /news
     if (pathname === "/news") {
+      const query = normalizeSearchTerm(url.searchParams.get("q"))?.slice(0, 100) ?? null;
       const [allNews, imageKeys] = await Promise.all([
-        loadAllZooNews(env.DB),
+        loadAllZooNews(env.DB, 50, query, activePref),
         loadAnimalImageKeys(env.DB),
       ]);
-      const news = activePref
-        ? allNews.filter((n) => findZooById(n.zoo_id)?.prefecture === activePref)
-        : allNews;
-      return htmlResponse(renderNewsListHtml(news, activePref, imageKeys), url, activePref);
+      return htmlResponse(renderNewsListHtml(allNews, activePref, imageKeys, query), url, activePref);
     }
 
     // HTML: /search

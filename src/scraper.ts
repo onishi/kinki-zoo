@@ -380,7 +380,7 @@ const NEWS_SCRAPER_CONFIGS: Record<string, NewsScraperConfig> = {
   // 「お知らせ」カテゴリフィードを使う。動物園に無関係な項目が混ざる可能性がある。
   "wakayama-castle-zoo": { rssUrl: "https://wakayamajo.jp/category/info/feed/" },
   "kobe-oji-zoo": {
-    // 最新ニュースは3件のみ。アーカイブの今年の一覧から最新20件を取得する。
+    // 最新ニュースは3件のみ。アーカイブの今年の一覧を全件取得する。
     newsUrl: "https://www.kobe-ojizoo.jp/info/archive/",
     itemSelector: ".bxB li",
     itemTitleSelector: "p a",
@@ -616,7 +616,7 @@ async function scrapeNewsFromHtmlBlocks(config: NewsScraperConfig): Promise<News
     });
   }
   await rewriter.transform(response).arrayBuffer();
-  return collector.items.slice(0, 20);
+  return collector.items;
 }
 
 export async function scrapeZooNews(zooId: string): Promise<NewsItem[]> {

@@ -13,6 +13,7 @@
     "classify:unclassified": "node scripts/classify-unclassified.mjs",
     "generate:animal-images": "node scripts/generate-animal-images.mjs",
     "generate:all-animal-images": "node scripts/generate-all-animal-images.mjs",
+    "generate:animal-profiles": "node scripts/generate-animal-profiles.mjs",
     "upload:images-to-r2": "node scripts/upload-images-to-r2.mjs",
     "sync:remote": "node scripts/sync-to-remote.mjs",
     "typecheck": "npx tsc --noEmit"

@@ -16,8 +16,8 @@
 | パス | 説明 |
 |------|------|
 | `GET /` | 動物園一覧 HTML（都道府県タブで絞り込み可） |
-| `GET /search` | 動物・動物園・分類・お知らせのサイト内検索 HTML |
-| `GET /animals` | D1 に保存済みの動物一覧 HTML（検索語句と、類→目→科→属の段階的な分類条件で絞り込み、見られる施設を表示。`/taxonomy` は本ページへ統合済み） |
+| `GET /search` | 動物・動物園・分類・お知らせのサイト内検索 HTML（動物は「夜行性」「絶滅危惧」「アフリカ」などプロフィールの特徴語・学名・英名でも検索可） |
+| `GET /animals` | D1 に保存済みの動物一覧 HTML（検索語句（空白区切りで AND）、プロフィールの特徴チップ（保全・活動時間・食性・分布）、類→目→科→属の段階的な分類条件で絞り込み、見られる施設を表示。`/taxonomy` は本ページへ統合済み） |
 | `GET /animal/:displayName` | 動物ごとの詳細 HTML（見られる施設一覧・関連動物・分類情報） |
 | `GET /taxonomy/:rank/:value` | 指定した分類値に属する動物一覧 HTML |
 | `GET /taxonomy/:class/:order/:family/:genus/:species` | 分類階層を URL にした動物一覧 HTML（途中階層まででも可。代表的な動物・動物が多い施設・子分類へのリンクを表示） |
@@ -27,6 +27,8 @@
 | `GET /favorites` | お気に入り登録した動物園・動物の一覧 HTML（localStorage ベース、端末内のみ） |
 | `GET /animal-images/:displayName` | 動物名キーで保存した使用中の画像を返す |
 | `GET /admin/animal-management` | 動物ごとに分類ステータスと画像ステータスをまとめて確認し、分類・画像生成・使用画像の切り替えをその場で行える管理 HTML（旧 `/admin/animal-taxonomy` `/admin/animal-images` は本ページへ統合済み） |
+| `GET /admin/animal-profiles` | 種ごとのプロフィール（サイズ・体重・寿命・日本語解説・保全状況）の一覧。状態別タブと、未作成の種からの下書き一括生成 |
+| `GET /admin/animal-profiles/:animalId` | プロフィールの確認・編集・公開 HTML（Gemini での下書き生成・作り直しもここから） |
 | `GET /admin` | 管理トップ。動物・お知らせそれぞれの最終取得日時と件数の概要を表示（旧 `/admin/scrape-status` は本ページへ統合済み） |
 | `GET /admin/scrape-health` | スクレイピングの取得件数・エラー・警告を確認する管理 HTML |
 | `GET /admin/scrape-history` | スクレイピングごとの追加・削除・名称変更候補・警告を確認する管理 HTML |
@@ -41,6 +43,8 @@
 | `POST /api/animals/classify` | 保存済みの公式表示名を分類マスタに投入し、`zoo_animals.animal_id` を紐づける |
 | `POST /api/animals/suggest-taxonomy` | 未分類の公式表示名を Gemini + Google Search grounding で分類候補化する |
 | `GET /api/animals/taxonomy-candidates` | Gemini が作成した分類候補を JSON で返す |
+| `GET /api/animals/:animalId/profile` | 公開済みの動物プロフィールを JSON で返す（`animalId` は `animals.id`、例 `snow-leopard`） |
+| `POST /api/animals/suggest-profile` | プロフィール未作成の種について Gemini + Google Search grounding で下書きを作る（`{"limit":3}` または `{"animalIds":["lion"]}`） |
 | `GET /animal-images/:name` | 動物名キーで保存した正方形画像を返す |
 | `POST /api/animal-images/generate` | Gemini で動物画像を生成し、動物名キーで D1 に保存する |
 | `GET /animal-image-generations/:id` | 生成履歴に残した個別画像を返す |
@@ -133,7 +137,9 @@
 | `search` | 動物・施設・分類・お知らせの横断検索 |
 | `search_zoos` | 都道府県・動物名・分類名で施設を絞り込む |
 | `get_zoo` | 施設の基本情報・飼育動物・最新のお知らせ |
-| `find_animal` | 動物を見られる施設と分類 |
+| `find_animal` | 動物を見られる施設と分類（公開済みプロフィールがあれば学名・一言紹介・IUCN・サイズ等も） |
+| `search_animals` | 特徴（活動時間・食性・分布・絶滅危惧・類・都道府県）で絞り込み、体重・大きさ・寿命などで並べ替え |
+| `get_animal_profile` | 1 種の解説・生息地・見どころ・数値（性別・野生/飼育下の別つき）・保全状況・出典と見られる施設 |
 | `list_news` | お知らせ一覧（キーワード・都道府県・施設で絞り込み） |
 | `compare_zoos` | 2〜5 施設の共通動物・その施設だけの動物 |
 
@@ -196,6 +202,9 @@ npm run typecheck
 | `animal_scrape_results` | 施設ごとのスクレイピング日時とエラー情報 |
 | `animal_scrape_diffs` | 前回取得との差分（追加・削除・表記変更らしきペア）を履歴として保存。反映を見送った回の差分も記録される |
 | `animal_scrape_warnings` | スクレイピング結果の 0 件、期待最小件数割れ、前回比大幅減、削除差分過多、取得エラー、反映見送り(`update_held_back`)を履歴として保存 |
+| `animal_profiles` | 種ごとのプロフィール（学名・英名・日本語解説・食性・活動時間・IUCN など）と公開状態（`draft` / `reviewed` / `published` / `rejected`） |
+| `animal_measurements` | 種ごとの数値データ（頭胴長・体重・寿命など）。範囲（下限・上限）・性別・野生/飼育下の別を持つ |
+| `animal_profile_sources` | プロフィールの出典 URL |
 | `zoo_news` | 施設ごとのお知らせ(タイトル・URL・公開日・関連動物名)を保存 |
 | `zoo_news_animals` | お知らせ本文から抽出した関連動物名との紐付け |
 
@@ -259,6 +268,26 @@ npx wrangler secret put GEMINI_API_KEY
 ```
 
 `/api/animals/suggest-taxonomy` は `animals` へ直接投入せず、`animal_taxonomy_candidates` に候補として保存します。種まで断定できない表示名は `NULL` 候補として残し、人間が確認してから採用する想定です。
+
+### 動物プロフィール
+
+種（`animals`）ごとに、サイズ・体重・寿命などの数値データと日本語の解説を保持します。
+設計は [`docs/animal-profile-design.md`](docs/animal-profile-design.md) を参照。
+
+1. `/admin/animal-profiles` から（またはバッチで）Gemini + Google Search grounding の下書きを作る（`status = 'draft'`）
+2. `/admin/animal-profiles/:animalId` で内容・数値・出典を確認・修正し、「保存して公開」する
+3. 公開済みのものだけが動物詳細ページ（`/animal/:displayName`）・`/api/animals/:animalId/profile`・検索・MCP に出る
+
+検索では、学名・英名・一言紹介・生息地・食べものを部分一致で、区分値から作る特徴語
+（「夜行性」「肉食」「絶滅危惧」「アフリカ」など）を完全一致で照合します。
+特徴語を完全一致にしているのは「絶滅危惧」で「準絶滅危惧」の種まで当たらないようにするためです。
+
+数値の単位は項目ごとに固定（長さ cm、重さ kg、寿命 年、期間 日）で、表示時に g・m へ整形します。
+確認済み・公開済みのプロフィールは下書き生成で上書きされません。
+
+```bash
+ADMIN_PASSWORD=... npm run generate:animal-profiles -- --base-url http://localhost:8001 --limit 3 --max-batches 10
+```
 
 本番では `wrangler.toml` の cron により毎日自動更新します。
 

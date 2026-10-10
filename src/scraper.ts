@@ -362,13 +362,14 @@ const NEWS_SCRAPER_CONFIGS: Record<string, NewsScraperConfig> = {
   "ikeda-zoo": {
     newsUrl: "https://www.satsukiyamazoo.com/news/",
     linkSelector: "article a",
-    titleChildSelector: "p",
+    titleChildSelector: "h2",
     dateChildSelector: "time",
   },
   "adventure-world": {
     newsUrl: "https://www.aws-s.com/topics/",
     linkSelector: "ul li a[href]",
     titleChildSelector: "h3",
+    dateChildSelector: ".topics-box__date",
   },
   "kobe-animal-kingdom": {
     newsUrl: "https://www.kobe-oukoku.com/pickup",
@@ -396,7 +397,10 @@ function parseNewsDate(raw: string, yearForMonthDay?: number): string | null {
   // RFC 822: "Wed, 23 Jul 2026 09:00:00 +0900"
   if (/^[A-Za-z]{3},/.test(s)) {
     const d = new Date(s);
-    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    // RSS の日時は UTC や +0900 などで配信される。掲載日として JST の日付を保存する。
+    if (!isNaN(d.getTime())) {
+      return new Date(d.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    }
   }
   // Japanese: "2026年7月23日" (possibly with brackets or day-of-week)
   const ja = s.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/);

@@ -4,6 +4,7 @@ import { findAnimalTaxonomy, type AnimalTaxonomy } from "./animal-taxonomy";
 import type { ScrapeResult, NewsItem } from "./scraper";
 import { scrapeAnimals, scrapeZooNews } from "./scraper";
 import { checkHealth } from "./monitor-health";
+import { handleMcpRequest, type McpDeps } from "./mcp";
 
 const PREF_LABELS: Record<PrefectureCode, string> = {
   osaka: "大阪府",
@@ -9044,6 +9045,22 @@ export default {
 
 const CANONICAL_HOSTNAME = "kinki-zoo.wagaya.org";
 
+function createMcpDeps(db: D1Database, origin: string): McpDeps {
+  return {
+    origin,
+    zoos,
+    prefLabels: PREF_LABELS,
+    matchesSearchQuery,
+    searchSite: (pref, query) => searchSite(db, pref, query),
+    searchZoos: (pref, animal) => searchZoos(db, pref, animal),
+    loadAnimalList: (pref) => loadAnimalList(db, "all", pref),
+    loadZooAnimals: (zooId) => loadCachedScrapeResult(db, zooId),
+    loadZooNews: (zooId, limit) => loadZooNews(db, zooId, limit),
+    loadAllZooNews: (limit, query, pref) => loadAllZooNews(db, limit, query, pref),
+    loadZooAnimalsForCompare: (zooIds) => loadZooAnimalsForCompare(db, zooIds),
+  };
+}
+
 async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     if (url.hostname === "kinki-zoo.anison.workers.dev") {
@@ -9056,6 +9073,10 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
 
     if (pathname === "/_monitor/health") {
       return checkHealth(env.DB);
+    }
+
+    if (pathname === "/mcp") {
+      return handleMcpRequest(request, createMcpDeps(env.DB, url.origin));
     }
 
     const prefParam = url.searchParams.get("pref");

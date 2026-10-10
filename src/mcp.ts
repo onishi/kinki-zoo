@@ -70,6 +70,16 @@ export interface McpDeps {
   loadZooNews(zooId: string, limit: number): Promise<McpNewsRow[]>;
   loadAllZooNews(limit: number, query: string | null, pref: PrefectureCode | null): Promise<McpNewsRow[]>;
   loadZooAnimalsForCompare(zooIds: string[]): Promise<Map<string, Array<{ display_name: string; class_name: string | null }>>>;
+  /** 公開済みプロフィールの要約を animals.canonical_name をキーに返す。 */
+  loadAnimalProfileSummaries(canonicalNames: string[]): Promise<Map<string, McpAnimalProfileSummary>>;
+}
+
+interface McpAnimalProfileSummary {
+  scientificName?: string;
+  summary?: string;
+  iucnStatus?: string;
+  activityPattern?: string;
+  measurements: Record<string, string>;
 }
 
 type JsonObject = Record<string, unknown>;
@@ -202,7 +212,7 @@ const TOOLS: ToolDefinition[] = [
   {
     name: "find_animal",
     title: "動物を見られる施設",
-    description: "動物名（例: レッサーパンダ、カピバラ、ゾウ）から、その動物を見られる施設と分類（類・目・科・属・種）を返す。表記ゆれ（ひらがな・カタカナ）は吸収する。",
+    description: "動物名（例: レッサーパンダ、カピバラ、ゾウ）から、その動物を見られる施設と分類（類・目・科・属・種）を返す。プロフィールが公開されている種は、学名・一言紹介・IUCN ランク・サイズ・体重・寿命も返す。表記ゆれ（ひらがな・カタカナ）は吸収する。",
     inputSchema: {
       type: "object",
       properties: {
@@ -217,9 +227,16 @@ const TOOLS: ToolDefinition[] = [
       const animals = (await deps.loadAnimalList(pref)).filter((animal) =>
         deps.matchesSearchQuery([animal.canonicalName, ...animal.displayNames, animal.speciesName], name)
       );
+      const visible = animals.slice(0, MAX_FIND_ANIMAL_RESULTS);
+      const profiles = await deps.loadAnimalProfileSummaries(
+        visible.flatMap((animal) => (animal.canonicalName ? [animal.canonicalName] : []))
+      );
       return {
         count: animals.length,
-        animals: animals.slice(0, MAX_FIND_ANIMAL_RESULTS).map((animal) => summarizeAnimal(animal, deps)),
+        animals: visible.map((animal) => {
+          const profile = animal.canonicalName ? profiles.get(animal.canonicalName) : undefined;
+          return { ...summarizeAnimal(animal, deps), ...(profile ? { profile } : {}) };
+        }),
         ...(animals.length > MAX_FIND_ANIMAL_RESULTS
           ? { note: `一致が多いため先頭 ${MAX_FIND_ANIMAL_RESULTS} 件だけ返しています。名前を詳しくしてください。` }
           : {}),

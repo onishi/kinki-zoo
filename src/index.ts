@@ -5,6 +5,39 @@ import type { ScrapeResult, NewsItem } from "./scraper";
 import { scrapeAnimals, scrapeZooNews } from "./scraper";
 import { checkHealth } from "./monitor-health";
 import { handleMcpRequest, type McpDeps } from "./mcp";
+import {
+  ACTIVITY_PATTERN_LABELS,
+  ANIMAL_PROFILE_CSS,
+  CONTEXT_LABELS,
+  DIET_TYPE_LABELS,
+  DISTRIBUTION_REGION_LABELS,
+  GEMINI_PROFILE_MODEL,
+  IUCN_STATUS_LABELS,
+  MEASUREMENT_METRICS,
+  METRIC_DEFINITIONS,
+  PROFILE_STATUS_LABELS,
+  SEX_LABELS,
+  SOCIAL_STRUCTURE_LABELS,
+  buildProfilePrompt,
+  loadAnimalProfile,
+  loadProfileAdminRows,
+  loadProfileStatusCounts,
+  loadProfileTargets,
+  loadPublishedProfilesByCanonicalNames,
+  parseProfileResponse,
+  renderAnimalProfileHero,
+  renderAnimalProfileSection,
+  sanitizeProfileContent,
+  sanitizeSources,
+  saveAnimalProfile,
+  summarizeMeasurements,
+  toApiProfile,
+  type AnimalProfile,
+  type AnimalProfileContent,
+  type AnimalProfileStatus,
+  type ProfileAdminRow,
+  type ProfileTargetAnimal,
+} from "./animal-profile";
 
 const PREF_LABELS: Record<PrefectureCode, string> = {
   osaka: "大阪府",
@@ -4524,6 +4557,12 @@ ${renderGlobalNav("/admin")}
         </a>
       </li>
       <li>
+        <a href="/admin/animal-profiles">
+          動物プロフィール
+          <small>サイズ・体重・寿命・解説の下書き生成と確認・公開</small>
+        </a>
+      </li>
+      <li>
         <a href="/admin/scrape-health">
           スクレイプ監視
           <small>取得件数の急減・エラー・期待件数割れを確認する</small>
@@ -6074,7 +6113,8 @@ function renderZooAnimalDetailHtml(
   animalNews: AnimalNewsRow[] = [],
   pastZoos: AnimalPastZoo[] = [],
   activePref: PrefectureCode | null = null,
-  pageUrl?: string
+  pageUrl?: string,
+  profile: AnimalProfile | null = null
 ): string {
   const displayLabel = formatAnimalDisplayName(detail.displayName);
   const canonicalLabel = detail.canonicalName ? formatAnimalDisplayName(detail.canonicalName) : null;
@@ -6156,7 +6196,7 @@ function renderZooAnimalDetailHtml(
   );
   const ogMetaTags = renderOgMetaTags({
     title: pageTitle,
-    description: `${displayLabel}の展示施設や分類情報を確認できます。`,
+    description: profile?.summary ?? `${displayLabel}の展示施設や分類情報を確認できます。`,
     url: pageUrl,
     imageUrl: ogImageUrl ?? undefined,
   });
@@ -6280,7 +6320,7 @@ function renderZooAnimalDetailHtml(
     .animal-news-date { color: #5f5f5f; font-size: 0.76rem; flex: 0 0 auto; font-variant-numeric: tabular-nums; }
     .animal-news-title { color: #1a1a1a; text-decoration: none; font-size: 0.9rem; line-height: 1.5; overflow-wrap: anywhere; }
     .animal-news-title:hover { color: #1f5b45; text-decoration: underline; text-underline-offset: 0.2em; }
-    footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #6e6e6e; border-top: 1px solid #eee; }
+    footer { text-align: center; padding: 1.5rem; font-size: 0.8rem; color: #6e6e6e; border-top: 1px solid #eee; }${ANIMAL_PROFILE_CSS}
     @media (max-width: 700px) {
       .hero { grid-template-columns: 1fr; padding: 1rem 0.75rem; gap: 1rem; }
       .animal-image { max-width: none; }
@@ -6317,10 +6357,12 @@ ${renderGlobalNav("/animals")}
           )}
         </div>
         ${canonicalHtml}
+        ${profile ? renderAnimalProfileHero(profile) : ""}
         ${externalLinksHtml}
         ${taxonomyHtml}
       </div>
     </div>
+    ${profile ? renderAnimalProfileSection(profile) : ""}
     <section>
       <h2>見られる施設</h2>
       <ul class="zoo-list">${zooLinks}</ul>
@@ -8998,6 +9040,462 @@ function renderSitemapXml(origin: string, entries: SitemapEntry[]): string {
   return `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urlsXml}</urlset>`;
 }
 
+// ---------- 動物プロフィール ----------
+
+async function generateAnimalProfileWithGemini(
+  apiKey: string,
+  animal: ProfileTargetAnimal
+): Promise<AnimalProfileContent> {
+  const response = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": apiKey,
+    },
+    body: JSON.stringify({
+      model: GEMINI_PROFILE_MODEL,
+      input: buildProfilePrompt(animal),
+      tools: [{ type: "google_search" }],
+    }),
+  });
+
+  const responseText = await response.text();
+  if (!response.ok) {
+    throw new Error(`Gemini API error ${response.status}: ${responseText.slice(0, 500)}`);
+  }
+
+  const data = JSON.parse(responseText) as unknown;
+  const rawText = extractGeminiOutputText(data);
+  if (!rawText) {
+    throw new Error("Gemini response did not include output text");
+  }
+
+  const content = parseProfileResponse(extractJsonObject(rawText));
+  // grounding で実際に参照したページを優先し、モデルが挙げた出典は後ろに残す（確認画面で人が見る）。
+  return {
+    ...content,
+    sources: sanitizeSources([...extractGeminiCitations(data), ...content.sources]),
+  };
+}
+
+interface AnimalProfileGenerationResult {
+  animalId: string;
+  canonicalName: string;
+  status: "generated" | "error";
+  measurementCount?: number;
+  error?: string;
+}
+
+async function generateAnimalProfiles(
+  db: D1Database,
+  apiKey: string,
+  targets: ProfileTargetAnimal[]
+): Promise<AnimalProfileGenerationResult[]> {
+  const results: AnimalProfileGenerationResult[] = [];
+  for (const target of targets) {
+    try {
+      const content = await generateAnimalProfileWithGemini(apiKey, target);
+      await saveAnimalProfile(db, target.id, content, {
+        status: "draft",
+        model: GEMINI_PROFILE_MODEL,
+        generatedAt: new Date().toISOString(),
+      });
+      results.push({
+        animalId: target.id,
+        canonicalName: target.canonicalName,
+        status: "generated",
+        measurementCount: content.measurements.length,
+      });
+    } catch (error) {
+      console.error(`[profile] ${target.canonicalName}:`, error);
+      results.push({
+        animalId: target.id,
+        canonicalName: target.canonicalName,
+        status: "error",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return results;
+}
+
+function buildAnimalProfileAdminUrl(animalId: string): string {
+  return `/admin/animal-profiles/${encodeURIComponent(animalId)}`;
+}
+
+const MEASUREMENT_UNIT_INPUT_LABELS: Record<string, string> = {
+  cm: "（cm）",
+  kg: "（kg）",
+  year: "（年）",
+  day: "（日）",
+  count: "",
+};
+
+function isAnimalProfileStatus(value: string | null): value is AnimalProfileStatus {
+  return value !== null && value in PROFILE_STATUS_LABELS;
+}
+
+const ANIMAL_PROFILE_ADMIN_CSS = `
+    main { max-width: 1160px; margin: 0 auto; padding: 1rem 1.5rem 2rem; display: grid; gap: 1rem; }
+    h1 { font-size: 1.15rem; }
+    h2 { font-size: 1rem; color: #444; }
+${ADMIN_BREADCRUMB_CSS}
+    .notice { border: 1px solid #cfe5d8; background: #f5fbf7; color: #244d37; padding: 0.6rem 0.75rem; font-size: 0.86rem; }
+    .filter-tabs { display: flex; flex-wrap: wrap; gap: 0; border-bottom: 2px solid #ddd; }
+    .filter-tabs a { padding: 0.5rem 1rem; font-size: 0.84rem; color: #555; text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+    .filter-tabs a.active { border-bottom-color: #1f5b45; color: #1f5b45; font-weight: bold; }
+    .filter-tabs .count { font-size: 0.75rem; color: #5f5f5f; margin-left: 0.3rem; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+    .toolbar input[type=search] { min-height: 38px; flex: 1 1 220px; max-width: 360px; border: 1px solid #bbb; padding: 0.4rem 0.65rem; }
+    .toolbar input[type=number] { min-height: 38px; width: 5rem; border: 1px solid #bbb; padding: 0.4rem; }
+    .btn { min-height: 38px; display: inline-flex; align-items: center; border: 1px solid #1f5b45; background: #1f5b45; color: #fff; padding: 0.35rem 0.8rem; font-size: 0.84rem; cursor: pointer; text-decoration: none; }
+    .btn--secondary { background: #fff; color: #1f5b45; }
+    .btn--danger { background: #fff; color: #8b3a20; border-color: #c88; }
+    .profile-table { width: 100%; border-collapse: collapse; }
+    .profile-table th, .profile-table td { border-bottom: 1px solid #e8e8e8; padding: 0.5rem 0.65rem; text-align: left; font-size: 0.84rem; vertical-align: top; }
+    .profile-table thead th { background: #f7f7f7; color: #555; border-bottom: 2px solid #ddd; font-size: 0.8rem; }
+    .profile-table a { color: #1f5b45; font-weight: bold; text-decoration: none; }
+    .profile-table small { color: #5f5f5f; }
+    .status-badge { display: inline-block; font-size: 0.72rem; padding: 0.15rem 0.45rem; white-space: nowrap; border: 1px solid #e1e1e1; background: #f7f7f7; color: #5f5f5f; }
+    .status-draft { background: #fef9e7; border-color: #f0d98a; color: #7a5c00; }
+    .status-reviewed { background: #eef4fb; border-color: #b8cde6; color: #234a75; }
+    .status-published { background: #e8f5ee; border-color: #b6ddc8; color: #1f5b45; }
+    .status-rejected { background: #fef0ec; border-color: #f0c0b0; color: #8b3a20; }
+    .profile-form { display: grid; gap: 1rem; }
+    .profile-form fieldset { border: 1px solid #dce7df; padding: 0.75rem; display: grid; gap: 0.65rem; }
+    .profile-form legend { font-weight: bold; font-size: 0.9rem; padding: 0 0.3rem; }
+    .field-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0.65rem; }
+    .field { display: grid; gap: 0.25rem; font-size: 0.82rem; color: #555; }
+    .field input, .field select, .field textarea { border: 1px solid #bbb; padding: 0.4rem 0.5rem; font-size: 0.9rem; font-family: inherit; color: #222; }
+    .field textarea { min-height: 4.5rem; resize: vertical; line-height: 1.6; }
+    .field textarea.tall { min-height: 9rem; }
+    .checks { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; font-size: 0.86rem; }
+    .measure-table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+    .measure-table th, .measure-table td { border-bottom: 1px solid #eee; padding: 0.3rem; text-align: left; }
+    .measure-table input, .measure-table select { width: 100%; border: 1px solid #bbb; padding: 0.3rem; font-size: 0.85rem; }
+    .measure-table input[type=number] { width: 6.5rem; }
+    .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; position: sticky; bottom: 0; background: #fff; padding: 0.6rem 0; border-top: 1px solid #eee; }
+    .meta { color: #5f5f5f; font-size: 0.8rem; }
+    .preview { border: 1px dashed #c9d6cf; }
+    .preview section { padding: 1rem; }
+    @media (max-width: 700px) {
+      main { padding: 0.9rem 0.75rem 2rem; }
+      .measure-table { display: block; overflow-x: auto; }
+    }`;
+
+function renderAnimalProfileAdminListHtml(
+  rows: ProfileAdminRow[],
+  counts: Record<AnimalProfileStatus | "none", number>,
+  status: AnimalProfileStatus | "none" | null,
+  query: string | null,
+  notice?: string
+): string {
+  const total = Object.values(counts).reduce((sum, value) => sum + value, 0);
+  const tabs: Array<[AnimalProfileStatus | "none" | null, string, number]> = [
+    [null, "すべて", total],
+    ["none", "未作成", counts.none],
+    ["draft", PROFILE_STATUS_LABELS.draft, counts.draft],
+    ["reviewed", PROFILE_STATUS_LABELS.reviewed, counts.reviewed],
+    ["published", PROFILE_STATUS_LABELS.published, counts.published],
+    ["rejected", PROFILE_STATUS_LABELS.rejected, counts.rejected],
+  ];
+  const tabsHtml = tabs
+    .map(([value, label, count]) => {
+      const params = new URLSearchParams();
+      if (value) params.set("status", value);
+      if (query) params.set("q", query);
+      const href = `/admin/animal-profiles${params.size > 0 ? `?${params}` : ""}`;
+      return `<a href="${escapeHtml(href)}" class="${value === status ? "active" : ""}">${escapeHtml(label)}<span class="count">${count}</span></a>`;
+    })
+    .join("");
+  const rowsHtml = rows
+    .map((row) => {
+      const statusHtml = row.status
+        ? `<span class="status-badge status-${row.status}">${escapeHtml(PROFILE_STATUS_LABELS[row.status])}</span>`
+        : `<span class="status-badge">未作成</span>`;
+      const publicLink = row.displayName
+        ? ` <small><a href="${buildZooAnimalUrl(row.displayName)}" style="font-weight:normal">公開ページ</a></small>`
+        : "";
+      return `<tr>
+        <td><a href="${buildAnimalProfileAdminUrl(row.animalId)}">${escapeHtml(row.canonicalName)}</a>${publicLink}<br><small>${escapeHtml(row.className)} / ${row.zooCount}施設</small></td>
+        <td>${statusHtml}</td>
+        <td>${row.summary ? escapeHtml(row.summary) : "<small>-</small>"}</td>
+        <td>${row.measurementCount}</td>
+        <td><small>${row.updatedAt ? escapeHtml(formatDateTime(row.updatedAt)) : "-"}</small></td>
+      </tr>`;
+    })
+    .join("");
+
+  return `<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>動物プロフィール | 近畿動物園情報</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}${ANIMAL_PROFILE_ADMIN_CSS}
+  </style>
+</head>
+<body>
+${renderSiteHeader()}
+${renderGlobalNav("/admin")}
+  <main id="main-content" tabindex="-1">
+    ${renderAdminBreadcrumb([{ label: "動物プロフィール" }])}
+    <h1>動物プロフィール</h1>
+    ${notice ? `<p class="notice">${escapeHtml(notice)}</p>` : ""}
+    <p class="meta">施設で見られる種（分類マスタ登録済み）ごとに、サイズ・体重・寿命と日本語の解説を管理します。Gemini で下書きを作り、内容を確認してから公開してください。公開済みのものだけがサイト・API・MCP に表示されます。</p>
+    <form class="toolbar" method="post" action="/admin/animal-profiles/generate">
+      <label class="meta" for="generate-limit">未作成の種から</label>
+      <input id="generate-limit" type="number" name="limit" value="3" min="1" max="10">
+      <button type="submit" class="btn">件の下書きを生成</button>
+      <span class="meta">（施設数の多い順。1件あたり数十秒かかります）</span>
+    </form>
+    <form class="toolbar" method="get" action="/admin/animal-profiles">
+      ${status ? `<input type="hidden" name="status" value="${escapeHtml(status)}">` : ""}
+      <input type="search" name="q" value="${escapeHtml(query ?? "")}" placeholder="和名・学名で絞り込み">
+      <button type="submit" class="btn btn--secondary">絞り込み</button>
+    </form>
+    <nav class="filter-tabs">${tabsHtml}</nav>
+    <table class="profile-table">
+      <thead><tr><th>種</th><th>状態</th><th>一言紹介</th><th>数値</th><th>更新</th></tr></thead>
+      <tbody>${rowsHtml || `<tr><td colspan="5">該当する動物はありません</td></tr>`}</tbody>
+    </table>
+  </main>
+</body>
+</html>`;
+}
+
+function renderOptions<T extends string>(labels: Record<T, string>, selected: string | undefined, emptyLabel = "（未設定）"): string {
+  const options = (Object.entries(labels) as Array<[T, string]>)
+    .map(([value, label]) => `<option value="${value}"${value === selected ? " selected" : ""}>${escapeHtml(label ? `${value} ${label}` : value)}</option>`)
+    .join("");
+  return `<option value="">${escapeHtml(emptyLabel)}</option>${options}`;
+}
+
+function renderAnimalProfileEditHtml(
+  animal: ProfileTargetAnimal,
+  profile: AnimalProfile | null,
+  displayName: string | null,
+  notice?: string
+): string {
+  const content: AnimalProfileContent = profile ?? sanitizeProfileContent({});
+  const text = (value: string | undefined) => escapeHtml(value ?? "");
+  const measurementRows = [...content.measurements, ...Array.from({ length: 4 }, () => null)]
+    .map((m) => {
+      const metricOptions = `<option value="">-</option>${MEASUREMENT_METRICS.map(
+        (metric) => `<option value="${metric}"${m?.metric === metric ? " selected" : ""}>${escapeHtml(METRIC_DEFINITIONS[metric].label)}${MEASUREMENT_UNIT_INPUT_LABELS[METRIC_DEFINITIONS[metric].unit]}</option>`
+      ).join("")}`;
+      const sexOptions = (Object.keys(SEX_LABELS) as Array<keyof typeof SEX_LABELS>)
+        .map((sex) => `<option value="${sex}"${(m?.sex ?? "any") === sex ? " selected" : ""}>${escapeHtml(SEX_LABELS[sex] || "共通")}</option>`)
+        .join("");
+      const contextOptions = (Object.keys(CONTEXT_LABELS) as Array<keyof typeof CONTEXT_LABELS>)
+        .map((context) => `<option value="${context}"${(m?.context ?? "any") === context ? " selected" : ""}>${escapeHtml(CONTEXT_LABELS[context] || "共通")}</option>`)
+        .join("");
+      return `<tr>
+        <td><select name="m_metric">${metricOptions}</select></td>
+        <td><select name="m_sex">${sexOptions}</select></td>
+        <td><select name="m_context">${contextOptions}</select></td>
+        <td><input type="number" step="any" min="0" name="m_min" value="${m?.min ?? ""}"></td>
+        <td><input type="number" step="any" min="0" name="m_max" value="${m?.max ?? ""}"></td>
+        <td><input type="text" name="m_note" value="${text(m?.note)}"></td>
+      </tr>`;
+    })
+    .join("");
+  const regionChecks = (Object.entries(DISTRIBUTION_REGION_LABELS) as Array<[string, string]>)
+    .map(
+      ([value, label]) =>
+        `<label><input type="checkbox" name="distributionRegions" value="${value}"${(content.distributionRegions as string[]).includes(value) ? " checked" : ""}> ${escapeHtml(label)}</label>`
+    )
+    .join("");
+  const sourcesText = content.sources
+    .map((source) => [source.url, source.title ?? "", source.publisher ?? ""].join(" | ").replace(/( \| )+$/, ""))
+    .join("\n");
+  const statusHtml = profile
+    ? `<span class="status-badge status-${profile.status}">${escapeHtml(PROFILE_STATUS_LABELS[profile.status])}</span>`
+    : `<span class="status-badge">未作成</span>`;
+  const metaParts = [
+    profile?.model ? `生成: ${profile.model}${profile.generatedAt ? `（${formatDateTime(profile.generatedAt)}）` : ""}` : null,
+    profile?.reviewedAt ? `確認: ${formatDateTime(profile.reviewedAt)}` : null,
+    profile ? `更新: ${formatDateTime(profile.updatedAt)}` : null,
+  ].filter(Boolean);
+  const canRegenerate = !profile || profile.status === "draft" || profile.status === "rejected";
+  const previewProfile: AnimalProfile | null = profile;
+
+  return `<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>${escapeHtml(animal.canonicalName)} プロフィール | 近畿動物園情報</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #fff; color: #222; }${COMMON_STYLES}${ANIMAL_PROFILE_ADMIN_CSS}${ANIMAL_PROFILE_CSS}
+  </style>
+</head>
+<body>
+${renderSiteHeader()}
+${renderGlobalNav("/admin")}
+  <main id="main-content" tabindex="-1">
+    ${renderAdminBreadcrumb([{ href: "/admin/animal-profiles", label: "動物プロフィール" }, { label: animal.canonicalName }])}
+    <h1>${escapeHtml(animal.canonicalName)} ${statusHtml}</h1>
+    <p class="meta">${escapeHtml([animal.className, animal.orderName, animal.familyName, animal.genusName, animal.speciesName].join(" / "))}
+      ${displayName ? ` ・ <a href="${buildZooAnimalUrl(displayName)}">公開ページ</a>` : ""}</p>
+    ${metaParts.length > 0 ? `<p class="meta">${escapeHtml(metaParts.join(" ・ "))}</p>` : ""}
+    ${notice ? `<p class="notice">${escapeHtml(notice)}</p>` : ""}
+    ${canRegenerate ? `<form method="post" action="${buildAnimalProfileAdminUrl(animal.id)}" class="toolbar">
+      <input type="hidden" name="action" value="regenerate">
+      <button type="submit" class="btn btn--secondary">${profile ? "Gemini で下書きを作り直す" : "Gemini で下書きを生成"}</button>
+      <span class="meta">${profile ? "現在の内容は上書きされます" : ""}</span>
+    </form>` : `<p class="meta">確認済み・公開済みのプロフィールは作り直せません。作り直す場合は先に「保存（下書き）」で下書きに戻してください。</p>`}
+    <form class="profile-form" method="post" action="${buildAnimalProfileAdminUrl(animal.id)}">
+      <fieldset>
+        <legend>名前</legend>
+        <div class="field-grid">
+          <label class="field">学名<input name="scientificName" value="${text(content.scientificName)}"></label>
+          <label class="field">英名<input name="englishName" value="${text(content.englishName)}"></label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>解説</legend>
+        <label class="field">一言紹介（60字程度。一覧・検索結果・MCP 用）<textarea name="summary">${text(content.summary)}</textarea></label>
+        <label class="field">詳細解説（200〜400字）<textarea name="description" class="tall">${text(content.description)}</textarea></label>
+        <label class="field">生息地<textarea name="habitat">${text(content.habitat)}</textarea></label>
+        <div class="field">分布地域<div class="checks">${regionChecks}</div></div>
+        <label class="field">食べもの<textarea name="diet">${text(content.diet)}</textarea></label>
+        <label class="field">見どころ<textarea name="viewingTips">${text(content.viewingTips)}</textarea></label>
+        <label class="field">豆知識<textarea name="trivia">${text(content.trivia)}</textarea></label>
+      </fieldset>
+      <fieldset>
+        <legend>区分</legend>
+        <div class="field-grid">
+          <label class="field">食性<select name="dietType">${renderOptions(DIET_TYPE_LABELS, content.dietType)}</select></label>
+          <label class="field">活動時間<select name="activityPattern">${renderOptions(ACTIVITY_PATTERN_LABELS, content.activityPattern)}</select></label>
+          <label class="field">社会構造<select name="socialStructure">${renderOptions(SOCIAL_STRUCTURE_LABELS, content.socialStructure)}</select></label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>保全状況</legend>
+        <div class="field-grid">
+          <label class="field">IUCN<select name="iucnStatus">${renderOptions(IUCN_STATUS_LABELS, content.iucnStatus)}</select></label>
+          <label class="field">IUCN 評価年<input type="number" name="iucnAssessedYear" value="${content.iucnAssessedYear ?? ""}"></label>
+          <label class="field">環境省レッドリスト<input name="moeRedlistCategory" value="${text(content.moeRedlistCategory)}" placeholder="例: 絶滅危惧IB類"></label>
+          <label class="field">ワシントン条約<select name="citesAppendix">${renderOptions({ I: "附属書I", II: "附属書II", III: "附属書III" }, content.citesAppendix)}</select></label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>数値データ</legend>
+        <p class="meta">単位は項目ごとに固定です（長さ cm・重さ kg・寿命 年・期間 日）。g は kg に換算して入力してください（350g → 0.35）。単一の値は下限と上限に同じ値、最大値だけなら上限のみ入力します。項目を「-」にすると削除されます。</p>
+        <table class="measure-table">
+          <thead><tr><th>項目</th><th>性別</th><th>条件</th><th>下限</th><th>上限</th><th>補足</th></tr></thead>
+          <tbody>${measurementRows}</tbody>
+        </table>
+      </fieldset>
+      <fieldset>
+        <legend>出典</legend>
+        <label class="field">1行に1件「URL | タイトル | 発行元」<textarea name="sources" class="tall">${escapeHtml(sourcesText)}</textarea></label>
+      </fieldset>
+      <div class="actions">
+        <button type="submit" name="action" value="publish" class="btn">保存して公開</button>
+        <button type="submit" name="action" value="reviewed" class="btn btn--secondary">保存（確認済み）</button>
+        <button type="submit" name="action" value="draft" class="btn btn--secondary">保存（下書き）</button>
+        <button type="submit" name="action" value="rejected" class="btn btn--danger">却下</button>
+      </div>
+    </form>
+    ${previewProfile ? `<h2>公開ページでの表示（保存済みの内容）</h2>
+    <div class="preview">
+      <div style="padding:1rem 1rem 0">${renderAnimalProfileHero(previewProfile)}</div>
+      ${renderAnimalProfileSection(previewProfile)}
+    </div>` : ""}
+  </main>
+</body>
+</html>`;
+}
+
+function parseAnimalProfileForm(form: FormData): AnimalProfileContent {
+  const get = (name: string) => {
+    const value = form.get(name);
+    return typeof value === "string" ? value : undefined;
+  };
+  const getAll = (name: string) => form.getAll(name).map((value) => (typeof value === "string" ? value : ""));
+  const metrics = getAll("m_metric");
+  const sexes = getAll("m_sex");
+  const contexts = getAll("m_context");
+  const mins = getAll("m_min");
+  const maxes = getAll("m_max");
+  const notes = getAll("m_note");
+  const measurements = metrics.map((metric, index) => ({
+    metric,
+    sex: sexes[index],
+    context: contexts[index],
+    min: mins[index],
+    max: maxes[index],
+    note: notes[index],
+  }));
+  const sources = (get("sources") ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.split("|").map((part) => part.trim()))
+    .filter(([url]) => url)
+    .map(([url, title, publisher]) => ({ url, title, publisher }));
+  return sanitizeProfileContent({
+    scientificName: get("scientificName"),
+    englishName: get("englishName"),
+    summary: get("summary"),
+    description: get("description"),
+    habitat: get("habitat"),
+    distributionRegions: getAll("distributionRegions"),
+    diet: get("diet"),
+    dietType: get("dietType"),
+    activityPattern: get("activityPattern"),
+    socialStructure: get("socialStructure"),
+    viewingTips: get("viewingTips"),
+    trivia: get("trivia"),
+    iucnStatus: get("iucnStatus"),
+    iucnAssessedYear: get("iucnAssessedYear"),
+    moeRedlistCategory: get("moeRedlistCategory"),
+    citesAppendix: get("citesAppendix"),
+    measurements,
+    sources,
+  });
+}
+
+async function loadProfileTargetAnimal(
+  db: D1Database,
+  animalId: string
+): Promise<{ animal: ProfileTargetAnimal; displayName: string | null } | null> {
+  const row = await db
+    .prepare(
+      `SELECT a.id, a.canonical_name, a.class_name, a.order_name, a.family_name, a.genus_name, a.species_name,
+              (SELECT MIN(za.display_name) FROM zoo_animals za WHERE za.animal_id = a.id) AS display_name
+       FROM animals a
+       WHERE a.id = ?`
+    )
+    .bind(animalId)
+    .first<{
+      id: string;
+      canonical_name: string;
+      class_name: string;
+      order_name: string;
+      family_name: string;
+      genus_name: string;
+      species_name: string;
+      display_name: string | null;
+    }>();
+  if (!row) return null;
+  return {
+    animal: {
+      id: row.id,
+      canonicalName: row.canonical_name,
+      className: row.class_name,
+      orderName: row.order_name,
+      familyName: row.family_name,
+      genusName: row.genus_name,
+      speciesName: row.species_name,
+    },
+    displayName: row.display_name,
+  };
+}
+
 function isAdminPath(pathname: string): boolean {
   return (
     pathname.startsWith("/admin") ||
@@ -9007,6 +9505,7 @@ function isAdminPath(pathname: string): boolean {
     pathname === "/api/news/rebuild-animals" ||
     pathname === "/api/animals/classify" ||
     pathname === "/api/animals/suggest-taxonomy" ||
+    pathname === "/api/animals/suggest-profile" ||
     pathname === "/api/animals/taxonomy-candidates" ||
     /^\/animal\/.+\/classify$/.test(pathname)
   );
@@ -9058,6 +9557,21 @@ function createMcpDeps(db: D1Database, origin: string): McpDeps {
     loadZooNews: (zooId, limit) => loadZooNews(db, zooId, limit),
     loadAllZooNews: (limit, query, pref) => loadAllZooNews(db, limit, query, pref),
     loadZooAnimalsForCompare: (zooIds) => loadZooAnimalsForCompare(db, zooIds),
+    loadAnimalProfileSummaries: async (canonicalNames) => {
+      const profiles = await loadPublishedProfilesByCanonicalNames(db, canonicalNames);
+      return new Map(
+        [...profiles].map(([name, profile]) => [
+          name,
+          {
+            scientificName: profile.scientificName,
+            summary: profile.summary,
+            iucnStatus: profile.iucnStatus,
+            activityPattern: profile.activityPattern ? ACTIVITY_PATTERN_LABELS[profile.activityPattern] : undefined,
+            measurements: summarizeMeasurements(profile.measurements),
+          },
+        ])
+      );
+    },
   };
 }
 
@@ -9207,6 +9721,121 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
       }
       const result = await classifyCachedZooAnimals(env.DB);
       return jsonResponse(result);
+    }
+
+    // JSON API: GET /api/animals/:animalId/profile（公開済みのみ）
+    const animalProfileApiMatch = pathname.match(/^\/api\/animals\/(.+)\/profile$/);
+    if (animalProfileApiMatch) {
+      const animalId = decodeURIComponent(animalProfileApiMatch[1]);
+      const profile = await loadAnimalProfile(env.DB, animalId, { publishedOnly: true });
+      if (!profile) return notFound(`動物 '${animalId}' のプロフィールが見つかりません`);
+      return jsonResponse(toApiProfile(profile));
+    }
+
+    // JSON API: generate animal profile drafts with Gemini grounding
+    if (pathname === "/api/animals/suggest-profile") {
+      if (request.method !== "POST") {
+        return jsonResponse({ error: "POST を使用してください" }, 405);
+      }
+      if (!env.GEMINI_API_KEY) {
+        return jsonResponse({ error: "GEMINI_API_KEY が設定されていません" }, 500);
+      }
+      const body = (await request.json().catch(() => ({}))) as { animalIds?: unknown; limit?: unknown };
+      const animalIds = Array.isArray(body.animalIds)
+        ? [...new Set(body.animalIds.filter((value): value is string => typeof value === "string" && value.trim().length > 0))].slice(0, 10)
+        : [];
+      const limit =
+        typeof body.limit === "number" && Number.isFinite(body.limit)
+          ? Math.max(1, Math.min(10, Math.floor(body.limit)))
+          : 3;
+      const targets = await loadProfileTargets(env.DB, limit, animalIds);
+      const results = await generateAnimalProfiles(env.DB, env.GEMINI_API_KEY, targets);
+      return jsonResponse({
+        requested: targets.length,
+        generated: results.filter((result) => result.status === "generated").length,
+        failed: results.filter((result) => result.status === "error").length,
+        model: GEMINI_PROFILE_MODEL,
+        results,
+      });
+    }
+
+    // HTML: /admin/animal-profiles
+    if (pathname === "/admin/animal-profiles") {
+      const statusParam = url.searchParams.get("status");
+      const status = statusParam === "none" || isAnimalProfileStatus(statusParam) ? statusParam : null;
+      const query = normalizeSearchTerm(url.searchParams.get("q"));
+      const [rows, counts] = await Promise.all([
+        loadProfileAdminRows(env.DB, status, query),
+        loadProfileStatusCounts(env.DB),
+      ]);
+      const notice = url.searchParams.get("notice") ?? undefined;
+      return htmlResponse(renderAnimalProfileAdminListHtml(rows, counts, status, query, notice), url, activePref);
+    }
+
+    // Form: /admin/animal-profiles/generate（未作成の種からまとめて下書き生成）
+    if (pathname === "/admin/animal-profiles/generate") {
+      if (request.method !== "POST") {
+        return jsonResponse({ error: "POST を使用してください" }, 405);
+      }
+      const redirectWith = (notice: string) =>
+        redirectResponse(`/admin/animal-profiles?status=draft&notice=${encodeURIComponent(notice)}`, 303);
+      if (!env.GEMINI_API_KEY) return redirectWith("GEMINI_API_KEY が設定されていないため生成できません。");
+      const form = await request.formData();
+      const limit = Math.max(1, Math.min(10, Math.floor(Number(form.get("limit")) || 3)));
+      const targets = await loadProfileTargets(env.DB, limit);
+      const results = await generateAnimalProfiles(env.DB, env.GEMINI_API_KEY, targets);
+      const generated = results.filter((result) => result.status === "generated");
+      const failed = results.filter((result) => result.status === "error");
+      return redirectWith(
+        targets.length === 0
+          ? "未作成の種はありません。"
+          : `${generated.length}件の下書きを生成しました${generated.length > 0 ? `（${generated.map((r) => r.canonicalName).join("、")}）` : ""}。` +
+              (failed.length > 0 ? ` 失敗: ${failed.map((r) => r.canonicalName).join("、")}` : "")
+      );
+    }
+
+    // HTML/Form: /admin/animal-profiles/:animalId
+    const animalProfileAdminMatch = pathname.match(/^\/admin\/animal-profiles\/(.+)$/);
+    if (animalProfileAdminMatch) {
+      const animalId = decodeURIComponent(animalProfileAdminMatch[1]);
+      const target = await loadProfileTargetAnimal(env.DB, animalId);
+      if (!target) return notFound(`動物 '${animalId}' が分類マスタに見つかりません`);
+      const selfUrl = buildAnimalProfileAdminUrl(animalId);
+
+      if (request.method === "POST") {
+        const form = await request.formData();
+        const action = form.get("action");
+        const redirectWith = (notice: string) => redirectResponse(`${selfUrl}?notice=${encodeURIComponent(notice)}`, 303);
+        if (action === "regenerate") {
+          const existing = await loadAnimalProfile(env.DB, animalId, { publishedOnly: false });
+          if (existing && existing.status !== "draft" && existing.status !== "rejected") {
+            return redirectWith("確認済み・公開済みのプロフィールは作り直せません。");
+          }
+          if (!env.GEMINI_API_KEY) return redirectWith("GEMINI_API_KEY が設定されていないため生成できません。");
+          const [result] = await generateAnimalProfiles(env.DB, env.GEMINI_API_KEY, [target.animal]);
+          return redirectWith(
+            result.status === "generated"
+              ? `下書きを生成しました（数値 ${result.measurementCount ?? 0} 件）。内容を確認してください。`
+              : `生成に失敗しました: ${result.error ?? ""}`
+          );
+        }
+        const status: AnimalProfileStatus =
+          action === "publish" ? "published" : typeof action === "string" && isAnimalProfileStatus(action) ? action : "draft";
+        const content = parseAnimalProfileForm(form);
+        if (status === "published" && !content.summary) {
+          return htmlResponse(
+            renderAnimalProfileEditHtml(target.animal, { ...content, animalId, status: "draft", updatedAt: new Date().toISOString() }, target.displayName, "公開するには一言紹介が必要です（未保存）。"),
+            url,
+            activePref
+          );
+        }
+        await saveAnimalProfile(env.DB, animalId, content, { status });
+        return redirectWith(`${PROFILE_STATUS_LABELS[status]}として保存しました。`);
+      }
+
+      const profile = await loadAnimalProfile(env.DB, animalId, { publishedOnly: false });
+      const notice = url.searchParams.get("notice") ?? undefined;
+      return htmlResponse(renderAnimalProfileEditHtml(target.animal, profile, target.displayName, notice), url, activePref);
     }
 
     // JSON API: suggest taxonomy candidates with Gemini grounding
@@ -9739,11 +10368,12 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
         if (pastZoos.length === 0) return notFound(`動物 '${displayName}' が見つかりません`);
         return htmlResponse(renderAnimalGoneHtml(displayName, pastZoos), url, activePref);
       }
-      const [relatedAnimals, relatedDisplayNames, animalNews, pastZoos] = await Promise.all([
+      const [relatedAnimals, relatedDisplayNames, animalNews, pastZoos, profile] = await Promise.all([
         loadRelatedAnimals(env.DB, detail),
         loadRelatedDisplayNames(env.DB, detail, activePref),
         loadAnimalNews(env.DB, detail.displayName, detail.canonicalName ?? null),
         loadAnimalPastZoos(env.DB, displayName, detail.zoos.map((zoo) => zoo.id), activePref),
+        detail.animalId ? loadAnimalProfile(env.DB, detail.animalId, { publishedOnly: true }) : Promise.resolve(null),
       ]);
       const imageKey = normalizeAnimalImageKey(displayName);
       const image: AnimalImageVersion | undefined = imageKeys.has(imageKey)
@@ -9774,7 +10404,8 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
         animalNews,
         pastZoos,
         activePref,
-        buildCanonicalUrl(url)
+        buildCanonicalUrl(url),
+        profile
       );
       return htmlResponse(html, url, activePref);
     }

@@ -1,4 +1,6 @@
-# 動物プロフィールデータ設計（案）
+# 動物プロフィールデータ設計
+
+実装: `migrations/0021_create_animal_profiles.sql`、`src/animal-profile.ts`、管理画面 `/admin/animal-profiles`。
 
 動物ごとのサイズ・重量・寿命などの数値データと、日本語の解説文を D1 に保持するための設計案。
 
@@ -37,11 +39,11 @@
 | `summary` | TEXT | 一言紹介（60 字程度。一覧カード・検索結果・MCP 用） |
 | `description` | TEXT | 詳細解説（200〜400 字。詳細ページ本文） |
 | `habitat` | TEXT | 生息地・環境の説明（「中央アジアの標高 3,000〜5,000m の岩場」） |
-| `distribution_regions` | TEXT | 分布地域コードの JSON 配列（`["asia"]`）。絞り込み用 |
+| `distribution_regions` | TEXT | 分布地域コードの JSON 配列（`["asia"]`）。`japan` `asia` `europe` `africa` `north_america` `south_america` `oceania` `antarctica` `ocean` `domestic` |
 | `diet` | TEXT | 食性の説明文 |
 | `diet_type` | TEXT | `carnivore` / `herbivore` / `omnivore` / `insectivore` / `piscivore` / `other` |
 | `activity_pattern` | TEXT | `diurnal`（昼行性） / `nocturnal`（夜行性） / `crepuscular`（薄明薄暮性） / `cathemeral` |
-| `social_structure` | TEXT | `solitary` / `pair` / `group` など |
+| `social_structure` | TEXT | `solitary`（単独） / `pair`（ペア） / `group`（群れ） / `colony`（コロニー） |
 | `viewing_tips` | TEXT | 動物園での見どころ（「尾の長さに注目」など） |
 | `trivia` | TEXT | 豆知識（任意） |
 | `iucn_status` | TEXT | `EX` `EW` `CR` `EN` `VU` `NT` `LC` `DD` `NE` |
@@ -91,7 +93,9 @@
 | `incubation_period` | 抱卵（孵化）期間 | day | 鳥類・爬虫類 |
 | `litter_size` | 産子数・産卵数 | count | 全般 |
 
-ラベル・単位・表示フォーマッタは TypeScript 側（`src/animal-profile.ts`）に定数で持ち、
+`unit` は `metric` から決まるので、Gemini や入力フォームから来た単位は使わず、保存時に上書きする。
+
+ラベル・単位・表示フォーマッタは TypeScript 側（`src/animal-profile.ts` の `METRIC_DEFINITIONS`）に定数で持ち、
 DB には語彙コードだけを入れる。語彙を増やすときはコード側の定数を追加するだけで済む。
 
 ### `animal_profile_sources`（出典）
@@ -121,7 +125,7 @@ CREATE TABLE IF NOT EXISTS animal_profiles (
   diet TEXT,
   diet_type TEXT CHECK (diet_type IN ('carnivore','herbivore','omnivore','insectivore','piscivore','other')),
   activity_pattern TEXT CHECK (activity_pattern IN ('diurnal','nocturnal','crepuscular','cathemeral')),
-  social_structure TEXT,
+  social_structure TEXT CHECK (social_structure IN ('solitary','pair','group','colony')),
   viewing_tips TEXT,
   trivia TEXT,
   iucn_status TEXT CHECK (iucn_status IN ('EX','EW','CR','EN','VU','NT','LC','DD','NE')),
@@ -251,26 +255,27 @@ export interface AnimalProfile {
 
 ## 作成フロー
 
-1. `POST /api/animals/suggest-profile`（Basic 認証）
-   `animals` のうちプロフィール未作成の種について、Gemini + Google Search grounding に
-   `canonical_name` と分類（類〜種）を渡し、上記 JSON スキーマ（`responseSchema`）で出力させる。
-   結果は `status = 'draft'` で保存し、grounding の出典を `animal_profile_sources` に入れる。
-2. `/admin/animal-management` にプロフィール列を追加し、下書きの確認・編集・公開を行う。
-   数値の妥当性チェック（min ≤ max、体重 0 以下など）は保存時に弾く。
+1. `POST /api/animals/suggest-profile`（Basic 認証）または `/admin/animal-profiles` の生成ボタン。
+   施設で見られる種のうちプロフィール未作成のものを施設数の多い順に選び、1 種ずつ
+   Gemini（`gemini-2.5-flash`）+ Google Search grounding に和名と分類（類〜種）を渡して JSON で出力させる。
+   結果は `status = 'draft'` で保存し、grounding の出典（と、モデルが挙げた出典）を `animal_profile_sources` に入れる。
+2. `/admin/animal-profiles/:animalId` で下書きの確認・編集・公開を行う。
+   保存時に語彙外の値・0 以下の数値・http(s) 以外の URL は捨て、min > max は入れ替える。
+   公開には一言紹介（`summary`）を必須とする。
 3. 公開画面・API・MCP は `status = 'published'` のみ参照する。
+   確認済み・公開済みは下書き生成の対象外（作り直すときは下書きに戻す）。
 
-既存の `classify:unclassified` と同様に、全件バッチ用スクリプト
-`scripts/generate-animal-profiles.mjs` を用意する想定。
+一括生成は `npm run generate:animal-profiles`（`scripts/generate-animal-profiles.mjs`）。
 
 ## 利用先
 
 | 場所 | 使う項目 |
 |------|----------|
 | `/animal/:displayName` | 全項目。数値は「体長 100〜130cm（尾を除く）」「体重 オス 45〜55kg / メス 35〜40kg」のように整形 |
-| `/animals` 一覧カード | `summary`、IUCN バッジ |
-| `/animals` 絞り込み | `activity_pattern`（夜行性）、`iucn_status`（絶滅危惧種）、`distribution_regions` |
-| `/api/animals/:id/profile` | JSON で全項目 |
-| MCP `find_animal` | `summary`・主要数値・IUCN を追加で返す |
+| `/api/animals/:id/profile` | JSON で全項目 + `measurementsSummary`（日本語に整形した主要数値） |
+| MCP `find_animal` | 学名・`summary`・主要数値・IUCN・活動時間を追加で返す |
+| `/animals` 一覧カード（未実装） | `summary`、IUCN バッジ |
+| `/animals` 絞り込み（未実装） | `activity_pattern`（夜行性）、`iucn_status`（絶滅危惧種）、`distribution_regions` |
 
 ## 検討事項
 

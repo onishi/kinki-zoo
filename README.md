@@ -44,6 +44,7 @@
 | `GET /animal-images/:name` | 動物名キーで保存した正方形画像を返す |
 | `POST /api/animal-images/generate` | Gemini で動物画像を生成し、動物名キーで D1 に保存する |
 | `GET /animal-image-generations/:id` | 生成履歴に残した個別画像を返す |
+| `POST /mcp` | MCP（Model Context Protocol）サーバー。動物園・動物・お知らせを AI アシスタントから検索できる（後述） |
 
 `/admin` 配下と `/api/animal*` の一部(スクレイピング関連)は Basic 認証(`ADMIN_PASSWORD`)必須。
 
@@ -119,6 +120,34 @@
 - [ ] [D1 のクエリ計画を確認してインデックスを整理する](https://github.com/onishi/kinki-zoo/issues/120)
 
 現在オープンな issue の一覧は `gh issue list --state open` を参照。
+
+## MCP サーバー
+
+`/mcp` で MCP（Model Context Protocol）サーバーを公開しています（Streamable HTTP、セッションなし、認証なし）。
+実装は `src/mcp.ts` で、D1 への問い合わせはサイトと同じ関数を `src/index.ts` から渡しています。
+公開するのは読み取り専用のツールだけで、スクレイピングや分類・画像生成などの管理操作は含めません。
+
+| ツール | 内容 |
+|--------|------|
+| `search` | 動物・施設・分類・お知らせの横断検索 |
+| `search_zoos` | 都道府県・動物名・分類名で施設を絞り込む |
+| `get_zoo` | 施設の基本情報・飼育動物・最新のお知らせ |
+| `find_animal` | 動物を見られる施設と分類 |
+| `list_news` | お知らせ一覧（キーワード・都道府県・施設で絞り込み） |
+| `compare_zoos` | 2〜5 施設の共通動物・その施設だけの動物 |
+
+Claude などのクライアントには、リモート MCP サーバー（カスタムコネクタ）として
+`https://kinki-zoo.wagaya.org/mcp` を登録します。Claude Code の場合:
+
+```bash
+claude mcp add --transport http kinki-zoo https://kinki-zoo.wagaya.org/mcp
+```
+
+ローカルでは `npm run dev` のあと、MCP Inspector で動作を確認できます。
+
+```bash
+npx @modelcontextprotocol/inspector --cli http://localhost:8001/mcp --transport http --method tools/list
+```
 
 ## セットアップ
 

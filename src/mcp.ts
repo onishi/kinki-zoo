@@ -498,8 +498,23 @@ export async function handleMcpRequest(request: Request, deps: McpDeps): Promise
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: { ...CORS_HEADERS, "Access-Control-Max-Age": "86400" } });
   }
+  if (request.method === "GET") {
+    // サーバーからの SSE ストリームは提供しない。ブラウザで開いた人向けに接続方法を返す。
+    const endpoint = new URL(request.url);
+    endpoint.search = "";
+    const message = [
+      `This is the MCP server for ${endpoint.host}.`,
+      "It speaks the Model Context Protocol (Streamable HTTP) and accepts JSON-RPC requests via POST only.",
+      `To use it, add ${endpoint.toString()} as a remote MCP server in your MCP client.`,
+      "",
+    ].join("\n");
+    return new Response(message, {
+      status: 405,
+      headers: { ...CORS_HEADERS, Allow: "POST, OPTIONS", "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
+    });
+  }
   if (request.method !== "POST") {
-    // セッションを持たないため、サーバーからの SSE ストリーム（GET）とセッション終了（DELETE）は提供しない。
+    // セッションを持たないため、セッション終了（DELETE）は提供しない。
     return new Response("Method Not Allowed", { status: 405, headers: { ...CORS_HEADERS, Allow: "POST, OPTIONS" } });
   }
 

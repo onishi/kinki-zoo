@@ -409,13 +409,27 @@ async function loadProfilesByIds(
   return profiles;
 }
 
+/**
+ * プロフィールのテーブルがまだない（マイグレーション 0021 の適用前にデプロイされた）場合の判定。
+ * 公開ページはプロフィールなしとして表示を続けられるよう、この場合だけ握りつぶす。
+ */
+function isMissingProfileTableError(error: unknown): boolean {
+  return error instanceof Error && /no such table: animal_(profiles|measurements|profile_sources)/.test(error.message);
+}
+
 export async function loadAnimalProfile(
   db: D1Database,
   animalId: string,
   options: { publishedOnly: boolean }
 ): Promise<AnimalProfile | null> {
-  const profiles = await loadProfilesByIds(db, [animalId], options.publishedOnly);
-  return profiles.get(animalId) ?? null;
+  try {
+    const profiles = await loadProfilesByIds(db, [animalId], options.publishedOnly);
+    return profiles.get(animalId) ?? null;
+  } catch (error) {
+    if (!options.publishedOnly || !isMissingProfileTableError(error)) throw error;
+    console.warn("[profile] animal_profiles table is missing; apply migration 0021");
+    return null;
+  }
 }
 
 export async function saveAnimalProfile(
@@ -923,6 +937,16 @@ export function toApiProfile(profile: AnimalProfile) {
 
 /** 公開済みプロフィールを animals.canonical_name をキーにまとめて読む（出典は読まない）。検索・一覧用。 */
 export async function loadPublishedProfileIndex(db: D1Database): Promise<Map<string, AnimalProfile>> {
+  try {
+    return await loadPublishedProfileIndexUnchecked(db);
+  } catch (error) {
+    if (!isMissingProfileTableError(error)) throw error;
+    console.warn("[profile] animal_profiles table is missing; apply migration 0021");
+    return new Map();
+  }
+}
+
+async function loadPublishedProfileIndexUnchecked(db: D1Database): Promise<Map<string, AnimalProfile>> {
   const [profileResult, measurementResult] = await db.batch([
     db.prepare(
       `SELECT ${PROFILE_COLUMNS.split(",").map((column) => `p.${column.trim()}`).join(", ")}, a.canonical_name

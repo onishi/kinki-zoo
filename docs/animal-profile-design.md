@@ -274,8 +274,20 @@ export interface AnimalProfile {
 | `/animal/:displayName` | 全項目。数値は「体長 100〜130cm（尾を除く）」「体重 オス 45〜55kg / メス 35〜40kg」のように整形 |
 | `/api/animals/:id/profile` | JSON で全項目 + `measurementsSummary`（日本語に整形した主要数値） |
 | MCP `find_animal` | 学名・`summary`・主要数値・IUCN・活動時間を追加で返す |
-| `/animals` 一覧カード（未実装） | `summary`、IUCN バッジ |
-| `/animals` 絞り込み（未実装） | `activity_pattern`（夜行性）、`iucn_status`（絶滅危惧種）、`distribution_regions` |
+| `/search` | 動物カードに `summary`。検索語の照合対象（下記） |
+| `/animals` 絞り込み | 特徴チップ（保全＝絶滅危惧、活動時間、食性、分布）。チップは検索語 `q` への語の追加・削除で、分類の絞り込みと組み合わせられる |
+| MCP `search` | 動物の検索結果にプロフィール要約 |
+| MCP `search_animals` | 活動時間・食性・分布・絶滅危惧・類・都道府県で絞り込み、`animal_measurements` の値で並べ替え |
+| MCP `get_animal_profile` | 全項目と出典 |
+
+### 検索の照合
+
+- 空白区切りの語はすべて満たすもの（AND）を返す。
+- 部分一致: 和名・施設表示名・分類・施設名に加え、学名・英名・一言紹介・生息地・食べもの。詳細解説は他の動物名を含みやすいので対象外。
+- 完全一致: 区分値から作る特徴語（`buildProfileSearchTags`）。例「夜行性」「肉食」「肉食動物」「群れ」「絶滅危惧」「準絶滅危惧」「VU」「ワシントン条約」「アフリカ」。
+  部分一致にすると「絶滅危惧」が「準絶滅危惧」に当たってしまうため分けている。
+- 「絶滅危惧」は IUCN の CR / EN / VU、または環境省レッドリストのカテゴリが「絶滅危惧」で始まるもの。
+- 並べ替えの代表値は、その項目の全行の上限（なければ下限）の最大値。
 
 ## 検討事項
 

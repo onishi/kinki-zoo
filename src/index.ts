@@ -23,14 +23,16 @@ import {
   loadProfileAdminRows,
   loadProfileStatusCounts,
   loadProfileTargets,
-  loadPublishedProfilesByCanonicalNames,
+  loadPublishedProfileIndex,
   parseProfileResponse,
   renderAnimalProfileHero,
   renderAnimalProfileSection,
   sanitizeProfileContent,
   sanitizeSources,
   saveAnimalProfile,
-  summarizeMeasurements,
+  buildProfileSearchTags,
+  buildProfileSearchTexts,
+  PROFILE_TRAIT_FILTERS,
   toApiProfile,
   type AnimalProfile,
   type AnimalProfileContent,
@@ -88,6 +90,8 @@ interface AnimalListItem {
   genusName?: string;
   speciesName?: string;
   zoos: Zoo[];
+  /** 公開済みプロフィール（検索・一覧で必要なときだけ attachAnimalProfiles で付ける）。 */
+  profile?: AnimalProfile;
 }
 
 interface SiteSearchResults {
@@ -1529,9 +1533,24 @@ async function loadRandomAnimalDisplayName(
   return row?.display_name ?? null;
 }
 
-function filterAnimalItemsByQuery(animals: AnimalListItem[], query: string | null): AnimalListItem[] {
-  if (!query) return animals;
-  return animals.filter((animal) =>
+function attachAnimalProfiles(
+  animals: AnimalListItem[],
+  profiles: Map<string, AnimalProfile>
+): AnimalListItem[] {
+  if (profiles.size === 0) return animals;
+  return animals.map((animal) => {
+    const profile = animal.canonicalName ? profiles.get(animal.canonicalName) : undefined;
+    return profile ? { ...animal, profile } : animal;
+  });
+}
+
+/** 空白区切りの語。動物の絞り込みでは各語の AND で一致させる。 */
+function splitSearchTerms(query: string | null): string[] {
+  return query ? query.split(/[\s　]+/).filter(Boolean) : [];
+}
+
+function matchesAnimalSearchTerm(animal: AnimalListItem, term: string): boolean {
+  if (
     matchesSearchQuery([
       animal.canonicalName,
       ...animal.displayNames,
@@ -1541,8 +1560,20 @@ function filterAnimalItemsByQuery(animals: AnimalListItem[], query: string | nul
       animal.genusName,
       animal.speciesName,
       ...animal.zoos.flatMap((zoo) => [zoo.name, zoo.nameKana, PREF_LABELS[zoo.prefecture]]),
-    ], query)
-  );
+      ...(animal.profile ? buildProfileSearchTexts(animal.profile) : []),
+    ], term)
+  ) {
+    return true;
+  }
+  if (!animal.profile) return false;
+  const normalizedTerm = normalizeTextForSearchIndex(term);
+  return buildProfileSearchTags(animal.profile).some((tag) => normalizeTextForSearchIndex(tag) === normalizedTerm);
+}
+
+function filterAnimalItemsByQuery(animals: AnimalListItem[], query: string | null): AnimalListItem[] {
+  const terms = splitSearchTerms(query);
+  if (terms.length === 0) return animals;
+  return animals.filter((animal) => terms.every((term) => matchesAnimalSearchTerm(animal, term)));
 }
 
 function filterAnimalItemsByTaxonomy(
@@ -1681,15 +1712,16 @@ async function searchSite(
 
   const prefFilteredZoos = zoos.filter((zoo) => !pref || zoo.prefecture === pref);
   const zooIds = prefFilteredZoos.map((zoo) => zoo.id);
-  const [allAnimals, animalCounts, zooAnimalMatches, taxonomies, news] = await Promise.all([
+  const [allAnimals, profiles, animalCounts, zooAnimalMatches, taxonomies, news] = await Promise.all([
     loadAnimalList(db, "all", pref),
+    loadPublishedProfileIndex(db),
     loadZooAnimalCounts(db, zooIds),
     loadSearchAnimalMatches(db, zooIds, query),
     loadTaxonomySearchResults(db, pref, query),
     loadAllZooNews(db, 50, query, pref),
   ]);
 
-  const animals = filterAnimalItemsByQuery(allAnimals, query);
+  const animals = filterAnimalItemsByQuery(attachAnimalProfiles(allAnimals, profiles), query);
 
   const zooResults = prefFilteredZoos.flatMap((zoo) => {
     const matchedAnimals = zooAnimalMatches.get(zoo.id) ?? [];
@@ -5334,6 +5366,7 @@ function renderSearchAnimalCards(
             ${renderFavoriteButton("animal", rawTitle, title, buildZooAnimalUrl(primaryDisplayName))}
           </div>
           ${taxonomy ? `<p class="search-taxonomy">${escapeHtml(taxonomy)}</p>` : `<p class="search-taxonomy">分類未設定</p>`}
+          ${item.profile?.summary ? `<p class="search-summary-text">${escapeHtml(item.profile.summary)}</p>` : ""}
           ${aliasText}
           <div class="search-zoo-links" aria-label="見られる施設">${zooLinks}${moreZoos}</div>
         </article>`;
@@ -5387,7 +5420,7 @@ function renderSearchHtml(
     ? `<a href="${escapeHtml(addPrefectureToInternalUrl(`/news?q=${encodeURIComponent(query)}`, activePref))}" class="section-link">お知らせをもっと見る →</a>`
     : "";
   const emptyHtml = !hasQuery
-    ? renderStateMessage("動物名、施設名、分類名、お知らせで検索できます。", [
+    ? renderStateMessage("動物名、施設名、分類名、お知らせで検索できます。「夜行性」「絶滅危惧」「アフリカ」のような動物の特徴でも探せます。", [
         { href: "/animals", label: "動物一覧" },
         { href: buildBrowseUrl(activePref, null), label: "動物園一覧" },
       ])
@@ -5432,6 +5465,7 @@ function renderSearchHtml(
     .search-animal-thumb { width: 56px; height: 56px; }
     img.search-animal-thumb { object-fit: cover; background: #f0f0f0; border: 1px solid #c9aa8e; }
     .search-taxonomy, .search-alias { color: #555; font-size: 0.8rem; line-height: 1.45; }
+    .search-summary-text { color: #333; font-size: 0.82rem; line-height: 1.55; }
     .search-zoo-links { display: flex; flex-wrap: wrap; gap: 0.35rem; }
     .search-zoo-links a { font-size: 0.76rem; }
     .search-more { color: #66756b; font-size: 0.76rem; align-self: center; }
@@ -5555,6 +5589,41 @@ ${renderGlobalNav("/search")}
   <script src="/favorites.js?v=5" defer></script>
 </body>
 </html>`;
+}
+
+/**
+ * プロフィールの特徴で絞り込むチップ。検索語（q）への語の追加・削除として実装し、
+ * 分類の絞り込みリンクなど q を引き継ぐ既存の URL と自然に組み合わさるようにする。
+ */
+function renderAnimalTraitFilter(
+  animals: AnimalListItem[],
+  filter: AnimalListFilter,
+  query: string | null,
+  taxonomy: AnimalTaxonomySelection
+): string {
+  if (filter !== "all") return "";
+  const visible = filterAnimalItemsByTaxonomy(animals, taxonomy);
+  const terms = splitSearchTerms(query);
+  const normalizedTerms = terms.map(normalizeTextForSearchIndex);
+  const groups = new Map<string, string[]>();
+  for (const trait of PROFILE_TRAIT_FILTERS) {
+    const active = normalizedTerms.includes(normalizeTextForSearchIndex(trait.term));
+    const count = visible.filter((animal) => animal.profile && trait.matches(animal.profile)).length;
+    if (count === 0 && !active) continue;
+    const nextTerms = active
+      ? terms.filter((term) => normalizeTextForSearchIndex(term) !== normalizeTextForSearchIndex(trait.term))
+      : [...terms, trait.term];
+    const href = buildAnimalsUrl(filter, nextTerms.join(" ") || null, taxonomy);
+    const chips = groups.get(trait.group) ?? [];
+    chips.push(
+      `<a class="trait-chip" href="${escapeHtml(href)}" aria-pressed="${active}">${escapeHtml(trait.term)}${active ? "" : `<small>${count}</small>`}</a>`
+    );
+    groups.set(trait.group, chips);
+  }
+  if (groups.size === 0) return "";
+  return `<nav class="trait-filter" aria-label="特徴で絞り込む">
+    ${[...groups].map(([group, chips]) => `<div class="trait-filter-row"><span>${escapeHtml(group)}</span>${chips.join("")}</div>`).join("")}
+  </nav>`;
 }
 
 function buildAnimalsUrl(
@@ -5870,6 +5939,15 @@ function renderAnimalsHtml(
     .tabs { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; }
     .animal-search-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; padding: 0.75rem 1.5rem; border-bottom: 1px solid #ddd; background: #f8fbf9; }
     .animal-search-form input { flex: 1 1 220px; max-width: 360px; min-height: 42px; border: 1px solid #8c8c8c; padding: 0.5rem 0.65rem; }
+    .trait-filter { display: grid; gap: 0.4rem; padding: 0.65rem 1.5rem; border-bottom: 1px solid #ddd; }
+    .trait-filter-row { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
+    .trait-filter-row > span { color: #5f5f5f; font-size: 0.78rem; min-width: 4.5em; }
+    .trait-chip { display: inline-flex; gap: 0.3rem; align-items: center; border: 1px solid #d7e4dd; background: #fff; color: #1f5b45; font-size: 0.8rem; padding: 0.2rem 0.6rem; text-decoration: none; }
+    .trait-chip small { color: #6e6e6e; font-size: 0.72rem; }
+    .trait-chip:hover { border-color: #9bc4ab; }
+    .trait-chip[aria-pressed="true"] { background: #1f5b45; border-color: #1f5b45; color: #fff; }
+    .trait-chip[aria-pressed="true"] small { color: #e6f0ea; }
+    @media (max-width: 700px) { .trait-filter { padding: 0.6rem 0.75rem; } }
     .tab { color: #1f5b45; text-decoration: none; font-size: 0.9rem; }
     .tab.active { font-weight: bold; text-decoration: underline; text-underline-offset: 0.2em; }
     .tab:hover { text-decoration: underline; text-underline-offset: 0.2em; }
@@ -5973,10 +6051,11 @@ ${renderGlobalNav("/animals")}
   <form class="animal-search-form" action="/animals" method="get">
     ${filter === "unclassified" ? `<input type="hidden" name="filter" value="unclassified">` : ""}
     ${taxonomyHiddenInputs}
-    <input type="search" name="q" value="${escapedQuery}" placeholder="動物名・分類・施設名で検索" aria-label="動物を検索">
+    <input type="search" name="q" value="${escapedQuery}" placeholder="動物名・分類・施設名・特徴で検索" aria-label="動物を検索">
     <button type="submit" class="ui-btn ui-btn--primary ui-touch-target">${icon("search")}検索</button>
     ${query ? `<a href="${buildAnimalsUrl(filter, null, taxonomy)}" class="ui-btn ui-btn--secondary ui-touch-target">${icon("close")}検索をクリア</a>` : ""}
   </form>
+  ${renderAnimalTraitFilter(allAnimals, filter, query, taxonomy)}
   ${taxonomyFilterHtml}
   <p class="summary">${summary}</p>
   ${animalListHtml}
@@ -9552,26 +9631,21 @@ function createMcpDeps(db: D1Database, origin: string): McpDeps {
     matchesSearchQuery,
     searchSite: (pref, query) => searchSite(db, pref, query),
     searchZoos: (pref, animal) => searchZoos(db, pref, animal),
-    loadAnimalList: (pref) => loadAnimalList(db, "all", pref),
+    loadAnimalList: async (pref) => {
+      const [animals, profiles] = await Promise.all([loadAnimalList(db, "all", pref), loadPublishedProfileIndex(db)]);
+      return attachAnimalProfiles(animals, profiles);
+    },
+    loadAnimalProfile: async (canonicalName) => {
+      const row = await db
+        .prepare("SELECT id FROM animals WHERE canonical_name = ?")
+        .bind(canonicalName)
+        .first<{ id: string }>();
+      return row ? loadAnimalProfile(db, row.id, { publishedOnly: true }) : null;
+    },
     loadZooAnimals: (zooId) => loadCachedScrapeResult(db, zooId),
     loadZooNews: (zooId, limit) => loadZooNews(db, zooId, limit),
     loadAllZooNews: (limit, query, pref) => loadAllZooNews(db, limit, query, pref),
     loadZooAnimalsForCompare: (zooIds) => loadZooAnimalsForCompare(db, zooIds),
-    loadAnimalProfileSummaries: async (canonicalNames) => {
-      const profiles = await loadPublishedProfilesByCanonicalNames(db, canonicalNames);
-      return new Map(
-        [...profiles].map(([name, profile]) => [
-          name,
-          {
-            scientificName: profile.scientificName,
-            summary: profile.summary,
-            iucnStatus: profile.iucnStatus,
-            activityPattern: profile.activityPattern ? ACTIVITY_PATTERN_LABELS[profile.activityPattern] : undefined,
-            measurements: summarizeMeasurements(profile.measurements),
-          },
-        ])
-      );
-    },
   };
 }
 
@@ -10250,11 +10324,12 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
       const familyName = orderName ? normalizeSearchTerm(url.searchParams.get("family")) : null;
       const genusName = familyName ? normalizeSearchTerm(url.searchParams.get("genus")) : null;
       const taxonomy: AnimalTaxonomySelection = { className, orderName, familyName, genusName };
-      const [animals, imageKeys] = await Promise.all([
+      const [animals, imageKeys, profiles] = await Promise.all([
         loadAnimalList(env.DB, filter, activePref),
         loadAnimalImageKeys(env.DB),
+        loadPublishedProfileIndex(env.DB),
       ]);
-      const filteredAnimals = filterAnimalItemsByQuery(animals, query);
+      const filteredAnimals = filterAnimalItemsByQuery(attachAnimalProfiles(animals, profiles), query);
       const html = renderAnimalsHtml(filteredAnimals, filter, activePref, imageKeys, query, taxonomy);
       return htmlResponse(html, url, activePref);
     }

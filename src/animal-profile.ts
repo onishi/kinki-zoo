@@ -418,35 +418,6 @@ export async function loadAnimalProfile(
   return profiles.get(animalId) ?? null;
 }
 
-/** 公開済みプロフィールを animals.canonical_name をキーにして返す（一覧・MCP 用）。 */
-export async function loadPublishedProfilesByCanonicalNames(
-  db: D1Database,
-  canonicalNames: string[]
-): Promise<Map<string, AnimalProfile>> {
-  const names = [...new Set(canonicalNames.filter(Boolean))];
-  const result = new Map<string, AnimalProfile>();
-  // D1 のバインド変数上限（100）に収まるよう分割する。
-  for (let i = 0; i < names.length; i += 90) {
-    const chunk = names.slice(i, i + 90);
-    const idRows = await db
-      .prepare(
-        `SELECT a.id, a.canonical_name
-         FROM animals a
-         JOIN animal_profiles p ON p.animal_id = a.id
-         WHERE p.status = 'published' AND a.canonical_name IN (${chunk.map(() => "?").join(", ")})`
-      )
-      .bind(...chunk)
-      .all<{ id: string; canonical_name: string }>();
-    const rows = idRows.results ?? [];
-    const profiles = await loadProfilesByIds(db, rows.map((row) => row.id), true);
-    for (const row of rows) {
-      const profile = profiles.get(row.id);
-      if (profile) result.set(row.canonical_name, profile);
-    }
-  }
-  return result;
-}
-
 export async function saveAnimalProfile(
   db: D1Database,
   animalId: string,
@@ -946,4 +917,122 @@ export function toApiProfile(profile: AnimalProfile) {
     ...profile,
     measurementsSummary: summarizeMeasurements(profile.measurements),
   };
+}
+
+// ---------- 検索 ----------
+
+/** 公開済みプロフィールを animals.canonical_name をキーにまとめて読む（出典は読まない）。検索・一覧用。 */
+export async function loadPublishedProfileIndex(db: D1Database): Promise<Map<string, AnimalProfile>> {
+  const [profileResult, measurementResult] = await db.batch([
+    db.prepare(
+      `SELECT ${PROFILE_COLUMNS.split(",").map((column) => `p.${column.trim()}`).join(", ")}, a.canonical_name
+       FROM animal_profiles p
+       JOIN animals a ON a.id = p.animal_id
+       WHERE p.status = 'published'`
+    ),
+    db.prepare(
+      `SELECT m.animal_id, m.metric, m.sex, m.context, m.min_value, m.max_value, m.note
+       FROM animal_measurements m
+       JOIN animal_profiles p ON p.animal_id = m.animal_id AND p.status = 'published'
+       ORDER BY m.sort_order, m.id`
+    ),
+  ]);
+  const measurementsById = new Map<string, AnimalMeasurementRow[]>();
+  for (const row of (measurementResult.results ?? []) as unknown as AnimalMeasurementRow[]) {
+    const list = measurementsById.get(row.animal_id) ?? [];
+    list.push(row);
+    measurementsById.set(row.animal_id, list);
+  }
+  const index = new Map<string, AnimalProfile>();
+  for (const row of (profileResult.results ?? []) as unknown as Array<AnimalProfileRow & { canonical_name: string }>) {
+    index.set(row.canonical_name, rowToProfile(row, measurementsById.get(row.animal_id) ?? [], []));
+  }
+  return index;
+}
+
+const THREATENED_IUCN: ReadonlySet<IucnStatus> = new Set(["CR", "EN", "VU"]);
+
+export function isThreatened(profile: AnimalProfile): boolean {
+  return (
+    (profile.iucnStatus !== undefined && THREATENED_IUCN.has(profile.iucnStatus)) ||
+    Boolean(profile.moeRedlistCategory?.startsWith("絶滅危惧"))
+  );
+}
+
+/**
+ * 検索語と完全一致させる特徴タグ。部分一致にすると「絶滅危惧」が「準絶滅危惧」に当たるため、
+ * 区分値由来の語はここに集めて完全一致で比べる。
+ */
+export function buildProfileSearchTags(profile: AnimalProfile): string[] {
+  const tags: string[] = [];
+  if (profile.activityPattern) {
+    const label = ACTIVITY_PATTERN_LABELS[profile.activityPattern];
+    tags.push(label, `${label}の動物`);
+  }
+  if (profile.dietType && profile.dietType !== "other") {
+    const label = DIET_TYPE_LABELS[profile.dietType];
+    tags.push(label, `${label}性`, `${label}動物`);
+  }
+  if (profile.socialStructure) {
+    const label = SOCIAL_STRUCTURE_LABELS[profile.socialStructure];
+    tags.push(label, `${label}で暮らす`);
+  }
+  if (isThreatened(profile)) tags.push("絶滅危惧", "絶滅危惧種", "絶滅危惧動物", "レッドリスト");
+  if (profile.iucnStatus) {
+    tags.push(profile.iucnStatus, `IUCN${profile.iucnStatus}`, IUCN_STATUS_LABELS[profile.iucnStatus]);
+    if (profile.iucnStatus === "NT") tags.push("準絶滅危惧種");
+  }
+  if (profile.moeRedlistCategory) tags.push(profile.moeRedlistCategory, "環境省レッドリスト");
+  if (profile.citesAppendix) {
+    tags.push("ワシントン条約", "CITES", `附属書${profile.citesAppendix}`, `ワシントン条約附属書${profile.citesAppendix}`);
+  }
+  for (const region of profile.distributionRegions) {
+    const label = DISTRIBUTION_REGION_LABELS[region];
+    tags.push(label, region === "domestic" ? "家畜" : `${label}の動物`);
+  }
+  return tags;
+}
+
+/** 検索語を部分一致させる自由記述の項目（長い詳細解説は他の動物名を含みやすいので除く）。 */
+export function buildProfileSearchTexts(profile: AnimalProfile): Array<string | undefined> {
+  return [profile.scientificName, profile.englishName, profile.summary, profile.habitat, profile.diet];
+}
+
+export interface ProfileTraitFilter {
+  /** /animals?q= に入れる語。buildProfileSearchTags の語と一致させる。 */
+  term: string;
+  group: string;
+  matches(profile: AnimalProfile): boolean;
+}
+
+export const PROFILE_TRAIT_FILTERS: ProfileTraitFilter[] = [
+  { term: "絶滅危惧", group: "保全", matches: isThreatened },
+  ...(Object.keys(ACTIVITY_PATTERN_LABELS) as ActivityPattern[]).map((value) => ({
+    term: ACTIVITY_PATTERN_LABELS[value],
+    group: "活動時間",
+    matches: (profile: AnimalProfile) => profile.activityPattern === value,
+  })),
+  ...(Object.keys(DIET_TYPE_LABELS) as DietType[])
+    .filter((value) => value !== "other")
+    .map((value) => ({
+      term: DIET_TYPE_LABELS[value],
+      group: "食性",
+      matches: (profile: AnimalProfile) => profile.dietType === value,
+    })),
+  ...(Object.keys(DISTRIBUTION_REGION_LABELS) as DistributionRegion[]).map((value) => ({
+    term: DISTRIBUTION_REGION_LABELS[value],
+    group: "分布",
+    matches: (profile: AnimalProfile) => profile.distributionRegions.includes(value),
+  })),
+];
+
+/** 並べ替え用の代表値（その項目の上限の最大値。上限がなければ下限）。 */
+export function getMetricSortValue(profile: AnimalProfile, metric: MeasurementMetric): number | null {
+  let best: number | null = null;
+  for (const m of profile.measurements) {
+    if (m.metric !== metric) continue;
+    const value = m.max ?? m.min;
+    if (value !== null && (best === null || value > best)) best = value;
+  }
+  return best;
 }

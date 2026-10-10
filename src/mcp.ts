@@ -2,6 +2,25 @@
 // Streamable HTTP トランスポートのうち、セッションを持たない JSON 応答だけを実装する。
 // 公開するツールはすべて読み取り専用で、D1 への問い合わせは index.ts から McpDeps として受け取る。
 import type { PrefectureCode, Zoo } from "./types";
+import {
+  ACTIVITY_PATTERN_LABELS,
+  CONTEXT_LABELS,
+  DIET_TYPE_LABELS,
+  DISTRIBUTION_REGION_LABELS,
+  IUCN_STATUS_LABELS,
+  METRIC_DEFINITIONS,
+  SEX_LABELS,
+  SOCIAL_STRUCTURE_LABELS,
+  formatMeasurementValue,
+  getMetricSortValue,
+  isThreatened,
+  summarizeMeasurements,
+  type ActivityPattern,
+  type AnimalProfile,
+  type DietType,
+  type DistributionRegion,
+  type MeasurementMetric,
+} from "./animal-profile";
 
 const SUPPORTED_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 const LATEST_PROTOCOL_VERSION = SUPPORTED_PROTOCOL_VERSIONS[0];
@@ -10,11 +29,14 @@ const MAX_REQUEST_BYTES = 64 * 1024;
 const MAX_NEWS_LIMIT = 50;
 const MAX_FIND_ANIMAL_RESULTS = 20;
 const MAX_COMPARE_ZOOS = 5;
+const MAX_SEARCH_ANIMALS_LIMIT = 50;
 
 const SERVER_INSTRUCTIONS = [
   "近畿地方（大阪・京都・兵庫・奈良・滋賀・三重・和歌山）の動物園・水族館の情報を返します。",
   "動物一覧とお知らせは各施設の公式サイトから定期取得したもので、表記は施設ごとの公式表示に従います。",
   "どの施設で見られるかは find_animal、施設の詳細は get_zoo、迷ったら search を使ってください。",
+  "夜行性・肉食・絶滅危惧・分布地域などの特徴で動物を探すときや、体重・大きさ・寿命で並べるときは search_animals、",
+  "1種の解説・サイズ・寿命・出典をくわしく知りたいときは get_animal_profile を使ってください（プロフィールは確認済みの種だけ公開しています）。",
   "都道府県は osaka, kyoto, hyogo, nara, shiga, mie, wakayama のコードで指定します。",
 ].join("\n");
 
@@ -27,6 +49,7 @@ interface McpAnimalItem {
   genusName?: string;
   speciesName?: string;
   zoos: Zoo[];
+  profile?: AnimalProfile;
 }
 
 interface McpZooSearchResult {
@@ -70,16 +93,8 @@ export interface McpDeps {
   loadZooNews(zooId: string, limit: number): Promise<McpNewsRow[]>;
   loadAllZooNews(limit: number, query: string | null, pref: PrefectureCode | null): Promise<McpNewsRow[]>;
   loadZooAnimalsForCompare(zooIds: string[]): Promise<Map<string, Array<{ display_name: string; class_name: string | null }>>>;
-  /** 公開済みプロフィールの要約を animals.canonical_name をキーに返す。 */
-  loadAnimalProfileSummaries(canonicalNames: string[]): Promise<Map<string, McpAnimalProfileSummary>>;
-}
-
-interface McpAnimalProfileSummary {
-  scientificName?: string;
-  summary?: string;
-  iucnStatus?: string;
-  activityPattern?: string;
-  measurements: Record<string, string>;
+  /** 公開済みプロフィール（出典つき）を animals.canonical_name で引く。 */
+  loadAnimalProfile(canonicalName: string): Promise<AnimalProfile | null>;
 }
 
 type JsonObject = Record<string, unknown>;
@@ -120,11 +135,11 @@ const TOOLS: ToolDefinition[] = [
   {
     name: "search",
     title: "サイト内検索",
-    description: "キーワードで動物・施設・分類・お知らせをまとめて検索する。何を調べればよいか決まっていないときに使う。",
+    description: "キーワードで動物・施設・分類・お知らせをまとめて検索する。動物は名前のほか「夜行性」「肉食」「絶滅危惧」「アフリカ」などの特徴語や学名・英名でも見つかり、空白区切りの語はすべてを満たすもの（AND）を返す。何を調べればよいか決まっていないときに使う。",
     inputSchema: {
       type: "object",
       properties: {
-        query: { type: "string", description: "検索語（例: パンダ、ネコ科、天王寺、イベント）" },
+        query: { type: "string", description: "検索語（例: パンダ、ネコ科、天王寺、イベント、夜行性 アフリカ）" },
         pref: PREF_SCHEMA,
       },
       required: ["query"],
@@ -212,7 +227,7 @@ const TOOLS: ToolDefinition[] = [
   {
     name: "find_animal",
     title: "動物を見られる施設",
-    description: "動物名（例: レッサーパンダ、カピバラ、ゾウ）から、その動物を見られる施設と分類（類・目・科・属・種）を返す。プロフィールが公開されている種は、学名・一言紹介・IUCN ランク・サイズ・体重・寿命も返す。表記ゆれ（ひらがな・カタカナ）は吸収する。",
+    description: "動物名（例: レッサーパンダ、カピバラ、ゾウ。学名・英名も可）から、その動物を見られる施設と分類（類・目・科・属・種）を返す。プロフィールが公開されている種は、学名・一言紹介・IUCN ランク・サイズ・体重・寿命も返す。表記ゆれ（ひらがな・カタカナ）は吸収する。",
     inputSchema: {
       type: "object",
       properties: {
@@ -225,21 +240,143 @@ const TOOLS: ToolDefinition[] = [
       const name = requireString(args, "name");
       const pref = optionalPref(args);
       const animals = (await deps.loadAnimalList(pref)).filter((animal) =>
-        deps.matchesSearchQuery([animal.canonicalName, ...animal.displayNames, animal.speciesName], name)
-      );
-      const visible = animals.slice(0, MAX_FIND_ANIMAL_RESULTS);
-      const profiles = await deps.loadAnimalProfileSummaries(
-        visible.flatMap((animal) => (animal.canonicalName ? [animal.canonicalName] : []))
+        deps.matchesSearchQuery(
+          [animal.canonicalName, ...animal.displayNames, animal.speciesName, animal.profile?.scientificName, animal.profile?.englishName],
+          name
+        )
       );
       return {
         count: animals.length,
-        animals: visible.map((animal) => {
-          const profile = animal.canonicalName ? profiles.get(animal.canonicalName) : undefined;
-          return { ...summarizeAnimal(animal, deps), ...(profile ? { profile } : {}) };
-        }),
+        animals: animals.slice(0, MAX_FIND_ANIMAL_RESULTS).map((animal) => summarizeAnimal(animal, deps)),
         ...(animals.length > MAX_FIND_ANIMAL_RESULTS
           ? { note: `一致が多いため先頭 ${MAX_FIND_ANIMAL_RESULTS} 件だけ返しています。名前を詳しくしてください。` }
           : {}),
+      };
+    },
+  },
+  {
+    name: "search_animals",
+    title: "特徴で動物を探す",
+    description:
+      "動物の特徴（活動時間・食性・保全状況・分布地域・類）で絞り込み、体重・大きさ・寿命などの数値で並べ替えて返す。" +
+      "「大阪で見られる夜行性の動物」「アフリカの絶滅危惧種」「いちばん重い動物」のような質問に使う。" +
+      "対象はプロフィールが公開されている種だけなので、該当なしでも存在しないとは限らない（profileCoverage を参照）。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pref: PREF_SCHEMA,
+        class_name: { type: "string", description: "類（例: 哺乳類、鳥類、爬虫類、両生類、魚類）" },
+        activity: { type: "string", enum: Object.keys(ACTIVITY_PATTERN_LABELS), description: "活動時間（diurnal=昼行性, nocturnal=夜行性, crepuscular=薄明薄暮性, cathemeral=昼夜とも活動）" },
+        diet: { type: "string", enum: Object.keys(DIET_TYPE_LABELS), description: "食性（carnivore=肉食, herbivore=草食, omnivore=雑食, insectivore=昆虫食, piscivore=魚食）" },
+        region: { type: "string", enum: Object.keys(DISTRIBUTION_REGION_LABELS), description: "分布地域（japan, asia, europe, africa, north_america, south_america, oceania, antarctica, ocean, domestic=家畜・飼育品種）" },
+        threatened: { type: "boolean", description: "true で絶滅危惧種（IUCN の CR/EN/VU または環境省レッドリストの絶滅危惧）だけ、false で絶滅危惧でない種だけ" },
+        sort_by: { type: "string", enum: Object.keys(METRIC_DEFINITIONS), description: "並べ替える数値（weight=体重, head_body_length=頭胴長, total_length=全長, shoulder_height=肩高, height=体高, wingspan=翼開長, lifespan=寿命 など）。指定するとその数値がない種は除く" },
+        order: { type: "string", enum: ["desc", "asc"], default: "desc", description: "desc=大きい順, asc=小さい順" },
+        limit: { type: "integer", minimum: 1, maximum: MAX_SEARCH_ANIMALS_LIMIT, default: 20, description: "最大件数" },
+      },
+    },
+    async run(args, deps) {
+      const pref = optionalPref(args);
+      const className = optionalString(args, "class_name");
+      const activity = optionalEnum(args, "activity", Object.keys(ACTIVITY_PATTERN_LABELS) as ActivityPattern[]);
+      const diet = optionalEnum(args, "diet", Object.keys(DIET_TYPE_LABELS) as DietType[]);
+      const region = optionalEnum(args, "region", Object.keys(DISTRIBUTION_REGION_LABELS) as DistributionRegion[]);
+      const threatened = optionalBoolean(args, "threatened");
+      const sortBy = optionalEnum(args, "sort_by", Object.keys(METRIC_DEFINITIONS) as MeasurementMetric[]);
+      const order = optionalEnum(args, "order", ["desc", "asc"] as const) ?? "desc";
+      const limit = optionalLimit(args, 20, MAX_SEARCH_ANIMALS_LIMIT);
+
+      const all = await deps.loadAnimalList(pref);
+      const withProfile = all.filter(
+        (animal): animal is McpAnimalItem & { profile: AnimalProfile } => Boolean(animal.profile)
+      );
+      let matched = withProfile.filter(({ profile, className: animalClass }) =>
+        (!className || animalClass === className) &&
+        (!activity || profile.activityPattern === activity) &&
+        (!diet || profile.dietType === diet) &&
+        (!region || profile.distributionRegions.includes(region)) &&
+        (threatened === null || isThreatened(profile) === threatened)
+      );
+      if (sortBy) {
+        const valued = matched
+          .map((animal) => ({ animal, value: getMetricSortValue(animal.profile, sortBy) }))
+          .filter((item): item is { animal: typeof item.animal; value: number } => item.value !== null);
+        valued.sort((a, b) => (order === "asc" ? a.value - b.value : b.value - a.value));
+        matched = valued.map((item) => item.animal);
+      }
+      return {
+        count: matched.length,
+        profileCoverage: `${withProfile.length} / ${all.length} 種でプロフィール公開済み`,
+        ...(sortBy ? { sortedBy: `${METRIC_DEFINITIONS[sortBy].label}（${order === "asc" ? "小さい順" : "大きい順"}）` } : {}),
+        animals: matched.slice(0, limit).map((animal) => summarizeAnimal(animal, deps)),
+      };
+    },
+  },
+  {
+    name: "get_animal_profile",
+    title: "動物のプロフィール",
+    description: "動物名（和名・施設での表示名・学名・英名）を指定して、解説・生息地・食べもの・見どころ・豆知識・サイズや体重や寿命の数値（性別・野生/飼育下の別つき）・保全状況・出典と、見られる施設を返す。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "動物名。完全一致を優先し、なければ部分一致の先頭を使う" },
+        pref: PREF_SCHEMA,
+      },
+      required: ["name"],
+    },
+    async run(args, deps) {
+      const name = requireString(args, "name");
+      const pref = optionalPref(args);
+      const animals = await deps.loadAnimalList(pref);
+      const names = (animal: McpAnimalItem) => [
+        animal.canonicalName,
+        ...animal.displayNames,
+        animal.speciesName,
+        animal.profile?.scientificName,
+        animal.profile?.englishName,
+      ];
+      const normalized = name.normalize("NFKC").toLocaleLowerCase("ja-JP");
+      const exact = animals.find((animal) =>
+        names(animal).some((value) => value?.normalize("NFKC").toLocaleLowerCase("ja-JP") === normalized)
+      );
+      const animal = exact ?? animals.find((item) => deps.matchesSearchQuery(names(item), name));
+      if (!animal) {
+        throw new ToolInputError(`'${name}' に一致する動物が見つかりません。find_animal や search で名前を確認してください`);
+      }
+      const profile = animal.canonicalName ? await deps.loadAnimalProfile(animal.canonicalName) : null;
+      const base = summarizeAnimal({ ...animal, profile: undefined }, deps);
+      if (!profile) {
+        return { ...base, profile: null, note: "この動物のプロフィールはまだ公開されていません。" };
+      }
+      return {
+        ...base,
+        profile: {
+          scientificName: profile.scientificName,
+          englishName: profile.englishName,
+          summary: profile.summary,
+          description: profile.description,
+          habitat: profile.habitat,
+          distribution: profile.distributionRegions.map((region) => DISTRIBUTION_REGION_LABELS[region]),
+          diet: profile.diet,
+          dietType: profile.dietType ? DIET_TYPE_LABELS[profile.dietType] : undefined,
+          activityPattern: profile.activityPattern ? ACTIVITY_PATTERN_LABELS[profile.activityPattern] : undefined,
+          socialStructure: profile.socialStructure ? SOCIAL_STRUCTURE_LABELS[profile.socialStructure] : undefined,
+          viewingTips: profile.viewingTips,
+          trivia: profile.trivia,
+          conservation: summarizeConservation(profile),
+          measurements: profile.measurements.map((m) => ({
+            item: METRIC_DEFINITIONS[m.metric].label,
+            sex: SEX_LABELS[m.sex] || undefined,
+            condition: CONTEXT_LABELS[m.context] || undefined,
+            value: formatMeasurementValue(m),
+            min: m.min,
+            max: m.max,
+            unit: m.unit,
+            note: m.note,
+          })),
+          sources: profile.sources,
+          updatedAt: profile.updatedAt,
+        },
       };
     },
   },
@@ -352,7 +489,50 @@ function summarizeAnimal(animal: McpAnimalItem, deps: McpDeps) {
     taxonomy: Object.values(taxonomy).some(Boolean) ? taxonomy : undefined,
     zoos: animal.zoos.map((zoo) => ({ id: zoo.id, name: zoo.name, prefecture: deps.prefLabels[zoo.prefecture] })),
     url: `${deps.origin}/animal/${encodeURIComponent(animal.displayNames[0] ?? name)}`,
+    ...(animal.profile ? { profile: summarizeProfile(animal.profile) } : {}),
   };
+}
+
+/** 一覧向けのプロフィール要約。区分値は日本語ラベルにして返す。 */
+function summarizeProfile(profile: AnimalProfile) {
+  return {
+    scientificName: profile.scientificName,
+    englishName: profile.englishName,
+    summary: profile.summary,
+    activityPattern: profile.activityPattern ? ACTIVITY_PATTERN_LABELS[profile.activityPattern] : undefined,
+    diet: profile.dietType ? DIET_TYPE_LABELS[profile.dietType] : undefined,
+    conservation: summarizeConservation(profile),
+    distribution: profile.distributionRegions.map((region) => DISTRIBUTION_REGION_LABELS[region]),
+    measurements: summarizeMeasurements(profile.measurements),
+  };
+}
+
+function summarizeConservation(profile: AnimalProfile) {
+  if (!profile.iucnStatus && !profile.moeRedlistCategory && !profile.citesAppendix) return undefined;
+  return {
+    threatened: isThreatened(profile),
+    iucn: profile.iucnStatus
+      ? `${profile.iucnStatus}（${IUCN_STATUS_LABELS[profile.iucnStatus]}）${profile.iucnAssessedYear ? ` ${profile.iucnAssessedYear}年評価` : ""}`
+      : undefined,
+    japanRedList: profile.moeRedlistCategory,
+    cites: profile.citesAppendix ? `附属書${profile.citesAppendix}` : undefined,
+  };
+}
+
+function optionalEnum<T extends string>(args: JsonObject, key: string, values: readonly T[]): T | null {
+  const value = optionalString(args, key);
+  if (!value) return null;
+  if (!(values as readonly string[]).includes(value)) {
+    throw new ToolInputError(`${key} '${value}' は無効です。${values.join(", ")} のいずれかを指定してください`);
+  }
+  return value as T;
+}
+
+function optionalBoolean(args: JsonObject, key: string): boolean | null {
+  const value = args[key];
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "boolean") throw new ToolInputError(`${key} は true / false で指定してください`);
+  return value;
 }
 
 function summarizeNews(row: McpNewsRow, deps: McpDeps, includeBody: boolean) {

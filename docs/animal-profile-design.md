@@ -262,7 +262,7 @@ export interface AnimalProfile {
 2. `/admin/animal-profiles/:animalId` で下書きの確認・編集・公開を行う。
    保存時に語彙外の値・0 以下の数値・http(s) 以外の URL は捨て、min > max は入れ替える。
    公開には一言紹介（`summary`）を必須とする。
-3. AI レビュー（`POST /api/animals/review-profiles` または毎時 0 分の cron）。
+3. AI レビュー（`POST /api/animals/review-profiles` または 15 分ごとの cron）。
    未レビューの下書きを、生成とは別のモデル（`gemini-3.1-pro-preview`）+ Google Search grounding で
    ファクトチェックする（学名・数値と単位・IUCN / CITES / 環境省・区分・解説の事実誤り）。
    `approve` なら `published` にし、`hold` なら下書きのまま指摘を `ai_review_issues` に残して人が確認する。
@@ -276,7 +276,7 @@ export interface AnimalProfile {
    確認済み・公開済みは下書き生成の対象外（作り直すときは下書きに戻す）。
 
 一括生成は `npm run generate:animal-profiles`（`scripts/generate-animal-profiles.mjs`）。
-本番では cron で自動化している（毎時 30 分に保留の下書きを最大 5 件作り直して未作成の種を 3 種生成、毎時 0 分に 10 件ずつ AI レビュー）。
+本番では cron で自動化している（15 分ごとに、保留の下書きを最大 5 件作り直して未作成の種を 4 種生成、別の 15 分ごとの cron で 10 件ずつ AI レビュー）。
 
 ## 利用先
 

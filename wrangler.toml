@@ -20,6 +20,6 @@ custom_domain = true
 
 [triggers]
 # 0 18 * * *: お知らせ・動物一覧の更新（03:00 JST）
-# 30 * * * *: AI レビューで保留の下書きを最大 5 件作り直し、未作成の種を 3 種生成（src/index.ts の PROFILE_GENERATION_CRON）
-# 0 * * * *: 動物プロフィールの下書きを毎時 10 件ずつ AI レビューし、問題なければ公開（PROFILE_REVIEW_CRON）
-crons = ["0 18 * * *", "30 * * * *", "0 * * * *"]
+# 5,20,35,50 * * * *: AI レビューで保留の下書きを最大 5 件作り直し、未作成の種を 4 種生成（src/index.ts の PROFILE_GENERATION_CRON）
+# */15 * * * *: 動物プロフィールの下書きを 10 件ずつ AI レビューし、問題なければ公開（PROFILE_REVIEW_CRON）
+crons = ["0 18 * * *", "5,20,35,50 * * * *", "*/15 * * * *"]

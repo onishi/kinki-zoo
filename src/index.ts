@@ -9330,14 +9330,14 @@ async function fixHeldAnimalProfiles(
   return results;
 }
 
-// wrangler.toml の [triggers] crons と揃える。
-// 毎時 30 分: 保留になった下書きを PROFILE_FIX_BATCH_SIZE 件まで作り直し、未作成の種を PROFILE_GENERATION_BATCH_SIZE 種生成する。
-// 毎時 0 分: PROFILE_REVIEW_BATCH_SIZE 件ずつ AI レビューする（1 件 40 秒前後。cron の上限 15 分に収める）。
-const PROFILE_GENERATION_CRON = "30 * * * *";
-const PROFILE_GENERATION_BATCH_SIZE = 3;
+// wrangler.toml の [triggers] crons と揃える。どちらも 15 分ごとで、1 回の処理が次の回と重ならない件数にしている。
+// 5・20・35・50 分: 保留になった下書きを PROFILE_FIX_BATCH_SIZE 件まで作り直し、未作成の種を PROFILE_GENERATION_BATCH_SIZE 種生成する（1 件 30 秒前後）。
+// 0・15・30・45 分: PROFILE_REVIEW_BATCH_SIZE 件ずつ AI レビューする（1 件 40 秒前後）。
+const PROFILE_GENERATION_CRON = "5,20,35,50 * * * *";
+const PROFILE_GENERATION_BATCH_SIZE = 4;
 const PROFILE_FIX_BATCH_SIZE = 5;
 const MAX_PROFILE_FIX_ATTEMPTS = 2;
-const PROFILE_REVIEW_CRON = "0 * * * *";
+const PROFILE_REVIEW_CRON = "*/15 * * * *";
 const PROFILE_REVIEW_BATCH_SIZE = 10;
 
 async function reviewScheduledAnimalProfiles(env: Env): Promise<void> {

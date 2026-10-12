@@ -24,6 +24,7 @@ export type SocialStructure = "solitary" | "pair" | "group" | "colony";
 export type IucnStatus = "EX" | "EW" | "CR" | "EN" | "VU" | "NT" | "LC" | "DD" | "NE";
 export type CitesAppendix = "I" | "II" | "III";
 export type AnimalProfileStatus = "draft" | "reviewed" | "published" | "rejected";
+export type AiReviewVerdict = "approve" | "hold";
 
 export interface AnimalMeasurement {
   metric: MeasurementMetric;
@@ -62,12 +63,20 @@ export interface AnimalProfileContent {
   sources: AnimalProfileSource[];
 }
 
+export interface AnimalProfileAiReview {
+  verdict: AiReviewVerdict;
+  issues: string[];
+  model?: string;
+  reviewedAt?: string;
+}
+
 export interface AnimalProfile extends AnimalProfileContent {
   animalId: string;
   status: AnimalProfileStatus;
   model?: string;
   generatedAt?: string;
   reviewedAt?: string;
+  aiReview?: AnimalProfileAiReview;
   updatedAt: string;
 }
 
@@ -286,6 +295,10 @@ interface AnimalProfileRow {
   model: string | null;
   generated_at: string | null;
   reviewed_at: string | null;
+  ai_review_verdict: AiReviewVerdict | null;
+  ai_review_issues: string | null;
+  ai_review_model: string | null;
+  ai_reviewed_at: string | null;
   updated_at: string;
 }
 
@@ -355,6 +368,14 @@ function rowToProfile(
     model: row.model ?? undefined,
     generatedAt: row.generated_at ?? undefined,
     reviewedAt: row.reviewed_at ?? undefined,
+    aiReview: row.ai_review_verdict
+      ? {
+          verdict: row.ai_review_verdict,
+          issues: parseJsonArray(row.ai_review_issues).filter((issue): issue is string => typeof issue === "string"),
+          model: row.ai_review_model ?? undefined,
+          reviewedAt: row.ai_reviewed_at ?? undefined,
+        }
+      : undefined,
     updatedAt: row.updated_at,
   };
 }
@@ -362,7 +383,7 @@ function rowToProfile(
 const PROFILE_COLUMNS = `animal_id, scientific_name, english_name, summary, description, habitat,
   distribution_regions, diet, diet_type, activity_pattern, social_structure, viewing_tips, trivia,
   iucn_status, iucn_assessed_year, moe_redlist_category, cites_appendix, status, model,
-  generated_at, reviewed_at, updated_at`;
+  generated_at, reviewed_at, ai_review_verdict, ai_review_issues, ai_review_model, ai_reviewed_at, updated_at`;
 
 async function loadProfilesByIds(
   db: D1Database,
@@ -470,6 +491,11 @@ export async function saveAnimalProfile(
            model = COALESCE(excluded.model, animal_profiles.model),
            generated_at = COALESCE(excluded.generated_at, animal_profiles.generated_at),
            reviewed_at = COALESCE(excluded.reviewed_at, animal_profiles.reviewed_at),
+           -- 作り直した下書きは AI レビューをやり直す
+           ai_review_verdict = CASE WHEN excluded.generated_at IS NULL THEN animal_profiles.ai_review_verdict END,
+           ai_review_issues = CASE WHEN excluded.generated_at IS NULL THEN animal_profiles.ai_review_issues END,
+           ai_review_model = CASE WHEN excluded.generated_at IS NULL THEN animal_profiles.ai_review_model END,
+           ai_reviewed_at = CASE WHEN excluded.generated_at IS NULL THEN animal_profiles.ai_reviewed_at END,
            updated_at = excluded.updated_at`
       )
       .bind(
@@ -535,6 +561,71 @@ export async function updateAnimalProfileStatus(
     )
     .bind(status, status, now, now, animalId)
     .run();
+}
+
+/** AI レビュー待ち（下書きのうち未レビュー）を古い順に返す。 */
+export async function loadProfilesForAiReview(db: D1Database, limit: number): Promise<AnimalProfile[]> {
+  const result = await db
+    .prepare(
+      `SELECT animal_id FROM animal_profiles
+       WHERE status = 'draft' AND ai_reviewed_at IS NULL
+       ORDER BY COALESCE(generated_at, updated_at)
+       LIMIT ?`
+    )
+    .bind(limit)
+    .all<{ animal_id: string }>();
+  const animalIds = (result.results ?? []).map((row) => row.animal_id);
+  const profiles = await loadProfilesByIds(db, animalIds, false);
+  return animalIds.flatMap((id) => profiles.get(id) ?? []);
+}
+
+/**
+ * AI レビューの結果を保存し、approve なら公開する。
+ * レビュー中に人が編集・状態変更した場合（updated_at が変わった場合）は何もしない。
+ */
+export async function saveAiReview(
+  db: D1Database,
+  profile: Pick<AnimalProfile, "animalId" | "updatedAt">,
+  review: { verdict: AiReviewVerdict; issues: string[]; model: string }
+): Promise<boolean> {
+  const now = new Date().toISOString();
+  const publish = review.verdict === "approve";
+  const result = await db
+    .prepare(
+      `UPDATE animal_profiles
+       SET ai_review_verdict = ?,
+           ai_review_issues = ?,
+           ai_review_model = ?,
+           ai_reviewed_at = ?,
+           status = CASE WHEN ? THEN 'published' ELSE status END,
+           reviewed_at = CASE WHEN ? THEN ? ELSE reviewed_at END,
+           updated_at = ?
+       WHERE animal_id = ? AND status = 'draft' AND updated_at = ?`
+    )
+    .bind(
+      review.verdict,
+      JSON.stringify(review.issues),
+      review.model,
+      now,
+      publish ? 1 : 0,
+      publish ? 1 : 0,
+      now,
+      now,
+      profile.animalId,
+      profile.updatedAt
+    )
+    .run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
+/** AI に渡す前の機械的なチェック。公開に必要な項目が欠けていれば理由を返す。 */
+export function findMissingProfileFields(profile: AnimalProfileContent): string[] {
+  const issues: string[] = [];
+  if (!profile.summary) issues.push("一言紹介がありません");
+  if (!profile.description) issues.push("詳細解説がありません");
+  if (!profile.scientificName) issues.push("学名がありません");
+  if (profile.sources.length === 0) issues.push("出典がありません");
+  return issues;
 }
 
 export interface ProfileTargetAnimal {
@@ -615,6 +706,7 @@ export interface ProfileAdminRow {
   displayName: string | null;
   zooCount: number;
   status: AnimalProfileStatus | null;
+  aiReviewVerdict: AiReviewVerdict | null;
   summary: string | null;
   measurementCount: number;
   updatedAt: string | null;
@@ -645,6 +737,7 @@ export async function loadProfileAdminRows(
          (SELECT MIN(za.display_name) FROM zoo_animals za WHERE za.animal_id = a.id) AS display_name,
          (SELECT COUNT(DISTINCT za.zoo_id) FROM zoo_animals za WHERE za.animal_id = a.id) AS zoo_count,
          p.status,
+         p.ai_review_verdict,
          p.summary,
          (SELECT COUNT(*) FROM animal_measurements m WHERE m.animal_id = a.id) AS measurement_count,
          p.updated_at
@@ -661,6 +754,7 @@ export async function loadProfileAdminRows(
       display_name: string | null;
       zoo_count: number;
       status: AnimalProfileStatus | null;
+      ai_review_verdict: AiReviewVerdict | null;
       summary: string | null;
       measurement_count: number;
       updated_at: string | null;
@@ -672,6 +766,7 @@ export async function loadProfileAdminRows(
     displayName: row.display_name,
     zooCount: row.zoo_count,
     status: row.status,
+    aiReviewVerdict: row.ai_review_verdict,
     summary: row.summary,
     measurementCount: row.measurement_count,
     updatedAt: row.updated_at,
@@ -747,6 +842,75 @@ measurements のルール:
 
 export function parseProfileResponse(jsonText: string): AnimalProfileContent {
   return sanitizeProfileContent(JSON.parse(jsonText) as unknown);
+}
+
+// 生成とは別のモデルで検証する（同じモデルだと同じ誤りを見逃しやすい）。
+export const GEMINI_PROFILE_REVIEW_MODEL = "gemini-3.1-pro-preview";
+
+export function buildProfileReviewPrompt(animal: ProfileTargetAnimal, profile: AnimalProfileContent): string {
+  const draft = {
+    scientificName: profile.scientificName,
+    englishName: profile.englishName,
+    summary: profile.summary,
+    description: profile.description,
+    habitat: profile.habitat,
+    distributionRegions: profile.distributionRegions,
+    diet: profile.diet,
+    dietType: profile.dietType,
+    activityPattern: profile.activityPattern,
+    socialStructure: profile.socialStructure,
+    viewingTips: profile.viewingTips,
+    trivia: profile.trivia,
+    iucnStatus: profile.iucnStatus,
+    iucnAssessedYear: profile.iucnAssessedYear,
+    moeRedlistCategory: profile.moeRedlistCategory,
+    citesAppendix: profile.citesAppendix,
+    measurements: profile.measurements.map((m) => ({
+      metric: `${m.metric}（${METRIC_DEFINITIONS[m.metric].label}）`,
+      sex: m.sex,
+      context: m.context,
+      min: m.min,
+      max: m.max,
+      unit: m.unit,
+      note: m.note,
+    })),
+  };
+  return `日本の動物園サイトに掲載する動物プロフィールの下書きを、公開前にファクトチェックしてください。
+Google検索で信頼できる情報源（IUCN レッドリスト、環境省、CITES、大学・博物館、動物園・水族館の公式サイト、学術文献など）と照合してください。
+
+対象の種:
+- 和名: ${animal.canonicalName}
+- 分類: ${animal.className} / ${animal.orderName} / ${animal.familyName} / ${animal.genusName} / ${animal.speciesName}
+
+下書き（JSON）:
+${JSON.stringify(draft, null, 2)}
+
+確認する観点:
+1. 学名・英名・解説が対象の種のものか（近縁種・亜種・同名の別種と混同していないか）
+2. measurements の数値と単位（cm / kg / year / day / count）。桁違い・単位換算の誤り・他種の値でないか。性別や野生/飼育下の区別が逆でないか
+3. IUCN カテゴリ・評価年、CITES 附属書、環境省レッドリストが最新の公式情報と一致するか（環境省は日本の在来種以外に入っていないか）
+4. 分布地域・生息地・食性・活動時間・社会構造の区分が事実と合っているか
+5. 解説・見どころ・豆知識に事実誤り、誇張、根拠のない断定、特定の施設についての記述が含まれていないか
+
+判定:
+- 来園者に誤った情報を伝える誤りが1つでもあれば "hold"。
+- 情報源で確認できない数値や区分が含まれる場合も "hold"。
+- 表現の好み・軽微な言い回し・情報の不足（null の項目）だけなら "approve"。
+
+出力は次の JSON オブジェクト1つだけにしてください。説明文やコードフェンスは不要です。
+{
+  "verdict": "approve" | "hold",
+  "issues": ["問題点を日本語で1件ずつ。どの項目がどう誤っていて、正しくは何か（hold のときは必須、approve なら空配列でよい）"]
+}`;
+}
+
+export function parseProfileReviewResponse(jsonText: string): { verdict: AiReviewVerdict; issues: string[] } {
+  const item = JSON.parse(jsonText) as Record<string, unknown>;
+  const issues = Array.isArray(item.issues)
+    ? item.issues.flatMap((issue) => cleanText(issue, 500) ?? []).slice(0, 20)
+    : [];
+  // approve 以外（不正な値・欠落）はすべて人の確認に回す。
+  return { verdict: item.verdict === "approve" ? "approve" : "hold", issues };
 }
 
 // ---------- 表示 ----------

@@ -18,17 +18,23 @@ import {
   PROFILE_STATUS_LABELS,
   SEX_LABELS,
   SOCIAL_STRUCTURE_LABELS,
+  GEMINI_PROFILE_REVIEW_MODEL,
   buildProfilePrompt,
+  buildProfileReviewPrompt,
+  findMissingProfileFields,
   loadAnimalProfile,
+  loadProfilesForAiReview,
   loadProfileAdminRows,
   loadProfileStatusCounts,
   loadProfileTargets,
   loadPublishedProfileIndex,
   parseProfileResponse,
+  parseProfileReviewResponse,
   renderAnimalProfileHero,
   renderAnimalProfileSection,
   sanitizeProfileContent,
   sanitizeSources,
+  saveAiReview,
   saveAnimalProfile,
   buildProfileSearchTags,
   buildProfileSearchTexts,
@@ -9121,10 +9127,11 @@ function renderSitemapXml(origin: string, entries: SitemapEntry[]): string {
 
 // ---------- 動物プロフィール ----------
 
-async function generateAnimalProfileWithGemini(
+async function callGeminiWithSearch(
   apiKey: string,
-  animal: ProfileTargetAnimal
-): Promise<AnimalProfileContent> {
+  model: string,
+  input: string
+): Promise<{ data: unknown; rawText: string }> {
   const response = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
     method: "POST",
     headers: {
@@ -9132,8 +9139,8 @@ async function generateAnimalProfileWithGemini(
       "x-goog-api-key": apiKey,
     },
     body: JSON.stringify({
-      model: GEMINI_PROFILE_MODEL,
-      input: buildProfilePrompt(animal),
+      model,
+      input,
       tools: [{ type: "google_search" }],
     }),
   });
@@ -9148,7 +9155,14 @@ async function generateAnimalProfileWithGemini(
   if (!rawText) {
     throw new Error("Gemini response did not include output text");
   }
+  return { data, rawText };
+}
 
+async function generateAnimalProfileWithGemini(
+  apiKey: string,
+  animal: ProfileTargetAnimal
+): Promise<AnimalProfileContent> {
+  const { data, rawText } = await callGeminiWithSearch(apiKey, GEMINI_PROFILE_MODEL, buildProfilePrompt(animal));
   const content = parseProfileResponse(extractJsonObject(rawText));
   // grounding で実際に参照したページを優先し、モデルが挙げた出典は後ろに残す（確認画面で人が見る）。
   return {
@@ -9198,6 +9212,104 @@ async function generateAnimalProfiles(
   return results;
 }
 
+interface AnimalProfileReviewResult {
+  animalId: string;
+  canonicalName: string;
+  status: "published" | "held" | "skipped" | "error";
+  issues?: string[];
+  error?: string;
+}
+
+/**
+ * 未レビューの下書きを AI でファクトチェックし、問題がなければ公開する。
+ * 問題があれば下書きのまま指摘を残す（/admin/animal-profiles で人が確認する）。
+ */
+async function reviewAnimalProfiles(
+  db: D1Database,
+  apiKey: string,
+  limit: number
+): Promise<AnimalProfileReviewResult[]> {
+  const profiles = await loadProfilesForAiReview(db, limit);
+  const results: AnimalProfileReviewResult[] = [];
+  for (const profile of profiles) {
+    const target = await loadProfileTargetAnimal(db, profile.animalId);
+    const canonicalName = target?.animal.canonicalName ?? profile.animalId;
+    try {
+      if (!target) throw new Error("分類マスタに見つかりません");
+      const missing = findMissingProfileFields(profile);
+      let review: { verdict: "approve" | "hold"; issues: string[] };
+      if (missing.length > 0) {
+        review = { verdict: "hold", issues: missing };
+      } else {
+        const { rawText } = await callGeminiWithSearch(
+          apiKey,
+          GEMINI_PROFILE_REVIEW_MODEL,
+          buildProfileReviewPrompt(target.animal, profile)
+        );
+        review = parseProfileReviewResponse(extractJsonObject(rawText));
+      }
+      const saved = await saveAiReview(db, profile, { ...review, model: GEMINI_PROFILE_REVIEW_MODEL });
+      results.push({
+        animalId: profile.animalId,
+        canonicalName,
+        status: !saved ? "skipped" : review.verdict === "approve" ? "published" : "held",
+        issues: review.issues,
+      });
+    } catch (error) {
+      console.error(`[profile-review] ${canonicalName}:`, error);
+      results.push({
+        animalId: profile.animalId,
+        canonicalName,
+        status: "error",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return results;
+}
+
+// wrangler.toml の [triggers] crons と揃える。
+// 毎時 30 分に PROFILE_GENERATION_BATCH_SIZE 種ずつ下書きを作り、毎時 0 分に PROFILE_REVIEW_BATCH_SIZE 件ずつ AI レビューする。
+const PROFILE_GENERATION_CRON = "30 * * * *";
+const PROFILE_GENERATION_BATCH_SIZE = 3;
+const PROFILE_REVIEW_CRON = "0 * * * *";
+const PROFILE_REVIEW_BATCH_SIZE = 5;
+
+async function reviewScheduledAnimalProfiles(env: Env): Promise<void> {
+  if (!env.GEMINI_API_KEY) {
+    console.error("[scheduled] profile review skipped: GEMINI_API_KEY is not set");
+    return;
+  }
+  try {
+    const results = await reviewAnimalProfiles(env.DB, env.GEMINI_API_KEY, PROFILE_REVIEW_BATCH_SIZE);
+    if (results.length === 0) return;
+    const names = (status: AnimalProfileReviewResult["status"]) =>
+      results.filter((result) => result.status === status).map((result) => result.canonicalName).join(",") || "-";
+    console.log(
+      `[scheduled] profile review published=${names("published")} held=${names("held")} skipped=${names("skipped")} failed=${names("error")}`
+    );
+  } catch (error) {
+    console.error("[scheduled] profile review failed:", error);
+  }
+}
+
+async function generateScheduledAnimalProfiles(env: Env): Promise<void> {
+  if (!env.GEMINI_API_KEY) {
+    console.error("[scheduled] profile generation skipped: GEMINI_API_KEY is not set");
+    return;
+  }
+  try {
+    const targets = await loadProfileTargets(env.DB, PROFILE_GENERATION_BATCH_SIZE);
+    if (targets.length === 0) return;
+    const results = await generateAnimalProfiles(env.DB, env.GEMINI_API_KEY, targets);
+    const generated = results.filter((result) => result.status === "generated").map((result) => result.canonicalName);
+    const failed = results.filter((result) => result.status === "error").map((result) => result.canonicalName);
+    console.log(`[scheduled] profile drafts generated=${generated.join(",") || "-"} failed=${failed.join(",") || "-"}`);
+  } catch (error) {
+    console.error("[scheduled] profile generation failed:", error);
+  }
+}
+
 function buildAnimalProfileAdminUrl(animalId: string): string {
   return `/admin/animal-profiles/${encodeURIComponent(animalId)}`;
 }
@@ -9237,6 +9349,10 @@ ${ADMIN_BREADCRUMB_CSS}
     .profile-table small { color: #5f5f5f; }
     .status-badge { display: inline-block; font-size: 0.72rem; padding: 0.15rem 0.45rem; white-space: nowrap; border: 1px solid #e1e1e1; background: #f7f7f7; color: #5f5f5f; }
     .status-draft { background: #fef9e7; border-color: #f0d98a; color: #7a5c00; }
+    .ai-review { border: 1px solid #cfe5d8; background: #f5fbf7; color: #244d37; padding: 0.6rem 0.75rem; font-size: 0.86rem; }
+    .ai-review--hold { border-color: #f0d98a; background: #fef9e7; color: #5c4500; }
+    .ai-review small { color: #5f5f5f; }
+    .ai-review ul { margin: 0.4rem 0 0 1.2rem; display: grid; gap: 0.2rem; }
     .status-reviewed { background: #eef4fb; border-color: #b8cde6; color: #234a75; }
     .status-published { background: #e8f5ee; border-color: #b6ddc8; color: #1f5b45; }
     .status-rejected { background: #fef0ec; border-color: #f0c0b0; color: #8b3a20; }
@@ -9292,12 +9408,14 @@ function renderAnimalProfileAdminListHtml(
       const statusHtml = row.status
         ? `<span class="status-badge status-${row.status}">${escapeHtml(PROFILE_STATUS_LABELS[row.status])}</span>`
         : `<span class="status-badge">未作成</span>`;
+      const aiReviewHtml =
+        row.status === "draft" ? `<br><small>${row.aiReviewVerdict === "hold" ? "AI: 要確認" : "AI: レビュー待ち"}</small>` : "";
       const publicLink = row.displayName
         ? ` <small><a href="${buildZooAnimalUrl(row.displayName)}" style="font-weight:normal">公開ページ</a></small>`
         : "";
       return `<tr>
         <td><a href="${buildAnimalProfileAdminUrl(row.animalId)}">${escapeHtml(row.canonicalName)}</a>${publicLink}<br><small>${escapeHtml(row.className)} / ${row.zooCount}施設</small></td>
-        <td>${statusHtml}</td>
+        <td>${statusHtml}${aiReviewHtml}</td>
         <td>${row.summary ? escapeHtml(row.summary) : "<small>-</small>"}</td>
         <td>${row.measurementCount}</td>
         <td><small>${row.updatedAt ? escapeHtml(formatDateTime(row.updatedAt)) : "-"}</small></td>
@@ -9323,7 +9441,7 @@ ${renderGlobalNav("/admin")}
     ${renderAdminBreadcrumb([{ label: "動物プロフィール" }])}
     <h1>動物プロフィール</h1>
     ${notice ? `<p class="notice">${escapeHtml(notice)}</p>` : ""}
-    <p class="meta">施設で見られる種（分類マスタ登録済み）ごとに、サイズ・体重・寿命と日本語の解説を管理します。Gemini で下書きを作り、内容を確認してから公開してください。公開済みのものだけがサイト・API・MCP に表示されます。</p>
+    <p class="meta">施設で見られる種（分類マスタ登録済み）ごとに、サイズ・体重・寿命と日本語の解説を管理します。Gemini で下書きを作り、別のモデルによる AI レビューで問題がなければ自動で公開します（毎時）。AI が要確認とした下書きは内容を確認してから公開してください。公開済みのものだけがサイト・API・MCP に表示されます。</p>
     <form class="toolbar" method="post" action="/admin/animal-profiles/generate">
       <label class="meta" for="generate-limit">未作成の種から</label>
       <input id="generate-limit" type="number" name="limit" value="3" min="1" max="10">
@@ -9350,6 +9468,22 @@ function renderOptions<T extends string>(labels: Record<T, string>, selected: st
     .map(([value, label]) => `<option value="${value}"${value === selected ? " selected" : ""}>${escapeHtml(label ? `${value} ${label}` : value)}</option>`)
     .join("");
   return `<option value="">${escapeHtml(emptyLabel)}</option>${options}`;
+}
+
+function renderAiReviewHtml(profile: AnimalProfile | null): string {
+  const review = profile?.aiReview;
+  if (!review) {
+    return profile?.status === "draft" ? `<p class="meta">AI レビュー待ち（問題がなければ自動で公開されます）</p>` : "";
+  }
+  const heading =
+    review.verdict === "approve" ? "AI レビュー: 問題なし（自動公開）" : "AI レビュー: 要確認（下書きのまま保留）";
+  const meta = [review.model, review.reviewedAt ? formatDateTime(review.reviewedAt) : null].filter(Boolean).join(" ・ ");
+  const issuesHtml =
+    review.issues.length > 0 ? `<ul>${review.issues.map((issue) => `<li>${escapeHtml(issue)}</li>`).join("")}</ul>` : "";
+  return `<section class="ai-review ai-review--${review.verdict}">
+      <strong>${escapeHtml(heading)}</strong>${meta ? ` <small>${escapeHtml(meta)}</small>` : ""}
+      ${issuesHtml}
+    </section>`;
 }
 
 function renderAnimalProfileEditHtml(
@@ -9422,6 +9556,7 @@ ${renderGlobalNav("/admin")}
       ${displayName ? ` ・ <a href="${buildZooAnimalUrl(displayName)}">公開ページ</a>` : ""}</p>
     ${metaParts.length > 0 ? `<p class="meta">${escapeHtml(metaParts.join(" ・ "))}</p>` : ""}
     ${notice ? `<p class="notice">${escapeHtml(notice)}</p>` : ""}
+    ${renderAiReviewHtml(profile)}
     ${canRegenerate ? `<form method="post" action="${buildAnimalProfileAdminUrl(animal.id)}" class="toolbar">
       <input type="hidden" name="action" value="regenerate">
       <button type="submit" class="btn btn--secondary">${profile ? "Gemini で下書きを作り直す" : "Gemini で下書きを生成"}</button>
@@ -9585,6 +9720,7 @@ function isAdminPath(pathname: string): boolean {
     pathname === "/api/animals/classify" ||
     pathname === "/api/animals/suggest-taxonomy" ||
     pathname === "/api/animals/suggest-profile" ||
+    pathname === "/api/animals/review-profiles" ||
     pathname === "/api/animals/taxonomy-candidates" ||
     /^\/animal\/.+\/classify$/.test(pathname)
   );
@@ -9603,7 +9739,15 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     return handleFetch(request, env, ctx);
   },
-  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    if (controller.cron === PROFILE_GENERATION_CRON) {
+      ctx.waitUntil(generateScheduledAnimalProfiles(env));
+      return;
+    }
+    if (controller.cron === PROFILE_REVIEW_CRON) {
+      ctx.waitUntil(reviewScheduledAnimalProfiles(env));
+      return;
+    }
     ctx.waitUntil(
       (async () => {
         try {
@@ -9829,6 +9973,30 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
         generated: results.filter((result) => result.status === "generated").length,
         failed: results.filter((result) => result.status === "error").length,
         model: GEMINI_PROFILE_MODEL,
+        results,
+      });
+    }
+
+    // JSON API: AI review of animal profile drafts (approve → publish)
+    if (pathname === "/api/animals/review-profiles") {
+      if (request.method !== "POST") {
+        return jsonResponse({ error: "POST を使用してください" }, 405);
+      }
+      if (!env.GEMINI_API_KEY) {
+        return jsonResponse({ error: "GEMINI_API_KEY が設定されていません" }, 500);
+      }
+      const body = (await request.json().catch(() => ({}))) as { limit?: unknown };
+      const limit =
+        typeof body.limit === "number" && Number.isFinite(body.limit)
+          ? Math.max(1, Math.min(10, Math.floor(body.limit)))
+          : PROFILE_REVIEW_BATCH_SIZE;
+      const results = await reviewAnimalProfiles(env.DB, env.GEMINI_API_KEY, limit);
+      return jsonResponse({
+        reviewed: results.length,
+        published: results.filter((result) => result.status === "published").length,
+        held: results.filter((result) => result.status === "held").length,
+        failed: results.filter((result) => result.status === "error").length,
+        model: GEMINI_PROFILE_REVIEW_MODEL,
         results,
       });
     }

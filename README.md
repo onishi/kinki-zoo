@@ -45,6 +45,7 @@
 | `GET /api/animals/taxonomy-candidates` | Gemini が作成した分類候補を JSON で返す |
 | `GET /api/animals/:animalId/profile` | 公開済みの動物プロフィールを JSON で返す（`animalId` は `animals.id`、例 `snow-leopard`） |
 | `POST /api/animals/suggest-profile` | プロフィール未作成の種について Gemini + Google Search grounding で下書きを作る（`{"limit":3}` または `{"animalIds":["lion"]}`） |
+| `POST /api/animals/review-profiles` | AI レビュー未実施の下書きを別モデルでファクトチェックし、問題なければ公開、あれば指摘を残して保留する（`{"limit":5}`） |
 | `GET /animal-images/:name` | 動物名キーで保存した正方形画像を返す |
 | `POST /api/animal-images/generate` | Gemini で動物画像を生成し、動物名キーで D1 に保存する |
 | `GET /animal-image-generations/:id` | 生成履歴に残した個別画像を返す |

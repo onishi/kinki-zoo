@@ -457,7 +457,7 @@ export async function saveAnimalProfile(
   db: D1Database,
   animalId: string,
   content: AnimalProfileContent,
-  meta: { status: AnimalProfileStatus; model?: string | null; generatedAt?: string | null }
+  meta: { status: AnimalProfileStatus; model?: string | null; generatedAt?: string | null; aiFixAttempts?: number }
 ): Promise<void> {
   const now = new Date().toISOString();
   const reviewedAt = meta.status === "reviewed" || meta.status === "published" ? now : null;
@@ -468,8 +468,8 @@ export async function saveAnimalProfile(
            animal_id, scientific_name, english_name, summary, description, habitat,
            distribution_regions, diet, diet_type, activity_pattern, social_structure, viewing_tips, trivia,
            iucn_status, iucn_assessed_year, moe_redlist_category, cites_appendix, status, model,
-           generated_at, reviewed_at, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           generated_at, reviewed_at, ai_fix_attempts, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (animal_id) DO UPDATE SET
            scientific_name = excluded.scientific_name,
            english_name = excluded.english_name,
@@ -496,6 +496,7 @@ export async function saveAnimalProfile(
            ai_review_issues = CASE WHEN excluded.generated_at IS NULL THEN animal_profiles.ai_review_issues END,
            ai_review_model = CASE WHEN excluded.generated_at IS NULL THEN animal_profiles.ai_review_model END,
            ai_reviewed_at = CASE WHEN excluded.generated_at IS NULL THEN animal_profiles.ai_reviewed_at END,
+           ai_fix_attempts = CASE WHEN excluded.generated_at IS NULL THEN animal_profiles.ai_fix_attempts ELSE excluded.ai_fix_attempts END,
            updated_at = excluded.updated_at`
       )
       .bind(
@@ -520,6 +521,7 @@ export async function saveAnimalProfile(
         meta.model ?? null,
         meta.generatedAt ?? null,
         reviewedAt,
+        meta.aiFixAttempts ?? 0,
         now,
         now
       ),
@@ -586,10 +588,12 @@ export async function loadProfilesForAiReview(db: D1Database, limit: number): Pr
 export async function saveAiReview(
   db: D1Database,
   profile: Pick<AnimalProfile, "animalId" | "updatedAt">,
-  review: { verdict: AiReviewVerdict; issues: string[]; model: string }
+  review: { verdict: AiReviewVerdict; issues: string[]; model: string; iucnAssessedYear?: number | null }
 ): Promise<boolean> {
   const now = new Date().toISOString();
   const publish = review.verdict === "approve";
+  // 評価年はレビューで確認できた値で公開する（確認できなければ空にする）。保留時は人が見るので触らない。
+  const replaceYear = publish && review.iucnAssessedYear !== undefined;
   const result = await db
     .prepare(
       `UPDATE animal_profiles
@@ -599,6 +603,7 @@ export async function saveAiReview(
            ai_reviewed_at = ?,
            status = CASE WHEN ? THEN 'published' ELSE status END,
            reviewed_at = CASE WHEN ? THEN ? ELSE reviewed_at END,
+           iucn_assessed_year = CASE WHEN ? THEN ? ELSE iucn_assessed_year END,
            updated_at = ?
        WHERE animal_id = ? AND status = 'draft' AND updated_at = ?`
     )
@@ -610,12 +615,46 @@ export async function saveAiReview(
       publish ? 1 : 0,
       publish ? 1 : 0,
       now,
+      replaceYear ? 1 : 0,
+      review.iucnAssessedYear ?? null,
       now,
       profile.animalId,
       profile.updatedAt
     )
     .run();
   return (result.meta.changes ?? 0) > 0;
+}
+
+export interface ProfileFixTarget {
+  profile: AnimalProfile;
+  attempts: number;
+}
+
+/**
+ * AI レビューで保留になり、まだ自動修正の上限に達していない下書きを返す。
+ * レビュー後に人が編集したもの（updated_at が ai_reviewed_at と異なるもの）は人に任せて除く。
+ */
+export async function loadProfilesForAiFix(
+  db: D1Database,
+  limit: number,
+  maxAttempts: number
+): Promise<ProfileFixTarget[]> {
+  const result = await db
+    .prepare(
+      `SELECT animal_id, ai_fix_attempts FROM animal_profiles
+       WHERE status = 'draft' AND ai_review_verdict = 'hold'
+         AND ai_fix_attempts < ? AND updated_at = ai_reviewed_at
+       ORDER BY ai_reviewed_at
+       LIMIT ?`
+    )
+    .bind(maxAttempts, limit)
+    .all<{ animal_id: string; ai_fix_attempts: number }>();
+  const rows = result.results ?? [];
+  const profiles = await loadProfilesByIds(db, rows.map((row) => row.animal_id), false);
+  return rows.flatMap((row) => {
+    const profile = profiles.get(row.animal_id);
+    return profile ? [{ profile, attempts: row.ai_fix_attempts }] : [];
+  });
 }
 
 /** AI に渡す前の機械的なチェック。公開に必要な項目が欠けていれば理由を返す。 */
@@ -840,6 +879,25 @@ measurements のルール:
 - 家畜・品種差の大きい動物は無理に数値を入れず、note で補足するか省略する。`;
 }
 
+/** AI レビューの指摘を渡して下書きを作り直させる。 */
+export function buildProfileRevisionPrompt(
+  animal: ProfileTargetAnimal,
+  previous: AnimalProfileContent,
+  issues: string[]
+): string {
+  return `${buildProfilePrompt(animal)}
+
+前回作成した下書きに対して、ファクトチェックで次の指摘がありました。
+指摘された箇所を情報源で確認して修正し、修正後の JSON 全体を出力してください。指摘以外の項目も、誤りに気づけば直してください。
+情報源で確認できない数値や区分は推測で埋めず null にするか、measurements から外してください。
+
+指摘:
+${issues.map((issue) => `- ${issue}`).join("\n")}
+
+前回の下書き:
+${JSON.stringify({ ...previous, sources: undefined }, null, 2)}`;
+}
+
 export function parseProfileResponse(jsonText: string): AnimalProfileContent {
   return sanitizeProfileContent(JSON.parse(jsonText) as unknown);
 }
@@ -888,7 +946,7 @@ ${JSON.stringify(draft, null, 2)}
 確認する観点:
 1. 学名・英名・解説が対象の種のものか（近縁種・亜種・同名の別種と混同していないか）
 2. measurements の数値と単位（cm / kg / year / day / count）。桁違い・単位換算の誤り・他種の値でないか。性別や野生/飼育下の区別が逆でないか
-3. IUCN カテゴリ・評価年、CITES 附属書、環境省レッドリストが最新の公式情報と一致するか（環境省は日本の在来種以外に入っていないか）
+3. IUCN カテゴリ、CITES 附属書、環境省レッドリストが最新の公式情報と一致するか（環境省は日本の在来種以外に入っていないか）
 4. 分布地域・生息地・食性・活動時間・社会構造の区分が事実と合っているか
 5. 解説・見どころ・豆知識に事実誤り、誇張、根拠のない断定、特定の施設についての記述が含まれていないか
 
@@ -896,21 +954,33 @@ ${JSON.stringify(draft, null, 2)}
 - 来園者に誤った情報を伝える誤りが1つでもあれば "hold"。
 - 情報源で確認できない数値や区分が含まれる場合も "hold"。
 - 表現の好み・軽微な言い回し・情報の不足（null の項目）だけなら "approve"。
+- 「対象の種」の和名・分類はサイト側のマスタなので確認対象外。分類表記の新旧は hold の理由にしない。
+- IUCN の評価年（iucnAssessedYear）は hold の理由にしない。代わりに、情報源で確認できた最新の評価年を出力の iucnAssessedYear に入れる（確認できなければ null）。公開時はこの値で置き換える。
 
 出力は次の JSON オブジェクト1つだけにしてください。説明文やコードフェンスは不要です。
 {
   "verdict": "approve" | "hold",
-  "issues": ["問題点を日本語で1件ずつ。どの項目がどう誤っていて、正しくは何か（hold のときは必須、approve なら空配列でよい）"]
+  "issues": ["問題点を日本語で1件ずつ。どの項目がどう誤っていて、正しくは何か（hold のときは必須、approve なら空配列でよい）"],
+  "iucnAssessedYear": 2016
 }`;
 }
 
-export function parseProfileReviewResponse(jsonText: string): { verdict: AiReviewVerdict; issues: string[] } {
+export function parseProfileReviewResponse(jsonText: string): {
+  verdict: AiReviewVerdict;
+  issues: string[];
+  iucnAssessedYear: number | null;
+} {
   const item = JSON.parse(jsonText) as Record<string, unknown>;
   const issues = Array.isArray(item.issues)
     ? item.issues.flatMap((issue) => cleanText(issue, 500) ?? []).slice(0, 20)
     : [];
+  const year = cleanNumber(item.iucnAssessedYear);
   // approve 以外（不正な値・欠落）はすべて人の確認に回す。
-  return { verdict: item.verdict === "approve" ? "approve" : "hold", issues };
+  return {
+    verdict: item.verdict === "approve" ? "approve" : "hold",
+    issues,
+    iucnAssessedYear: year && year >= 1960 && year <= 2100 ? Math.floor(year) : null,
+  };
 }
 
 // ---------- 表示 ----------

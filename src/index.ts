@@ -21,8 +21,10 @@ import {
   GEMINI_PROFILE_REVIEW_MODEL,
   buildProfilePrompt,
   buildProfileReviewPrompt,
+  buildProfileRevisionPrompt,
   findMissingProfileFields,
   loadAnimalProfile,
+  loadProfilesForAiFix,
   loadProfilesForAiReview,
   loadProfileAdminRows,
   loadProfileStatusCounts,
@@ -9237,7 +9239,7 @@ async function reviewAnimalProfiles(
     try {
       if (!target) throw new Error("分類マスタに見つかりません");
       const missing = findMissingProfileFields(profile);
-      let review: { verdict: "approve" | "hold"; issues: string[] };
+      let review: { verdict: "approve" | "hold"; issues: string[]; iucnAssessedYear?: number | null };
       if (missing.length > 0) {
         review = { verdict: "hold", issues: missing };
       } else {
@@ -9246,7 +9248,9 @@ async function reviewAnimalProfiles(
           GEMINI_PROFILE_REVIEW_MODEL,
           buildProfileReviewPrompt(target.animal, profile)
         );
-        review = parseProfileReviewResponse(extractJsonObject(rawText));
+        const parsed = parseProfileReviewResponse(extractJsonObject(rawText));
+        // IUCN カテゴリがない種に評価年だけ残さない。
+        review = { ...parsed, iucnAssessedYear: profile.iucnStatus ? parsed.iucnAssessedYear : null };
       }
       const saved = await saveAiReview(db, profile, { ...review, model: GEMINI_PROFILE_REVIEW_MODEL });
       results.push({
@@ -9268,12 +9272,73 @@ async function reviewAnimalProfiles(
   return results;
 }
 
+/**
+ * AI レビューで保留になった下書きを、指摘と前回の下書きを渡して作り直す。
+ * 作り直した下書きは AI レビューがクリアされ、次のレビューの対象に戻る。
+ */
+async function fixHeldAnimalProfiles(
+  db: D1Database,
+  apiKey: string,
+  limit: number
+): Promise<AnimalProfileGenerationResult[]> {
+  const fixTargets = await loadProfilesForAiFix(db, limit, MAX_PROFILE_FIX_ATTEMPTS);
+  const results: AnimalProfileGenerationResult[] = [];
+  for (const { profile, attempts } of fixTargets) {
+    const target = await loadProfileTargetAnimal(db, profile.animalId);
+    const canonicalName = target?.animal.canonicalName ?? profile.animalId;
+    try {
+      if (!target) throw new Error("分類マスタに見つかりません");
+      const { data, rawText } = await callGeminiWithSearch(
+        apiKey,
+        GEMINI_PROFILE_MODEL,
+        buildProfileRevisionPrompt(target.animal, profile, profile.aiReview?.issues ?? [])
+      );
+      const content = parseProfileResponse(extractJsonObject(rawText));
+      // 生成中に人が編集・公開していたら上書きしない。
+      const current = await loadAnimalProfile(db, profile.animalId, { publishedOnly: false });
+      if (current?.status !== "draft" || current.updatedAt !== profile.updatedAt) {
+        results.push({ animalId: profile.animalId, canonicalName, status: "error", error: "生成中に更新されたため破棄" });
+        continue;
+      }
+      await saveAnimalProfile(
+        db,
+        profile.animalId,
+        { ...content, sources: sanitizeSources([...extractGeminiCitations(data), ...content.sources]) },
+        {
+          status: "draft",
+          model: GEMINI_PROFILE_MODEL,
+          generatedAt: new Date().toISOString(),
+          aiFixAttempts: attempts + 1,
+        }
+      );
+      results.push({
+        animalId: profile.animalId,
+        canonicalName,
+        status: "generated",
+        measurementCount: content.measurements.length,
+      });
+    } catch (error) {
+      console.error(`[profile-fix] ${canonicalName}:`, error);
+      results.push({
+        animalId: profile.animalId,
+        canonicalName,
+        status: "error",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return results;
+}
+
 // wrangler.toml の [triggers] crons と揃える。
-// 毎時 30 分に PROFILE_GENERATION_BATCH_SIZE 種ずつ下書きを作り、毎時 0 分に PROFILE_REVIEW_BATCH_SIZE 件ずつ AI レビューする。
+// 毎時 30 分: 保留になった下書きを PROFILE_FIX_BATCH_SIZE 件まで作り直し、未作成の種を PROFILE_GENERATION_BATCH_SIZE 種生成する。
+// 毎時 0 分: PROFILE_REVIEW_BATCH_SIZE 件ずつ AI レビューする（1 件 40 秒前後。cron の上限 15 分に収める）。
 const PROFILE_GENERATION_CRON = "30 * * * *";
 const PROFILE_GENERATION_BATCH_SIZE = 3;
+const PROFILE_FIX_BATCH_SIZE = 5;
+const MAX_PROFILE_FIX_ATTEMPTS = 2;
 const PROFILE_REVIEW_CRON = "0 * * * *";
-const PROFILE_REVIEW_BATCH_SIZE = 5;
+const PROFILE_REVIEW_BATCH_SIZE = 10;
 
 async function reviewScheduledAnimalProfiles(env: Env): Promise<void> {
   if (!env.GEMINI_API_KEY) {
@@ -9297,6 +9362,16 @@ async function generateScheduledAnimalProfiles(env: Env): Promise<void> {
   if (!env.GEMINI_API_KEY) {
     console.error("[scheduled] profile generation skipped: GEMINI_API_KEY is not set");
     return;
+  }
+  try {
+    const fixes = await fixHeldAnimalProfiles(env.DB, env.GEMINI_API_KEY, PROFILE_FIX_BATCH_SIZE);
+    if (fixes.length > 0) {
+      const fixed = fixes.filter((result) => result.status === "generated").map((result) => result.canonicalName);
+      const failed = fixes.filter((result) => result.status === "error").map((result) => result.canonicalName);
+      console.log(`[scheduled] profile drafts fixed=${fixed.join(",") || "-"} failed=${failed.join(",") || "-"}`);
+    }
+  } catch (error) {
+    console.error("[scheduled] profile fix failed:", error);
   }
   try {
     const targets = await loadProfileTargets(env.DB, PROFILE_GENERATION_BATCH_SIZE);

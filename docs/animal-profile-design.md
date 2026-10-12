@@ -1,6 +1,6 @@
 # 動物プロフィールデータ設計
 
-実装: `migrations/0021_create_animal_profiles.sql`、`migrations/0022_add_ai_review_to_animal_profiles.sql`、`src/animal-profile.ts`、管理画面 `/admin/animal-profiles`。
+実装: `migrations/0021_create_animal_profiles.sql`、`migrations/0022_add_ai_review_to_animal_profiles.sql`、`migrations/0023_add_ai_fix_attempts_to_animal_profiles.sql`、`src/animal-profile.ts`、管理画面 `/admin/animal-profiles`。
 
 動物ごとのサイズ・重量・寿命などの数値データと、日本語の解説文を D1 に保持するための設計案。
 
@@ -269,11 +269,14 @@ export interface AnimalProfile {
    一言紹介・詳細解説・学名・出典が欠けている下書きは AI に渡さず `hold` にする。
    レビュー中に人が編集した（`updated_at` が変わった）場合は結果を捨てる。
    下書きを作り直すとレビュー結果はクリアされ、再びレビュー対象になる。
+   IUCN の評価年は誤りが多いため保留の理由にせず、レビューで確認できた年を公開時に入れる（確認できなければ空）。
+   保留になった下書きは、指摘と前回の下書きを渡して自動で作り直す（`ai_fix_attempts`、最大 2 回）。
+   上限に達したもの・レビュー後に人が編集したものは作り直さず、人が確認する。
 4. 公開画面・API・MCP は `status = 'published'` のみ参照する。
    確認済み・公開済みは下書き生成の対象外（作り直すときは下書きに戻す）。
 
 一括生成は `npm run generate:animal-profiles`（`scripts/generate-animal-profiles.mjs`）。
-本番では cron で自動化している（毎時 30 分に 3 種ずつ下書き生成、毎時 0 分に 5 件ずつ AI レビュー）。
+本番では cron で自動化している（毎時 30 分に保留の下書きを最大 5 件作り直して未作成の種を 3 種生成、毎時 0 分に 10 件ずつ AI レビュー）。
 
 ## 利用先
 

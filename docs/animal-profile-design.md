@@ -1,6 +1,6 @@
 # 動物プロフィールデータ設計
 
-実装: `migrations/0021_create_animal_profiles.sql`、`src/animal-profile.ts`、管理画面 `/admin/animal-profiles`。
+実装: `migrations/0021_create_animal_profiles.sql`、`migrations/0022_add_ai_review_to_animal_profiles.sql`、`src/animal-profile.ts`、管理画面 `/admin/animal-profiles`。
 
 動物ごとのサイズ・重量・寿命などの数値データと、日本語の解説文を D1 に保持するための設計案。
 
@@ -262,10 +262,18 @@ export interface AnimalProfile {
 2. `/admin/animal-profiles/:animalId` で下書きの確認・編集・公開を行う。
    保存時に語彙外の値・0 以下の数値・http(s) 以外の URL は捨て、min > max は入れ替える。
    公開には一言紹介（`summary`）を必須とする。
-3. 公開画面・API・MCP は `status = 'published'` のみ参照する。
+3. AI レビュー（`POST /api/animals/review-profiles` または毎時 0 分の cron）。
+   未レビューの下書きを、生成とは別のモデル（`gemini-3.1-pro-preview`）+ Google Search grounding で
+   ファクトチェックする（学名・数値と単位・IUCN / CITES / 環境省・区分・解説の事実誤り）。
+   `approve` なら `published` にし、`hold` なら下書きのまま指摘を `ai_review_issues` に残して人が確認する。
+   一言紹介・詳細解説・学名・出典が欠けている下書きは AI に渡さず `hold` にする。
+   レビュー中に人が編集した（`updated_at` が変わった）場合は結果を捨てる。
+   下書きを作り直すとレビュー結果はクリアされ、再びレビュー対象になる。
+4. 公開画面・API・MCP は `status = 'published'` のみ参照する。
    確認済み・公開済みは下書き生成の対象外（作り直すときは下書きに戻す）。
 
 一括生成は `npm run generate:animal-profiles`（`scripts/generate-animal-profiles.mjs`）。
+本番では cron で自動化している（毎時 30 分に 3 種ずつ下書き生成、毎時 0 分に 5 件ずつ AI レビュー）。
 
 ## 利用先
 

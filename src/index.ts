@@ -9129,6 +9129,20 @@ function renderSitemapXml(origin: string, entries: SitemapEntry[]): string {
 
 // ---------- 動物プロフィール ----------
 
+class GeminiApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string
+  ) {
+    super(message);
+  }
+}
+
+// 429 はモデルの 1 日の上限に達したことが多く、同じ回で続けても失敗するだけなので残りを打ち切る。
+function isGeminiRateLimitError(error: unknown): boolean {
+  return error instanceof GeminiApiError && error.status === 429;
+}
+
 async function callGeminiWithSearch(
   apiKey: string,
   model: string,
@@ -9149,7 +9163,7 @@ async function callGeminiWithSearch(
 
   const responseText = await response.text();
   if (!response.ok) {
-    throw new Error(`Gemini API error ${response.status}: ${responseText.slice(0, 500)}`);
+    throw new GeminiApiError(response.status, `Gemini API error ${response.status}: ${responseText.slice(0, 500)}`);
   }
 
   const data = JSON.parse(responseText) as unknown;
@@ -9209,6 +9223,7 @@ async function generateAnimalProfiles(
         status: "error",
         error: error instanceof Error ? error.message : String(error),
       });
+      if (isGeminiRateLimitError(error)) break;
     }
   }
   return results;
@@ -9267,6 +9282,7 @@ async function reviewAnimalProfiles(
         status: "error",
         error: error instanceof Error ? error.message : String(error),
       });
+      if (isGeminiRateLimitError(error)) break;
     }
   }
   return results;
@@ -9325,6 +9341,7 @@ async function fixHeldAnimalProfiles(
         status: "error",
         error: error instanceof Error ? error.message : String(error),
       });
+      if (isGeminiRateLimitError(error)) break;
     }
   }
   return results;

@@ -889,11 +889,11 @@ Google検索で信頼できる情報源（IUCN レッドリスト、環境省、
   "viewingTips": "動物園で観察するときの見どころ（日本語、1〜2文）",
   "trivia": "豆知識（日本語、1〜2文）",
   "iucnStatus": "EX" | "EW" | "CR" | "EN" | "VU" | "NT" | "LC" | "DD" | "NE",
-  "iucnAssessedYear": 2020,
+  "iucnAssessedYear": IUCN の評価年（数値）| null,
   "moeRedlistCategory": "環境省レッドリストのカテゴリ（日本の在来種で該当する場合のみ。例: 絶滅危惧IB類）",
   "citesAppendix": "I" | "II" | "III" | null,
   "measurements": [
-    { "metric": "weight", "sex": "any" | "male" | "female", "context": "any" | "wild" | "captive", "min": 35, "max": 55, "note": "補足（任意）" }
+    { "metric": "weight", "sex": "any" | "male" | "female", "context": "any" | "wild" | "captive", "min": 最小値（数値）| null, "max": 最大値（数値）| null, "note": "補足（任意）" }
   ],
   "sources": [{ "title": "ページタイトル", "url": "https://...", "publisher": "発行元" }]
 }
@@ -910,6 +910,7 @@ measurements のルール:
 - 分類群に合った指標を選ぶ（哺乳類は頭胴長・尾長・肩高、鳥類は全長・翼開長、カメは甲長、ヘビ・魚は全長など）。
 - 雌雄で大きく異なる場合は sex を male / female に分けて書く。
 - 寿命は野生（wild）と飼育下（captive）を区別できる場合は分ける。
+- 数値は必ずその種について情報源で確認した値を入れる。形式の例から数値を写さない。
 - 単一の値しかない場合は min と max に同じ値を入れる。最大値しかわからない場合は min を null にする。
 - 家畜・品種差の大きい動物は無理に数値を入れず、note で補足するか省略する。`;
 }

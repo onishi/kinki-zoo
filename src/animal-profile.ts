@@ -829,7 +829,8 @@ export async function loadProfileStatusCounts(db: D1Database): Promise<Record<An
 
 // ---------- Gemini ----------
 
-export const GEMINI_PROFILE_MODEL = "gemini-2.5-flash";
+// コスト優先で Flash-Lite を使う。2.5 系は検索グラウンディングが 1 日 1,500 回まで無料（Flash と共有）。
+export const GEMINI_PROFILE_MODEL = "gemini-2.5-flash-lite";
 
 export function buildProfilePrompt(animal: ProfileTargetAnimal): string {
   const metricLines = MEASUREMENT_METRICS.map(
@@ -903,7 +904,7 @@ export function parseProfileResponse(jsonText: string): AnimalProfileContent {
 }
 
 // 生成とは別のモデルで検証する（同じモデルだと同じ誤りを見逃しやすい）。
-export const GEMINI_PROFILE_REVIEW_MODEL = "gemini-3.1-pro-preview";
+export const GEMINI_PROFILE_REVIEW_MODEL = "gemini-2.5-flash";
 
 export function buildProfileReviewPrompt(animal: ProfileTargetAnimal, profile: AnimalProfileContent): string {
   const draft = {
@@ -953,6 +954,7 @@ ${JSON.stringify(draft, null, 2)}
 判定:
 - 来園者に誤った情報を伝える誤りが1つでもあれば "hold"。
 - 情報源で確認できない数値や区分が含まれる場合も "hold"。
+- 数値は情報源によって幅があるのが普通なので、範囲の端が多少違うだけでは hold にしない。桁違い・単位の誤り・他の指標や他種の値との混同など、明らかに食い違う場合だけ指摘する。
 - 表現の好み・軽微な言い回し・情報の不足（null の項目）だけなら "approve"。
 - 「対象の種」の和名・分類はサイト側のマスタなので確認対象外。分類表記の新旧は hold の理由にしない。
 - IUCN の評価年（iucnAssessedYear）は hold の理由にしない。代わりに、情報源で確認できた最新の評価年を出力の iucnAssessedYear に入れる（確認できなければ null）。公開時はこの値で置き換える。
@@ -975,9 +977,13 @@ export function parseProfileReviewResponse(jsonText: string): {
     ? item.issues.flatMap((issue) => cleanText(issue, 500) ?? []).slice(0, 20)
     : [];
   const year = cleanNumber(item.iucnAssessedYear);
+  // 評価年は公開時にレビューの値で置き換えるので、評価年だけの指摘では保留にしない（指示しても指摘してくることがある）。
+  const onlyAssessedYear =
+    issues.length > 0 &&
+    issues.every((issue) => /iucnAssessedYear|評価年/.test(issue) && !/iucnStatus|カテゴリ|ランク|CITES|環境省/.test(issue));
   // approve 以外（不正な値・欠落）はすべて人の確認に回す。
   return {
-    verdict: item.verdict === "approve" ? "approve" : "hold",
+    verdict: item.verdict === "approve" || onlyAssessedYear ? "approve" : "hold",
     issues,
     iucnAssessedYear: year && year >= 1960 && year <= 2100 ? Math.floor(year) : null,
   };

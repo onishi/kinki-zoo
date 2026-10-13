@@ -257,13 +257,13 @@ export interface AnimalProfile {
 
 1. `POST /api/animals/suggest-profile`（Basic 認証）または `/admin/animal-profiles` の生成ボタン。
    施設で見られる種のうちプロフィール未作成のものを施設数の多い順に選び、1 種ずつ
-   Gemini（`gemini-2.5-flash`）+ Google Search grounding に和名と分類（類〜種）を渡して JSON で出力させる。
+   Gemini（`gemini-2.5-flash-lite`）+ Google Search grounding に和名と分類（類〜種）を渡して JSON で出力させる。
    結果は `status = 'draft'` で保存し、grounding の出典（と、モデルが挙げた出典）を `animal_profile_sources` に入れる。
 2. `/admin/animal-profiles/:animalId` で下書きの確認・編集・公開を行う。
    保存時に語彙外の値・0 以下の数値・http(s) 以外の URL は捨て、min > max は入れ替える。
    公開には一言紹介（`summary`）を必須とする。
 3. AI レビュー（`POST /api/animals/review-profiles` または 15 分ごとの cron）。
-   未レビューの下書きを、生成とは別のモデル（`gemini-3.1-pro-preview`）+ Google Search grounding で
+   未レビューの下書きを、生成とは別のモデル（`gemini-2.5-flash`）+ Google Search grounding で
    ファクトチェックする（学名・数値と単位・IUCN / CITES / 環境省・区分・解説の事実誤り）。
    `approve` なら `published` にし、`hold` なら下書きのまま指摘を `ai_review_issues` に残して人が確認する。
    一言紹介・詳細解説・学名・出典が欠けている下書きは AI に渡さず `hold` にする。

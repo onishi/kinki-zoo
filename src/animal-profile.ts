@@ -657,14 +657,43 @@ export async function loadProfilesForAiFix(
   });
 }
 
-/** AI に渡す前の機械的なチェック。公開に必要な項目が欠けていれば理由を返す。 */
+/** AI に渡す前の機械的なチェック。公開に必要な項目の欠けや明らかな数値の誤りがあれば理由を返す。 */
 export function findMissingProfileFields(profile: AnimalProfileContent): string[] {
   const issues: string[] = [];
   if (!profile.summary) issues.push("一言紹介がありません");
   if (!profile.description) issues.push("詳細解説がありません");
   if (!profile.scientificName) issues.push("学名がありません");
   if (profile.sources.length === 0) issues.push("出典がありません");
+  const weightIssue = findImplausibleWeight(profile.measurements);
+  if (weightIssue) issues.push(weightIssue);
   return issues;
+}
+
+// 翼開長と尾長は胴体の大きさを表さないので除く。
+const BODY_SIZE_METRICS: MeasurementMetric[] = [
+  "head_body_length",
+  "total_length",
+  "height",
+  "shoulder_height",
+  "carapace_length",
+];
+
+/**
+ * g の値をそのまま kg 欄に入れる誤りを見つける。
+ * 体の一番長い寸法を一辺とする立方体を水で満たした重さを超える体重はありえないとみなす。
+ */
+function findImplausibleWeight(measurements: AnimalMeasurement[]): string | null {
+  const largest = (metrics: MeasurementMetric[]) =>
+    Math.max(
+      0,
+      ...measurements.filter((m) => metrics.includes(m.metric)).map((m) => m.max ?? m.min ?? 0)
+    );
+  const weightKg = largest(["weight"]);
+  const lengthCm = largest(BODY_SIZE_METRICS);
+  if (weightKg === 0 || lengthCm === 0) return null;
+  const limitKg = (lengthCm / 100) ** 3 * 1000;
+  if (weightKg <= limitKg) return null;
+  return `measurements の weight（体重）が ${weightKg} kg で、体長 ${lengthCm} cm に対して重すぎます。weight の単位は kg 固定です。g の値なら 1000 で割って kg に換算してください（例: 450 g → 0.45）。`;
 }
 
 export interface ProfileTargetAnimal {
@@ -871,6 +900,11 @@ Google検索で信頼できる情報源（IUCN レッドリスト、環境省、
 
 measurements の metric は次のいずれか。単位は固定なので換算して数値だけ入れる（g は kg に、m は cm に、月は日や年に換算）。
 ${metricLines}
+
+単位の換算に特に注意する:
+- weight は必ず kg。情報源が g なら 1000 で割る（例: 体重 300〜450 g → min 0.3, max 0.45。小鳥の 30 g → 0.03）。
+- 長さは必ず cm。mm なら 10 で割り、m なら 100 を掛ける（例: 45 mm → 4.5、1.2 m → 120）。
+- 出力前に、数値が単位に照らして現実的か確かめる（インコやトカゲが数百 kg になっていないか）。
 
 measurements のルール:
 - 分類群に合った指標を選ぶ（哺乳類は頭胴長・尾長・肩高、鳥類は全長・翼開長、カメは甲長、ヘビ・魚は全長など）。

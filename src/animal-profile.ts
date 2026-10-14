@@ -984,13 +984,20 @@ ${JSON.stringify(draft, null, 2)}
 2. measurements の数値と単位（cm / kg / year / day / count）。桁違い・単位換算の誤り・他種の値でないか。性別や野生/飼育下の区別が逆でないか
 3. IUCN カテゴリ、CITES 附属書、環境省レッドリストが最新の公式情報と一致するか（環境省は日本の在来種以外に入っていないか）
 4. 分布地域・生息地・食性・活動時間・社会構造の区分が事実と合っているか
+
+区分の項目は次の決まった値から選ぶ仕組みで、これより細かい地域・国名・複合的な値は書けない:
+- distributionRegions: ${Object.keys(DISTRIBUTION_REGION_LABELS).join(" / ")}。大陸単位の区分で、島はその島が属する大陸に入れる（マダガスカルは africa、ニューギニアは oceania）。外来の定着地は含めなくてよい
+- dietType: ${Object.keys(DIET_TYPE_LABELS).join(" / ")}（主なものを1つ）
+- activityPattern: ${Object.keys(ACTIVITY_PATTERN_LABELS).join(" / ")}（主なものを1つ）
+- socialStructure: ${Object.keys(SOCIAL_STRUCTURE_LABELS).join(" / ")}（主なものを1つ）
+区分が「広すぎる」「もっと具体的にすべき」は hold の理由にしない。主な傾向と明らかに逆の値（昼行性の種を nocturnal、アジアにいない種に asia など）だけ指摘する。
 5. 解説・見どころ・豆知識に事実誤り、誇張、根拠のない断定、特定の施設についての記述が含まれていないか
 
 判定:
 - 来園者に誤った情報を伝える誤りが1つでもあれば "hold"。
 - 情報源で確認できない数値や区分が含まれる場合も "hold"。
 - 数値は情報源によって幅があるのが普通なので、範囲の端が多少違うだけでは hold にしない。桁違い・単位の誤り・他の指標や他種の値との混同など、明らかに食い違う場合だけ指摘する。
-- 表現の好み・軽微な言い回し・情報の不足（null の項目）だけなら "approve"。
+- 表現の好み・軽微な言い回し・情報の不足（null の項目）・解釈が分かれる点（諸説ある記述、寿命の上限の差など）だけなら "approve"。
 - 「対象の種」の和名・分類はサイト側のマスタなので確認対象外。分類表記の新旧は hold の理由にしない。
 - IUCN の評価年（iucnAssessedYear）は hold の理由にしない。代わりに、情報源で確認できた最新の評価年を出力の iucnAssessedYear に入れる（確認できなければ null）。公開時はこの値で置き換える。
 

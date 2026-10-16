@@ -32,6 +32,8 @@ import {
   loadPublishedProfileIndex,
   parseProfileResponse,
   parseProfileReviewResponse,
+  applyProfileCorrections,
+  isMinorIssue,
   renderAnimalProfileHero,
   renderAnimalProfileSection,
   sanitizeProfileContent,
@@ -9232,14 +9234,15 @@ async function generateAnimalProfiles(
 interface AnimalProfileReviewResult {
   animalId: string;
   canonicalName: string;
-  status: "published" | "held" | "skipped" | "error";
+  status: "published" | "held" | "corrected" | "skipped" | "error";
   issues?: string[];
   error?: string;
 }
 
 /**
  * 未レビューの下書きを AI でファクトチェックし、問題がなければ公開する。
- * 問題があれば下書きのまま指摘を残す（/admin/animal-profiles で人が確認する）。
+ * 区分や数値の誤りでレビューが正しい値を返したら、その値を当てて次のレビューに回す（作り直し 1 回分として数える）。
+ * それ以外は下書きのまま指摘を残し、作り直しの cron か人（/admin/animal-profiles）が対応する。
  */
 async function reviewAnimalProfiles(
   db: D1Database,
@@ -9264,6 +9267,21 @@ async function reviewAnimalProfiles(
           buildProfileReviewPrompt(target.animal, profile)
         );
         const parsed = parseProfileReviewResponse(extractJsonObject(rawText));
+        const corrected =
+          parsed.verdict === "hold" && profile.aiFixAttempts < MAX_PROFILE_FIX_ATTEMPTS
+            ? applyProfileCorrections(profile, parsed.corrections)
+            : null;
+        if (corrected) {
+          const saved = await saveCorrectedAnimalProfile(db, profile, corrected);
+          console.log(`[profile-review] ${canonicalName} corrected: ${JSON.stringify(parsed.corrections)}`);
+          results.push({
+            animalId: profile.animalId,
+            canonicalName,
+            status: saved ? "corrected" : "skipped",
+            issues: parsed.issues,
+          });
+          continue;
+        }
         // IUCN カテゴリがない種に評価年だけ残さない。
         review = { ...parsed, iucnAssessedYear: profile.iucnStatus ? parsed.iucnAssessedYear : null };
       }
@@ -9289,6 +9307,26 @@ async function reviewAnimalProfiles(
 }
 
 /**
+ * レビューの corrections を当てた下書きを保存する。レビュー結果はクリアされ、次のレビューの対象に戻る。
+ * レビュー中に人が編集・公開していたら保存しない。
+ */
+async function saveCorrectedAnimalProfile(
+  db: D1Database,
+  profile: AnimalProfile,
+  content: AnimalProfileContent
+): Promise<boolean> {
+  const current = await loadAnimalProfile(db, profile.animalId, { publishedOnly: false });
+  if (current?.status !== "draft" || current.updatedAt !== profile.updatedAt) return false;
+  // generatedAt を渡すとレビュー結果がクリアされ、ai_fix_attempts が更新される（model は前回の生成モデルのまま）。
+  await saveAnimalProfile(db, profile.animalId, content, {
+    status: "draft",
+    generatedAt: new Date().toISOString(),
+    aiFixAttempts: profile.aiFixAttempts + 1,
+  });
+  return true;
+}
+
+/**
  * AI レビューで保留になった下書きを、指摘と前回の下書きを渡して作り直す。
  * 作り直した下書きは AI レビューがクリアされ、次のレビューの対象に戻る。
  */
@@ -9307,7 +9345,11 @@ async function fixHeldAnimalProfiles(
       const { data, rawText } = await callGeminiWithSearch(
         apiKey,
         GEMINI_PROFILE_MODEL,
-        buildProfileRevisionPrompt(target.animal, profile, profile.aiReview?.issues ?? [])
+        buildProfileRevisionPrompt(
+          target.animal,
+          profile,
+          (profile.aiReview?.issues ?? []).filter((issue) => !isMinorIssue(issue))
+        )
       );
       const content = parseProfileResponse(extractJsonObject(rawText));
       // 生成中に人が編集・公開していたら上書きしない。
@@ -9353,7 +9395,8 @@ async function fixHeldAnimalProfiles(
 const PROFILE_GENERATION_CRON = "5,20,35,50 * * * *";
 const PROFILE_GENERATION_BATCH_SIZE = 4;
 const PROFILE_FIX_BATCH_SIZE = 5;
-const MAX_PROFILE_FIX_ATTEMPTS = 2;
+// レビューでの値の修正と、生成モデルでの作り直しを合わせた上限。
+const MAX_PROFILE_FIX_ATTEMPTS = 3;
 const PROFILE_REVIEW_CRON = "*/15 * * * *";
 const PROFILE_REVIEW_BATCH_SIZE = 10;
 
@@ -9368,7 +9411,7 @@ async function reviewScheduledAnimalProfiles(env: Env): Promise<void> {
     const names = (status: AnimalProfileReviewResult["status"]) =>
       results.filter((result) => result.status === status).map((result) => result.canonicalName).join(",") || "-";
     console.log(
-      `[scheduled] profile review published=${names("published")} held=${names("held")} skipped=${names("skipped")} failed=${names("error")}`
+      `[scheduled] profile review published=${names("published")} held=${names("held")} corrected=${names("corrected")} skipped=${names("skipped")} failed=${names("error")}`
     );
   } catch (error) {
     console.error("[scheduled] profile review failed:", error);
@@ -10087,6 +10130,7 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
         reviewed: results.length,
         published: results.filter((result) => result.status === "published").length,
         held: results.filter((result) => result.status === "held").length,
+        corrected: results.filter((result) => result.status === "corrected").length,
         failed: results.filter((result) => result.status === "error").length,
         model: GEMINI_PROFILE_REVIEW_MODEL,
         results,
@@ -10158,7 +10202,7 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
         const content = parseAnimalProfileForm(form);
         if (status === "published" && !content.summary) {
           return htmlResponse(
-            renderAnimalProfileEditHtml(target.animal, { ...content, animalId, status: "draft", updatedAt: new Date().toISOString() }, target.displayName, "公開するには一言紹介が必要です（未保存）。"),
+            renderAnimalProfileEditHtml(target.animal, { ...content, animalId, status: "draft", aiFixAttempts: 0, updatedAt: new Date().toISOString() }, target.displayName, "公開するには一言紹介が必要です（未保存）。"),
             url,
             activePref
           );

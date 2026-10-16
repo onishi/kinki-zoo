@@ -77,6 +77,7 @@ export interface AnimalProfile extends AnimalProfileContent {
   generatedAt?: string;
   reviewedAt?: string;
   aiReview?: AnimalProfileAiReview;
+  aiFixAttempts: number;
   updatedAt: string;
 }
 
@@ -299,6 +300,7 @@ interface AnimalProfileRow {
   ai_review_issues: string | null;
   ai_review_model: string | null;
   ai_reviewed_at: string | null;
+  ai_fix_attempts: number;
   updated_at: string;
 }
 
@@ -376,6 +378,7 @@ function rowToProfile(
           reviewedAt: row.ai_reviewed_at ?? undefined,
         }
       : undefined,
+    aiFixAttempts: row.ai_fix_attempts,
     updatedAt: row.updated_at,
   };
 }
@@ -383,7 +386,7 @@ function rowToProfile(
 const PROFILE_COLUMNS = `animal_id, scientific_name, english_name, summary, description, habitat,
   distribution_regions, diet, diet_type, activity_pattern, social_structure, viewing_tips, trivia,
   iucn_status, iucn_assessed_year, moe_redlist_category, cites_appendix, status, model,
-  generated_at, reviewed_at, ai_review_verdict, ai_review_issues, ai_review_model, ai_reviewed_at, updated_at`;
+  generated_at, reviewed_at, ai_review_verdict, ai_review_issues, ai_review_model, ai_reviewed_at, ai_fix_attempts, updated_at`;
 
 async function loadProfilesByIds(
   db: D1Database,
@@ -993,42 +996,130 @@ ${JSON.stringify(draft, null, 2)}
 区分が「広すぎる」「もっと具体的にすべき」は hold の理由にしない。主な傾向と明らかに逆の値（昼行性の種を nocturnal、アジアにいない種に asia など）だけ指摘する。
 5. 解説・見どころ・豆知識に事実誤り、誇張、根拠のない断定、特定の施設についての記述が含まれていないか
 
-判定:
-- 来園者に誤った情報を伝える誤りが1つでもあれば "hold"。
-- 情報源で確認できない数値や区分が含まれる場合も "hold"。
-- 数値は情報源によって幅があるのが普通なので、範囲の端が多少違うだけでは hold にしない。桁違い・単位の誤り・他の指標や他種の値との混同など、明らかに食い違う場合だけ指摘する。
-- 表現の好み・軽微な言い回し・情報の不足（null の項目）・解釈が分かれる点（諸説ある記述、寿命の上限の差など）だけなら "approve"。
-- 「対象の種」の和名・分類はサイト側のマスタなので確認対象外。分類表記の新旧は hold の理由にしない。
-- IUCN の評価年（iucnAssessedYear）は hold の理由にしない。代わりに、情報源で確認できた最新の評価年を出力の iucnAssessedYear に入れる（確認できなければ null）。公開時はこの値で置き換える。
+指摘ごとの深刻度（severity）:
+- "error": 来園者に誤った情報を伝える誤り。情報源で確認できない数値や区分、桁違い・単位の誤り・他の指標や他種の値との混同、IUCN / CITES / 環境省の区分の誤り、主な傾向と明らかに逆の区分など。
+- "minor": それ以外。数値の範囲の端が情報源と多少違う・範囲が狭い／広い、より一般的な値の推奨、表現の好み、情報の不足（null の項目）、解釈が分かれる点（諸説ある記述、寿命の上限の差など）。
+- 数値は情報源によって幅があるのが普通なので、桁が合っていて範囲が重なっていれば "minor"。
+- 「対象の種」の和名・分類はサイト側のマスタなので確認対象外。分類表記の新旧は指摘しない。
+- IUCN の評価年（iucnAssessedYear）は指摘しない。代わりに、情報源で確認できた最新の評価年を出力の iucnAssessedYear に入れる（確認できなければ null）。公開時はこの値で置き換える。
+"error" が1つでもあれば verdict は "hold"、なければ "approve"。
+
+"error" のうち、次の項目の値の誤りは corrections に正しい値を入れる（情報源で確認できた値だけ。確認できなければ入れない）。誤りのない項目は入れない。
+- iucnStatus / citesAppendix / dietType / activityPattern / socialStructure: 上記の決まった値1つ
+- distributionRegions: 正しい区分の配列全体
+- measurements: 誤っている行だけ。metric・sex・context は下書きの行と同じ値にし、min / max を単位（metric ごとに固定）に換算した正しい値にする
 
 出力は次の JSON オブジェクト1つだけにしてください。説明文やコードフェンスは不要です。
 {
   "verdict": "approve" | "hold",
-  "issues": ["問題点を日本語で1件ずつ。どの項目がどう誤っていて、正しくは何か（hold のときは必須、approve なら空配列でよい）"],
+  "issues": [{ "severity": "error" | "minor", "text": "問題点を日本語で。どの項目がどう誤っていて、正しくは何か" }],
+  "corrections": {
+    "citesAppendix": "II",
+    "measurements": [{ "metric": "weight", "sex": "any", "context": "any", "min": 0.3, "max": 0.45 }]
+  },
   "iucnAssessedYear": 2016
 }`;
+}
+
+/** レビューで直せる項目。値が誤っているときに、レビューが確認した正しい値を返してもらう。 */
+export interface ProfileCorrections {
+  iucnStatus?: IucnStatus;
+  citesAppendix?: CitesAppendix;
+  distributionRegions?: DistributionRegion[];
+  dietType?: DietType;
+  activityPattern?: ActivityPattern;
+  socialStructure?: SocialStructure;
+  measurements?: AnimalMeasurement[];
+}
+
+// 軽微な指摘は公開を止めないが、人が後から見られるように印を付けて残す。
+export const MINOR_ISSUE_PREFIX = "（軽微）";
+
+export function isMinorIssue(issue: string): boolean {
+  return issue.startsWith(MINOR_ISSUE_PREFIX);
 }
 
 export function parseProfileReviewResponse(jsonText: string): {
   verdict: AiReviewVerdict;
   issues: string[];
+  corrections: ProfileCorrections;
   iucnAssessedYear: number | null;
 } {
   const item = JSON.parse(jsonText) as Record<string, unknown>;
-  const issues = Array.isArray(item.issues)
-    ? item.issues.flatMap((issue) => cleanText(issue, 500) ?? []).slice(0, 20)
-    : [];
+  const issues = (Array.isArray(item.issues) ? item.issues : []).flatMap((issue) => {
+    // 文字列だけ返ってきたら深刻度不明として error 扱いにする。
+    const entry = (issue && typeof issue === "object" ? issue : { text: issue }) as Record<string, unknown>;
+    const text = cleanText(entry.text, 500);
+    if (!text) return [];
+    // 評価年は公開時にレビューの値で置き換えるので、評価年だけの指摘では保留にしない（指示しても指摘してくることがある）。
+    const onlyAssessedYear = /iucnAssessedYear|評価年/.test(text) && !/iucnStatus|カテゴリ|ランク|CITES|環境省/.test(text);
+    return [{ minor: entry.severity === "minor" || onlyAssessedYear, text }];
+  }).slice(0, 20);
+  const hasError = issues.some((issue) => !issue.minor);
+  // error がなくても、approve と明示されず指摘もない（不正な応答）なら人の確認に回す。
+  const verdict: AiReviewVerdict = hasError || (item.verdict !== "approve" && issues.length === 0) ? "hold" : "approve";
   const year = cleanNumber(item.iucnAssessedYear);
-  // 評価年は公開時にレビューの値で置き換えるので、評価年だけの指摘では保留にしない（指示しても指摘してくることがある）。
-  const onlyAssessedYear =
-    issues.length > 0 &&
-    issues.every((issue) => /iucnAssessedYear|評価年/.test(issue) && !/iucnStatus|カテゴリ|ランク|CITES|環境省/.test(issue));
-  // approve 以外（不正な値・欠落）はすべて人の確認に回す。
   return {
-    verdict: item.verdict === "approve" || onlyAssessedYear ? "approve" : "hold",
-    issues,
+    verdict,
+    issues: issues.map((issue) => (issue.minor ? `${MINOR_ISSUE_PREFIX}${issue.text}` : issue.text)),
+    corrections: sanitizeCorrections(item.corrections),
     iucnAssessedYear: year && year >= 1960 && year <= 2100 ? Math.floor(year) : null,
   };
+}
+
+function sanitizeCorrections(value: unknown): ProfileCorrections {
+  if (!value || typeof value !== "object") return {};
+  const item = value as Record<string, unknown>;
+  // 値の検証は下書きと同じ sanitize を通す。
+  const content = sanitizeProfileContent(item);
+  const corrections: ProfileCorrections = {
+    iucnStatus: content.iucnStatus,
+    citesAppendix: content.citesAppendix,
+    distributionRegions: content.distributionRegions.length > 0 ? content.distributionRegions : undefined,
+    dietType: content.dietType,
+    activityPattern: content.activityPattern,
+    socialStructure: content.socialStructure,
+    measurements: content.measurements.length > 0 ? content.measurements : undefined,
+  };
+  return Object.fromEntries(
+    Object.entries(corrections).filter(([, v]) => v !== undefined)
+  ) as ProfileCorrections;
+}
+
+/**
+ * レビューの corrections を下書きに当てる。変わる項目がなければ null。
+ * measurements は下書きにある行（metric・sex・context が一致する行）の min / max だけ直し、行の追加はしない。
+ */
+export function applyProfileCorrections(
+  profile: AnimalProfileContent,
+  corrections: ProfileCorrections
+): AnimalProfileContent | null {
+  let changed = false;
+  const next: AnimalProfileContent = { ...profile };
+  const scalarKeys = ["iucnStatus", "citesAppendix", "dietType", "activityPattern", "socialStructure"] as const;
+  for (const key of scalarKeys) {
+    const value = corrections[key];
+    if (value !== undefined && value !== profile[key]) {
+      (next as unknown as Record<string, unknown>)[key] = value;
+      changed = true;
+    }
+  }
+  const regions = corrections.distributionRegions;
+  if (regions && [...regions].sort().join() !== [...profile.distributionRegions].sort().join()) {
+    next.distributionRegions = regions;
+    changed = true;
+  }
+  if (corrections.measurements) {
+    next.measurements = profile.measurements.map((m) => {
+      const fix = corrections.measurements!.find(
+        (c) => c.metric === m.metric && c.sex === m.sex && c.context === m.context
+      );
+      if (!fix || (fix.min === m.min && fix.max === m.max)) return m;
+      changed = true;
+      return { ...m, min: fix.min, max: fix.max };
+    });
+  }
+  return changed ? next : null;
 }
 
 // ---------- 表示 ----------

@@ -176,6 +176,14 @@ function cleanText(value: unknown, maxLength = 2000): string | undefined {
   return trimmed ? trimmed.slice(0, maxLength) : undefined;
 }
 
+// 検索グラウンディングの出典番号（「〜である [1, 3]。」の [1, 3]）。出典は sources に別に持つので本文からは消す。
+const CITATION_MARKER = /\s*\[\d+(?:\s*,\s*\d+)*\]/g;
+
+/** 解説などの文章。出典番号を除いてから cleanText する。 */
+function cleanProse(value: unknown, maxLength = 2000): string | undefined {
+  return cleanText(typeof value === "string" ? value.replace(CITATION_MARKER, "") : value, maxLength);
+}
+
 function cleanNumber(value: unknown): number | null {
   if (value === null || value === undefined || value === "") return null;
   const num = typeof value === "number" ? value : Number(String(value).replace(/,/g, ""));
@@ -213,7 +221,7 @@ export function sanitizeMeasurements(values: unknown): AnimalMeasurement[] {
       max,
       // 単位は metric ごとに固定。入力値の unit は信用しない。
       unit: METRIC_DEFINITIONS[metric].unit,
-      note: cleanText(item.note, 200),
+      note: cleanProse(item.note, 200),
     };
     byKey.set(`${measurement.metric}|${measurement.sex}|${measurement.context}`, measurement);
   }
@@ -255,16 +263,16 @@ export function sanitizeProfileContent(value: unknown): AnimalProfileContent {
   return {
     scientificName: cleanText(item.scientificName, 200),
     englishName: cleanText(item.englishName, 200),
-    summary: cleanText(item.summary, 300),
-    description: cleanText(item.description, 2000),
-    habitat: cleanText(item.habitat, 500),
+    summary: cleanProse(item.summary, 300),
+    description: cleanProse(item.description, 2000),
+    habitat: cleanProse(item.habitat, 500),
     distributionRegions: regions,
-    diet: cleanText(item.diet, 500),
+    diet: cleanProse(item.diet, 500),
     dietType: pickEnum(item.dietType, DIET_TYPE_LABELS),
     activityPattern: pickEnum(item.activityPattern, ACTIVITY_PATTERN_LABELS),
     socialStructure: pickEnum(item.socialStructure, SOCIAL_STRUCTURE_LABELS),
-    viewingTips: cleanText(item.viewingTips, 500),
-    trivia: cleanText(item.trivia, 500),
+    viewingTips: cleanProse(item.viewingTips, 500),
+    trivia: cleanProse(item.trivia, 500),
     iucnStatus: pickEnum(item.iucnStatus, IUCN_STATUS_LABELS),
     iucnAssessedYear: year && year >= 1960 && year <= 2100 ? Math.floor(year) : undefined,
     moeRedlistCategory: cleanText(item.moeRedlistCategory, 50),
@@ -674,6 +682,8 @@ export function findMissingProfileFields(profile: AnimalProfileContent): string[
   if (profile.sources.length === 0) issues.push("出典がありません");
   const weightIssue = findImplausibleWeight(profile.measurements);
   if (weightIssue) issues.push(weightIssue);
+  const juvenileIssue = findJuvenileMeasurements(profile.measurements);
+  if (juvenileIssue) issues.push(juvenileIssue);
   return issues;
 }
 
@@ -702,6 +712,18 @@ function findImplausibleWeight(measurements: AnimalMeasurement[]): string | null
   const limitKg = (lengthCm / 100) ** 3 * 1000;
   if (weightKg <= limitKg) return null;
   return `measurements の weight（体重）が ${weightKg} kg で、体長 ${lengthCm} cm に対して重すぎます。weight の単位は kg 固定です。g の値なら 1000 で割って kg に換算してください（例: 450 g → 0.45）。`;
+}
+
+// 体の大きさ・体重は成体の値だけを載せる（出生時の値だけが入り、成体の体重がない下書きがあった）。
+const JUVENILE_NOTE = /出生|新生|生まれ|孵化|幼体|幼獣|幼鳥|ヒナ|雛/;
+const ADULT_ONLY_METRICS: MeasurementMetric[] = [...BODY_SIZE_METRICS, "tail_length", "wingspan", "weight"];
+
+function findJuvenileMeasurements(measurements: AnimalMeasurement[]): string | null {
+  const labels = measurements
+    .filter((m) => ADULT_ONLY_METRICS.includes(m.metric) && m.note && JUVENILE_NOTE.test(m.note))
+    .map((m) => METRIC_DEFINITIONS[m.metric].label);
+  if (labels.length === 0) return null;
+  return `measurements の「${[...new Set(labels)].join("・")}」の注記に出生時・幼体の値があります。体の大きさ・体重は成体の値だけにし、出生時・幼体の値は measurements にも note にも入れないでください（書くなら解説や豆知識に）。`;
 }
 
 export interface ProfileTargetAnimal {
@@ -920,7 +942,10 @@ measurements のルール:
 - 寿命は野生（wild）と飼育下（captive）を区別できる場合は分ける。
 - 数値は必ずその種について情報源で確認した値を入れる。形式の例から数値を写さない。
 - 単一の値しかない場合は min と max に同じ値を入れる。最大値しかわからない場合は min を null にする。
-- 家畜・品種差の大きい動物は無理に数値を入れず、note で補足するか省略する。`;
+- 家畜・品種差の大きい動物は無理に数値を入れず、note で補足するか省略する。
+- 体の大きさ・体重は成体の値を入れる。出生時・孵化直後・幼体の値は measurements にも note にも入れない（書くなら解説や豆知識に）。
+
+文章（summary・description・habitat・diet・viewingTips・trivia・note）に [1] や [2, 5] のような出典番号を書かない。出典は sources にまとめる。`;
 }
 
 /** AI レビューの指摘を渡して下書きを作り直させる。 */
@@ -993,7 +1018,7 @@ ${JSON.stringify(draft, null, 2)}
 
 確認する観点:
 1. 学名・英名・解説が対象の種のものか（近縁種・亜種・同名の別種と混同していないか）
-2. measurements の数値と単位（cm / kg / year / day / count）。桁違い・単位換算の誤り・他種の値でないか。性別や野生/飼育下の区別が逆でないか
+2. measurements の数値と単位（cm / kg / year / day / count）。桁違い・単位換算の誤り・他種の値でないか。性別や野生/飼育下の区別が逆でないか。体の大きさ・体重が成体の値か（出生時・幼体の値でないか）
 3. IUCN カテゴリ、CITES 附属書、環境省レッドリストが最新の公式情報と一致するか（環境省は日本の在来種以外に入っていないか）
 4. 分布地域・生息地・食性・活動時間・社会構造の区分が事実と合っているか
 

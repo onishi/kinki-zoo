@@ -9264,7 +9264,7 @@ async function reviewAnimalProfiles(
         const { rawText } = await callGeminiWithSearch(
           apiKey,
           GEMINI_PROFILE_REVIEW_MODEL,
-          buildProfileReviewPrompt(target.animal, profile)
+          buildProfileReviewPrompt(target.animal, profile, profile.previousReviewIssues)
         );
         const parsed = parseProfileReviewResponse(extractJsonObject(rawText));
         const corrected =
@@ -10202,7 +10202,7 @@ async function handleFetch(request: Request, env: Env, ctx: ExecutionContext): P
         const content = parseAnimalProfileForm(form);
         if (status === "published" && !content.summary) {
           return htmlResponse(
-            renderAnimalProfileEditHtml(target.animal, { ...content, animalId, status: "draft", aiFixAttempts: 0, updatedAt: new Date().toISOString() }, target.displayName, "公開するには一言紹介が必要です（未保存）。"),
+            renderAnimalProfileEditHtml(target.animal, { ...content, animalId, status: "draft", previousReviewIssues: [], aiFixAttempts: 0, updatedAt: new Date().toISOString() }, target.displayName, "公開するには一言紹介が必要です（未保存）。"),
             url,
             activePref
           );

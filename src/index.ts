@@ -32,6 +32,7 @@ import {
   loadPublishedProfileIndex,
   parseProfileResponse,
   parseProfileReviewResponse,
+  resolveRedirectedProfileSources,
   applyProfileCorrections,
   isMinorIssue,
   renderAnimalProfileHero,
@@ -9390,11 +9391,13 @@ async function fixHeldAnimalProfiles(
 }
 
 // wrangler.toml の [triggers] crons と揃える。どちらも 15 分ごとで、1 回の処理が次の回と重ならない件数にしている。
-// 5・20・35・50 分: 保留になった下書きを PROFILE_FIX_BATCH_SIZE 件まで作り直し、未作成の種を PROFILE_GENERATION_BATCH_SIZE 種生成する（1 件 30 秒前後）。
+// 5・20・35・50 分: 保留になった下書きを PROFILE_FIX_BATCH_SIZE 件まで作り直し、出典の転送リンクを PROFILE_SOURCE_RESOLVE_BATCH_SIZE 件置き換え、未作成の種を PROFILE_GENERATION_BATCH_SIZE 種生成する（1 件 30 秒前後）。
 // 0・15・30・45 分: PROFILE_REVIEW_BATCH_SIZE 件ずつ AI レビューする（1 件 40 秒前後）。
 const PROFILE_GENERATION_CRON = "5,20,35,50 * * * *";
 const PROFILE_GENERATION_BATCH_SIZE = 4;
 const PROFILE_FIX_BATCH_SIZE = 5;
+// 出典の転送リンクを元の URL に置き換える件数（1 件 1 回の fetch。Gemini の呼び出しと合わせてサブリクエストの上限内に収める）。
+const PROFILE_SOURCE_RESOLVE_BATCH_SIZE = 30;
 // レビューでの値の修正と、生成モデルでの作り直しを合わせた上限。
 const MAX_PROFILE_FIX_ATTEMPTS = 3;
 const PROFILE_REVIEW_CRON = "*/15 * * * *";
@@ -9432,6 +9435,16 @@ async function generateScheduledAnimalProfiles(env: Env): Promise<void> {
     }
   } catch (error) {
     console.error("[scheduled] profile fix failed:", error);
+  }
+  try {
+    const sources = await resolveRedirectedProfileSources(env.DB, PROFILE_SOURCE_RESOLVE_BATCH_SIZE);
+    if (sources.resolved + sources.removed + sources.failed > 0) {
+      console.log(
+        `[scheduled] profile sources resolved=${sources.resolved} removed=${sources.removed} failed=${sources.failed}`
+      );
+    }
+  } catch (error) {
+    console.error("[scheduled] profile source resolve failed:", error);
   }
   try {
     const targets = await loadProfileTargets(env.DB, PROFILE_GENERATION_BATCH_SIZE);

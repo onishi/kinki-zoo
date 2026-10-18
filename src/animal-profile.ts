@@ -673,6 +673,49 @@ export async function loadProfilesForAiFix(
   });
 }
 
+// Gemini の検索グラウンディングが返す出典 URL は一時的な転送リンクで、時間がたつと 404 になる。
+const GROUNDING_REDIRECT_PREFIX = "https://vertexaisearch.cloud.google.com/grounding-api-redirect/";
+
+/**
+ * 出典の転送リンクを転送先の URL に置き換える。転送先が同じ種の出典にすでにあれば重複として消し、
+ * 転送リンクが切れていれば（404）消す。それ以外の失敗は次の回に回す。
+ */
+export async function resolveRedirectedProfileSources(
+  db: D1Database,
+  limit: number
+): Promise<{ resolved: number; removed: number; failed: number }> {
+  const result = await db
+    .prepare(`SELECT id, url FROM animal_profile_sources WHERE substr(url, 1, ?) = ? ORDER BY id LIMIT ?`)
+    .bind(GROUNDING_REDIRECT_PREFIX.length, GROUNDING_REDIRECT_PREFIX, limit)
+    .all<{ id: number; url: string }>();
+  const counts = { resolved: 0, removed: 0, failed: 0 };
+  for (const row of result.results ?? []) {
+    let location: string | undefined;
+    try {
+      const response = await fetch(row.url, { redirect: "manual", signal: AbortSignal.timeout(10_000) });
+      if (response.status === 404) {
+        await db.prepare(`DELETE FROM animal_profile_sources WHERE id = ?`).bind(row.id).run();
+        counts.removed++;
+        continue;
+      }
+      location = cleanUrl(response.status >= 300 && response.status < 400 ? response.headers.get("location") : null);
+    } catch {
+      // タイムアウトなどは次の回に回す
+    }
+    if (!location || location.startsWith(GROUNDING_REDIRECT_PREFIX)) {
+      counts.failed++;
+      continue;
+    }
+    // 同じ種に同じ URL があれば UNIQUE (animal_id, url) で更新されないので、そのときは転送リンクの行を消す。
+    await db.batch([
+      db.prepare(`UPDATE OR IGNORE animal_profile_sources SET url = ? WHERE id = ?`).bind(location, row.id),
+      db.prepare(`DELETE FROM animal_profile_sources WHERE id = ? AND url = ?`).bind(row.id, row.url),
+    ]);
+    counts.resolved++;
+  }
+  return counts;
+}
+
 /** AI に渡す前の機械的なチェック。公開に必要な項目の欠けや明らかな数値の誤りがあれば理由を返す。 */
 export function findMissingProfileFields(profile: AnimalProfileContent): string[] {
   const issues: string[] = [];

@@ -77,6 +77,8 @@ export interface AnimalProfile extends AnimalProfileContent {
   generatedAt?: string;
   reviewedAt?: string;
   aiReview?: AnimalProfileAiReview;
+  /** 作り直す前の AI レビューの error の指摘。次のレビューで直ったか確かめる。 */
+  previousReviewIssues: string[];
   aiFixAttempts: number;
   updatedAt: string;
 }
@@ -363,6 +365,7 @@ function rowToProfile(
     })),
     sources: sourceRows,
   });
+  const reviewIssues = parseJsonArray(row.ai_review_issues).filter((issue): issue is string => typeof issue === "string");
   return {
     ...content,
     animalId: row.animal_id,
@@ -373,11 +376,13 @@ function rowToProfile(
     aiReview: row.ai_review_verdict
       ? {
           verdict: row.ai_review_verdict,
-          issues: parseJsonArray(row.ai_review_issues).filter((issue): issue is string => typeof issue === "string"),
+          issues: reviewIssues,
           model: row.ai_review_model ?? undefined,
           reviewedAt: row.ai_reviewed_at ?? undefined,
         }
       : undefined,
+    // 作り直すと判定は消えるが指摘は残している（saveAnimalProfile）。
+    previousReviewIssues: row.ai_review_verdict ? [] : reviewIssues.filter((issue) => !isMinorIssue(issue)),
     aiFixAttempts: row.ai_fix_attempts,
     updatedAt: row.updated_at,
   };
@@ -496,7 +501,7 @@ export async function saveAnimalProfile(
            reviewed_at = COALESCE(excluded.reviewed_at, animal_profiles.reviewed_at),
            -- 作り直した下書きは AI レビューをやり直す
            ai_review_verdict = CASE WHEN excluded.generated_at IS NULL THEN animal_profiles.ai_review_verdict END,
-           ai_review_issues = CASE WHEN excluded.generated_at IS NULL THEN animal_profiles.ai_review_issues END,
+           -- 指摘は残し、次のレビューで直ったか確かめる（判定が空なら前回の指摘として扱う）
            ai_review_model = CASE WHEN excluded.generated_at IS NULL THEN animal_profiles.ai_review_model END,
            ai_reviewed_at = CASE WHEN excluded.generated_at IS NULL THEN animal_profiles.ai_reviewed_at END,
            ai_fix_attempts = CASE WHEN excluded.generated_at IS NULL THEN animal_profiles.ai_fix_attempts ELSE excluded.ai_fix_attempts END,
@@ -944,7 +949,11 @@ export function parseProfileResponse(jsonText: string): AnimalProfileContent {
 // 生成とは別のモデルで検証する（同じモデルだと同じ誤りを見逃しやすい）。
 export const GEMINI_PROFILE_REVIEW_MODEL = "gemini-2.5-flash";
 
-export function buildProfileReviewPrompt(animal: ProfileTargetAnimal, profile: AnimalProfileContent): string {
+export function buildProfileReviewPrompt(
+  animal: ProfileTargetAnimal,
+  profile: AnimalProfileContent,
+  previousIssues: string[] = []
+): string {
   const draft = {
     scientificName: profile.scientificName,
     englishName: profile.englishName,
@@ -995,7 +1004,14 @@ ${JSON.stringify(draft, null, 2)}
 - socialStructure: ${Object.keys(SOCIAL_STRUCTURE_LABELS).join(" / ")}（主なものを1つ）
 区分が「広すぎる」「もっと具体的にすべき」は hold の理由にしない。主な傾向と明らかに逆の値（昼行性の種を nocturnal、アジアにいない種に asia など）だけ指摘する。
 5. 解説・見どころ・豆知識に事実誤り、誇張、根拠のない断定、特定の施設についての記述が含まれていないか
-
+${
+    previousIssues.length > 0
+      ? `
+前回のファクトチェックで次の誤りを指摘し、下書きを直しました。それぞれ直っているかを情報源で確かめ、直っていなければ改めて "error" として指摘してください（前回の指摘自体が誤りだと確認できた場合は指摘しなくてよい）。
+${previousIssues.map((issue) => `- ${issue}`).join("\n")}
+`
+      : ""
+  }
 指摘ごとの深刻度（severity）:
 - "error": 来園者に誤った情報を伝える誤り。情報源で確認できない数値や区分、桁違い・単位の誤り・他の指標や他種の値との混同、IUCN / CITES / 環境省の区分の誤り、主な傾向と明らかに逆の区分など。
 - "minor": それ以外。数値の範囲の端が情報源と多少違う・範囲が狭い／広い、より一般的な値の推奨、表現の好み、情報の不足（null の項目）、解釈が分かれる点（諸説ある記述、寿命の上限の差など）。
@@ -1005,7 +1021,7 @@ ${JSON.stringify(draft, null, 2)}
 "error" が1つでもあれば verdict は "hold"、なければ "approve"。
 
 "error" のうち、次の項目の値の誤りは corrections に正しい値を入れる（情報源で確認できた値だけ。確認できなければ入れない）。誤りのない項目は入れない。
-- iucnStatus / citesAppendix / dietType / activityPattern / socialStructure: 上記の決まった値1つ
+- dietType / activityPattern / socialStructure: 上記の決まった値1つ
 - distributionRegions: 正しい区分の配列全体
 - measurements: 誤っている行だけ。metric・sex・context は下書きの行と同じ値にし、min / max を単位（metric ごとに固定）に換算した正しい値にする
 
@@ -1014,17 +1030,18 @@ ${JSON.stringify(draft, null, 2)}
   "verdict": "approve" | "hold",
   "issues": [{ "severity": "error" | "minor", "text": "問題点を日本語で。どの項目がどう誤っていて、正しくは何か" }],
   "corrections": {
-    "citesAppendix": "II",
+    "activityPattern": "nocturnal",
     "measurements": [{ "metric": "weight", "sex": "any", "context": "any", "min": 0.3, "max": 0.45 }]
   },
   "iucnAssessedYear": 2016
 }`;
 }
 
-/** レビューで直せる項目。値が誤っているときに、レビューが確認した正しい値を返してもらう。 */
+/**
+ * レビューで直せる項目。値が誤っているときに、レビューが確認した正しい値を返してもらう。
+ * IUCN・CITES はレビューが誤った値を返すことがある（ワニガメの VU を EN にした）ので対象にせず、作り直しか人の確認に回す。
+ */
 export interface ProfileCorrections {
-  iucnStatus?: IucnStatus;
-  citesAppendix?: CitesAppendix;
   distributionRegions?: DistributionRegion[];
   dietType?: DietType;
   activityPattern?: ActivityPattern;
@@ -1073,8 +1090,6 @@ function sanitizeCorrections(value: unknown): ProfileCorrections {
   // 値の検証は下書きと同じ sanitize を通す。
   const content = sanitizeProfileContent(item);
   const corrections: ProfileCorrections = {
-    iucnStatus: content.iucnStatus,
-    citesAppendix: content.citesAppendix,
     distributionRegions: content.distributionRegions.length > 0 ? content.distributionRegions : undefined,
     dietType: content.dietType,
     activityPattern: content.activityPattern,
@@ -1096,7 +1111,7 @@ export function applyProfileCorrections(
 ): AnimalProfileContent | null {
   let changed = false;
   const next: AnimalProfileContent = { ...profile };
-  const scalarKeys = ["iucnStatus", "citesAppendix", "dietType", "activityPattern", "socialStructure"] as const;
+  const scalarKeys = ["dietType", "activityPattern", "socialStructure"] as const;
   for (const key of scalarKeys) {
     const value = corrections[key];
     if (value !== undefined && value !== profile[key]) {

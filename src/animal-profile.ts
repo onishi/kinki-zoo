@@ -201,6 +201,14 @@ function cleanUrl(value: unknown): string | undefined {
   }
 }
 
+// 「成体」だけの注記は情報がない（成体の値だけを入れるよう指示したら、全行に付けてくることがある）。
+const ADULT_ONLY_NOTE = /^(?:一般的な)?成体(?:の(?:体重|甲長|体長|全長|頭胴長|体高|肩高|尾長|翼開長))?\s*(?:[（(](?:cm|kg)[)）])?$/;
+
+function cleanMeasurementNote(value: unknown): string | undefined {
+  const note = cleanProse(value, 200);
+  return note && ADULT_ONLY_NOTE.test(note) ? undefined : note;
+}
+
 export function sanitizeMeasurements(values: unknown): AnimalMeasurement[] {
   if (!Array.isArray(values)) return [];
   const byKey = new Map<string, AnimalMeasurement>();
@@ -221,7 +229,7 @@ export function sanitizeMeasurements(values: unknown): AnimalMeasurement[] {
       max,
       // 単位は metric ごとに固定。入力値の unit は信用しない。
       unit: METRIC_DEFINITIONS[metric].unit,
-      note: cleanProse(item.note, 200),
+      note: cleanMeasurementNote(item.note),
     };
     byKey.set(`${measurement.metric}|${measurement.sex}|${measurement.context}`, measurement);
   }
@@ -986,7 +994,7 @@ measurements のルール:
 - 数値は必ずその種について情報源で確認した値を入れる。形式の例から数値を写さない。
 - 単一の値しかない場合は min と max に同じ値を入れる。最大値しかわからない場合は min を null にする。
 - 家畜・品種差の大きい動物は無理に数値を入れず、note で補足するか省略する。
-- 体の大きさ・体重は成体の値を入れる。出生時・孵化直後・幼体の値は measurements にも note にも入れない（書くなら解説や豆知識に）。
+- 体の大きさ・体重は成体の値を入れる。出生時・孵化直後・幼体の値は measurements にも note にも入れない（書くなら解説や豆知識に）。成体の値であることは note に書かなくてよい。
 
 文章（summary・description・habitat・diet・viewingTips・trivia・note）に [1] や [2, 5] のような出典番号を書かない。出典は sources にまとめる。`;
 }

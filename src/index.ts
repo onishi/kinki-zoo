@@ -9257,7 +9257,7 @@ async function reviewAnimalProfiles(
     const canonicalName = target?.animal.canonicalName ?? profile.animalId;
     try {
       if (!target) throw new Error("分類マスタに見つかりません");
-      const missing = findMissingProfileFields(profile);
+      const missing = findMissingProfileFields(profile, target.animal);
       let review: { verdict: "approve" | "hold"; issues: string[]; iucnAssessedYear?: number | null };
       if (missing.length > 0) {
         review = { verdict: "hold", issues: missing };
@@ -9268,10 +9268,12 @@ async function reviewAnimalProfiles(
           buildProfileReviewPrompt(target.animal, profile, profile.previousReviewIssues)
         );
         const parsed = parseProfileReviewResponse(extractJsonObject(rawText));
-        const corrected =
+        const applied =
           parsed.verdict === "hold" && profile.aiFixAttempts < MAX_PROFILE_FIX_ATTEMPTS
             ? applyProfileCorrections(profile, parsed.corrections)
             : null;
+        // レビューの値で単位などを誤ることがある（mm の値を cm 欄に入れた）ので、機械的なチェックを通るときだけ当てる。
+        const corrected = applied && findMissingProfileFields(applied, target.animal).length === 0 ? applied : null;
         if (corrected) {
           const saved = await saveCorrectedAnimalProfile(db, profile, corrected);
           console.log(`[profile-review] ${canonicalName} corrected: ${JSON.stringify(parsed.corrections)}`);
@@ -9828,6 +9830,7 @@ async function loadProfileTargetAnimal(
   const row = await db
     .prepare(
       `SELECT a.id, a.canonical_name, a.class_name, a.order_name, a.family_name, a.genus_name, a.species_name,
+              a.scientific_name,
               (SELECT MIN(za.display_name) FROM zoo_animals za WHERE za.animal_id = a.id) AS display_name
        FROM animals a
        WHERE a.id = ?`
@@ -9841,6 +9844,7 @@ async function loadProfileTargetAnimal(
       family_name: string;
       genus_name: string;
       species_name: string;
+      scientific_name: string | null;
       display_name: string | null;
     }>();
   if (!row) return null;
@@ -9853,6 +9857,7 @@ async function loadProfileTargetAnimal(
       familyName: row.family_name,
       genusName: row.genus_name,
       speciesName: row.species_name,
+      scientificName: row.scientific_name ?? undefined,
     },
     displayName: row.display_name,
   };

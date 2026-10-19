@@ -725,7 +725,7 @@ export async function resolveRedirectedProfileSources(
 }
 
 /** AI に渡す前の機械的なチェック。公開に必要な項目の欠けや明らかな数値の誤りがあれば理由を返す。 */
-export function findMissingProfileFields(profile: AnimalProfileContent): string[] {
+export function findMissingProfileFields(profile: AnimalProfileContent, animal?: ProfileTargetAnimal): string[] {
   const issues: string[] = [];
   if (!profile.summary) issues.push("一言紹介がありません");
   if (!profile.description) issues.push("詳細解説がありません");
@@ -735,6 +735,11 @@ export function findMissingProfileFields(profile: AnimalProfileContent): string[
   if (weightIssue) issues.push(weightIssue);
   const juvenileIssue = findJuvenileMeasurements(profile.measurements);
   if (juvenileIssue) issues.push(juvenileIssue);
+  if (animal) {
+    const speciesIssue = findScientificNameMismatch(profile, animal);
+    if (speciesIssue) issues.push(speciesIssue);
+    issues.push(...findOversizedMeasurements(profile.measurements, animal));
+  }
   return issues;
 }
 
@@ -777,6 +782,40 @@ function findJuvenileMeasurements(measurements: AnimalMeasurement[]): string | n
   return `measurements の「${[...new Set(labels)].join("・")}」の注記に出生時・幼体の値があります。体の大きさ・体重は成体の値だけにし、出生時・幼体の値は measurements にも note にも入れないでください（書くなら解説や豆知識に）。`;
 }
 
+/**
+ * 種小名の語幹。属の移動（Pecari tajacu → Dicotyles tajacu）や語尾の性の一致（nasuta → nasutus）では
+ * 別種扱いにしないよう、属名は見ずに種小名の先頭 5 文字で比べる。
+ */
+function epithetStem(name: string): string {
+  return (name.trim().split(/\s+/)[1] ?? "").toLowerCase().slice(0, 5);
+}
+
+function findScientificNameMismatch(profile: AnimalProfileContent, animal: ProfileTargetAnimal): string | null {
+  if (!animal.scientificName || !profile.scientificName) return null;
+  if (epithetStem(profile.scientificName) === epithetStem(animal.scientificName)) return null;
+  return `学名が ${profile.scientificName} になっていますが、${animal.canonicalName}の学名は ${animal.scientificName} です。別の種と取り違えていないか確かめ、すべての項目を ${animal.scientificName} について書いてください。`;
+}
+
+// 目ごとの体の大きさの上限（cm）。単位の換算漏れ（mm の値を cm 欄に入れる）を見つける。
+// 無尾目は最大のゴライアスガエルでも頭胴長 32cm 程度、カメ目は最大のオサガメでも甲長 2m 程度。
+const ORDER_SIZE_LIMITS_CM: Record<string, Partial<Record<MeasurementMetric, number>>> = {
+  無尾目: { head_body_length: 35, total_length: 35 },
+  カメ目: { carapace_length: 250 },
+};
+
+function findOversizedMeasurements(measurements: AnimalMeasurement[], animal: ProfileTargetAnimal): string[] {
+  const limits = ORDER_SIZE_LIMITS_CM[animal.orderName];
+  if (!limits) return [];
+  return measurements.flatMap((m) => {
+    const limit = limits[m.metric];
+    const value = m.max ?? m.min;
+    if (limit === undefined || value === null || value <= limit) return [];
+    return [
+      `measurements の ${m.metric}（${METRIC_DEFINITIONS[m.metric].label}）が ${value} cm で、${animal.orderName}としては大きすぎます。単位は cm 固定です。mm の値なら 10 で割って cm に換算してください（例: 45 mm → 4.5）。`,
+    ];
+  });
+}
+
 export interface ProfileTargetAnimal {
   id: string;
   canonicalName: string;
@@ -785,6 +824,8 @@ export interface ProfileTargetAnimal {
   familyName: string;
   genusName: string;
   speciesName: string;
+  /** 種のマスタの学名。あれば生成・レビューで対象の種をこれで特定する。 */
+  scientificName?: string;
 }
 
 interface ProfileTargetRow {
@@ -795,6 +836,7 @@ interface ProfileTargetRow {
   family_name: string;
   genus_name: string;
   species_name: string;
+  scientific_name: string | null;
 }
 
 function toTarget(row: ProfileTargetRow): ProfileTargetAnimal {
@@ -806,6 +848,7 @@ function toTarget(row: ProfileTargetRow): ProfileTargetAnimal {
     familyName: row.family_name,
     genusName: row.genus_name,
     speciesName: row.species_name,
+    scientificName: row.scientific_name ?? undefined,
   };
 }
 
@@ -821,7 +864,7 @@ export async function loadProfileTargets(
   if (animalIds.length > 0) {
     const result = await db
       .prepare(
-        `SELECT a.id, a.canonical_name, a.class_name, a.order_name, a.family_name, a.genus_name, a.species_name
+        `SELECT a.id, a.canonical_name, a.class_name, a.order_name, a.family_name, a.genus_name, a.species_name, a.scientific_name
          FROM animals a
          LEFT JOIN animal_profiles p ON p.animal_id = a.id
          WHERE a.id IN (${animalIds.map(() => "?").join(", ")})
@@ -834,7 +877,7 @@ export async function loadProfileTargets(
   }
   const result = await db
     .prepare(
-      `SELECT a.id, a.canonical_name, a.class_name, a.order_name, a.family_name, a.genus_name, a.species_name
+      `SELECT a.id, a.canonical_name, a.class_name, a.order_name, a.family_name, a.genus_name, a.species_name, a.scientific_name
        FROM animals a
        LEFT JOIN animal_profiles p ON p.animal_id = a.id
        WHERE p.animal_id IS NULL
@@ -942,6 +985,18 @@ export async function loadProfileStatusCounts(db: D1Database): Promise<Record<An
 // コスト優先で Flash-Lite を使う。2.5 系は検索グラウンディングが 1 日 1,500 回まで無料（Flash と共有）。
 export const GEMINI_PROFILE_MODEL = "gemini-2.5-flash-lite";
 
+function describeTargetAnimal(animal: ProfileTargetAnimal): string {
+  return `対象の種:
+- 和名: ${animal.canonicalName}
+- 分類: ${animal.className} / ${animal.orderName} / ${animal.familyName} / ${animal.genusName} / ${animal.speciesName}${
+    animal.scientificName
+      ? `
+- 学名: ${animal.scientificName}（この学名の種について書く。似た和名の種や同属の別種と取り違えない）`
+      : `
+（和名が似た別の種や同属の別種と取り違えないよう、学名を確かめてから書く）`
+  }`;
+}
+
 export function buildProfilePrompt(animal: ProfileTargetAnimal): string {
   const metricLines = MEASUREMENT_METRICS.map(
     (metric) => `  - ${metric}: ${METRIC_DEFINITIONS[metric].label}（単位 ${METRIC_DEFINITIONS[metric].unit}）`
@@ -949,9 +1004,7 @@ export function buildProfilePrompt(animal: ProfileTargetAnimal): string {
   return `日本の動物園サイトに掲載する動物プロフィールを作成してください。
 Google検索で信頼できる情報源（IUCN レッドリスト、環境省、大学・博物館、動物園・水族館の公式サイト、学術文献、Wikipedia など）を確認し、確認できた事実だけを書いてください。
 
-対象の種:
-- 和名: ${animal.canonicalName}
-- 分類: ${animal.className} / ${animal.orderName} / ${animal.familyName} / ${animal.genusName} / ${animal.speciesName}
+${describeTargetAnimal(animal)}
 
 出力は次の JSON オブジェクト1つだけにしてください。説明文やコードフェンスは不要です。
 わからない項目は null、数値データは確認できたものだけ measurements に入れてください。
@@ -1060,9 +1113,7 @@ export function buildProfileReviewPrompt(
   return `日本の動物園サイトに掲載する動物プロフィールの下書きを、公開前にファクトチェックしてください。
 Google検索で信頼できる情報源（IUCN レッドリスト、環境省、CITES、大学・博物館、動物園・水族館の公式サイト、学術文献など）と照合してください。
 
-対象の種:
-- 和名: ${animal.canonicalName}
-- 分類: ${animal.className} / ${animal.orderName} / ${animal.familyName} / ${animal.genusName} / ${animal.speciesName}
+${describeTargetAnimal(animal)}
 
 下書き（JSON）:
 ${JSON.stringify(draft, null, 2)}
@@ -1093,6 +1144,7 @@ ${previousIssues.map((issue) => `- ${issue}`).join("\n")}
 - "minor": それ以外。数値の範囲の端が情報源と多少違う・範囲が狭い／広い、より一般的な値の推奨、表現の好み、情報の不足（null の項目）、解釈が分かれる点（諸説ある記述、寿命の上限の差など）。
 - 数値は情報源によって幅があるのが普通なので、桁が合っていて範囲が重なっていれば "minor"。
 - 「対象の種」の和名・分類はサイト側のマスタなので確認対象外。分類表記の新旧は指摘しない。
+- ただし下書きの学名・英名・解説が「対象の種」と別の種のもの（似た和名の種・同属の別種・亜種との取り違え）なら "error"。学名が指定されていれば、下書きの学名がそれと一致するか確かめる。
 - IUCN の評価年（iucnAssessedYear）は指摘しない。代わりに、情報源で確認できた最新の評価年を出力の iucnAssessedYear に入れる（確認できなければ null）。公開時はこの値で置き換える。
 "error" が1つでもあれば verdict は "hold"、なければ "approve"。
 

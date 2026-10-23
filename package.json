@@ -19,8 +19,8 @@
     "typecheck": "npx tsc --noEmit"
   },
   "devDependencies": {
-    "@types/node": "^26.1.2",
-    "typescript": "^5.7.0",
-    "wrangler": "^4.105.0"
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.151.2"
   }
 }
